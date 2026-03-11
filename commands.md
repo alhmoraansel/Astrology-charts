@@ -1,6 +1,6 @@
 ## Install Requirements
 
-``` pip install PyQt6 pyswisseph geopy timezonefinder pytz ```
+python -m pip install geopy timezonefinder pytz pyswisseph PyQt6
 
 
 ## Build

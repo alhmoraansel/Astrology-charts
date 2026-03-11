@@ -95,4 +95,48 @@ class EphemerisEngine:
             "deg_in_sign": ketu_deg_in_sign, "house": ketu_house, "retro": True
         })
 
+        chart_data["aspects"] = self.calculate_vedic_aspects(chart_data["planets"])
+
         return chart_data
+
+    def calculate_vedic_aspects(self, planets):
+        aspects = []
+        # Vedic Aspect Rules: Planet -> List of houses it aspects (counting itself as 1)
+        aspect_rules = {
+            "Sun": [7],
+            "Moon": [7],
+            "Mercury": [7],
+            "Venus": [7],
+            "Mars": [4, 7, 8],
+            "Jupiter": [5, 7, 9],
+            "Saturn": [3, 7, 10],
+            "Rahu": [5, 7, 9],
+            "Ketu": [5, 7, 9]
+        }
+        
+        # Colors associated with each planet's aspect line
+        planet_colors = {
+            "Sun": "orange", "Moon": "blue", "Mars": "red",
+            "Mercury": "green", "Jupiter": "yellow", "Venus": "pink",
+            "Saturn": "purple", "Rahu": "gray", "Ketu": "gray"
+        }
+
+        for p in planets:
+            p_name = p["name"]
+            p_house = p["house"]
+            rules = aspect_rules.get(p_name, [])
+
+            for aspect_count in rules:
+                # Calculate target house counting clockwise (which maps linearly to our house numbers)
+                # Formula: (Current House + Aspect Count - 2) % 12 + 1
+                target_house = (p_house + aspect_count - 2) % 12 + 1
+                
+                aspects.append({
+                    "aspecting_planet": p_name,
+                    "source_house": p_house,
+                    "target_house": target_house,
+                    "aspect_count": aspect_count,
+                    "color": planet_colors.get(p_name, "white")
+                })
+                
+        return aspects
