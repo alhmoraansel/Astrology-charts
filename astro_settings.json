@@ -1,18 +1,18 @@
 {
-    "location": "New Delhi, India",
-    "lat": 28.6139,
-    "lon": 77.209,
+    "location": "sultanpur",
+    "lat": 26.2604732,
+    "lon": 82.2380532,
     "tz": "Asia/Kolkata",
     "ayanamsa": "Lahiri",
     "use_symbols": false,
     "show_rahu_ketu": true,
     "show_arrows": true,
     "use_tint": true,
-    "show_aspects": true,
-    "show_details": false,
+    "show_aspects": false,
+    "show_details": true,
     "use_circular": false,
     "aspect_planets": {
-        "Sun": false,
+        "Sun": true,
         "Moon": true,
         "Mars": true,
         "Mercury": false,
@@ -21,5 +21,13 @@
         "Saturn": false,
         "Rahu": false,
         "Ketu": false
+    },
+    "div_charts": {
+        "D1": true,
+        "D9": true,
+        "D10": false,
+        "D20": false,
+        "D30": false,
+        "D60": false
     }
 }
