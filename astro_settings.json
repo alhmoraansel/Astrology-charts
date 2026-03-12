@@ -8,11 +8,11 @@
     "show_rahu_ketu": true,
     "show_arrows": true,
     "use_tint": true,
-    "show_aspects": false,
+    "show_aspects": true,
     "show_details": true,
     "use_circular": false,
     "aspect_planets": {
-        "Sun": true,
+        "Sun": false,
         "Moon": true,
         "Mars": true,
         "Mercury": false,

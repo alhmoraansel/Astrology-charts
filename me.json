@@ -1,0 +1,14 @@
+{
+    "location": "sultanpur",
+    "lat": 26.2604732,
+    "lon": 82.2380532,
+    "tz": "Asia/Kolkata",
+    "datetime_dict": {
+        "year": 2002,
+        "month": 11,
+        "day": 11,
+        "hour": 21,
+        "minute": 20,
+        "second": 0
+    }
+}

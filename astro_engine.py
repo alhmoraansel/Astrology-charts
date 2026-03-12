@@ -51,11 +51,6 @@ def jd_to_ymdhms(jd, gregorian=True):
     second = total_seconds - hour * 3600 - minute * 60
     return {'year': year, 'month': month, 'day': day, 'hour': hour, 'minute': minute, 'second': second}
 
-def format_astro_date(d):
-    y = d['year']
-    if y <= 0: return f"{1 - y} BCE {d['month']:02d}-{d['day']:02d} {d['hour']:02d}:{d['minute']:02d}:{int(d['second']):02d}"
-    else: return f"{y} CE {d['month']:02d}-{d['day']:02d} {d['hour']:02d}:{d['minute']:02d}:{int(d['second']):02d}"
-
 def dt_dict_to_utc_jd(dt_dict, tz_name):
     y, m, d = dt_dict['year'], dt_dict.get('month', 1), dt_dict.get('day', 1)
     h, mi, s = dt_dict.get('hour', 0), dt_dict.get('minute', 0), dt_dict.get('second', 0.0)
@@ -98,7 +93,6 @@ def utc_jd_to_dt_dict(jd_utc, tz_name):
 # SINGLE-PROCESS HEURISTIC TRANSIT ENGINE
 # ==========================================
 def perform_transit_search(params, result_queue, stop_event):
-    """Highly optimized background worker that returns UTC Julian Days uniformly"""
     try:
         swe.set_ephe_path('ephe')
         ayanamsa_modes = { "Lahiri": swe.SIDM_LAHIRI, "Raman": swe.SIDM_RAMAN, "Fagan/Bradley": swe.SIDM_FAGAN_BRADLEY }
@@ -108,12 +102,12 @@ def perform_transit_search(params, result_queue, stop_event):
         body_name, direction = params['body_name'], params['direction']
         target_sign_name, frozen_planets = params['target_sign_name'], params['frozen_planets']
 
-        local_tz = pytz.timezone(tz_name)
         if isinstance(dt_param, dict) and 'year' in dt_param:
             jd_start = dt_dict_to_utc_jd(dt_param, tz_name)
         elif isinstance(dt_param, dict) and 'jd' in dt_param:
             jd_start = float(dt_param['jd'])
         else:
+            local_tz = pytz.timezone(tz_name)
             dt_iso = dt_param if isinstance(dt_param, str) else params.get('dt')
             dt = datetime.datetime.fromisoformat(dt_iso)
             if dt.tzinfo is None: dt = local_tz.localize(dt)
@@ -142,7 +136,6 @@ def perform_transit_search(params, result_queue, stop_event):
 
         constrained_planets = frozen_planets.copy()
         if target_sign is not None: constrained_planets[body_name] = target_sign
-
         must_leave_target = (target_sign is not None and original_start_sign == target_sign)
 
         def get_forward_dist(p, curr_s, target_s, d_dir):
@@ -174,7 +167,7 @@ def perform_transit_search(params, result_queue, stop_event):
 
         while not stop_event.is_set():
             if jd < -1000000 or jd > 5000000:
-                result_queue.put({"status": "error", "message": "Search reached extreme bounds (10,000+ years) without finding a match."})
+                result_queue.put({"status": "error", "message": "Search reached bounds."})
                 return
 
             loops += 1
@@ -193,10 +186,7 @@ def perform_transit_search(params, result_queue, stop_event):
                 continue
 
             current_sign = get_sign(jd, body_name)
-            
-            if must_leave_target and current_sign != target_sign:
-                must_leave_target = False
-                
+            if must_leave_target and current_sign != target_sign: must_leave_target = False
             transitioned_in = False
             
             if not must_leave_target:
@@ -223,18 +213,15 @@ def perform_transit_search(params, result_queue, stop_event):
                     if stop_event.is_set():
                         result_queue.put({"status": "stopped"})
                         return
-                        
                     m_sign = get_sign(jd_inner, body_name)
                     if target_sign is not None:
                         if m_sign != target_sign: break
                     else:
                         if m_sign != current_sign: break
-
                     f_ok = True
                     for fp_name, f_sign_idx in frozen_planets.items():
                         if fp_name != body_name and get_sign(jd_inner, fp_name) != f_sign_idx:
                             f_ok = False; break
-
                     if f_ok: found_jd, window_match = jd_inner, True; break
                     jd_inner += inner_step * direction
 
@@ -248,14 +235,12 @@ def perform_transit_search(params, result_queue, stop_event):
                             if m_sign == target_sign: c_ok = True
                         else:
                             if m_sign == current_sign: c_ok = True
-
                         if c_ok:
                             for fp_name, f_sign_idx in frozen_planets.items():
                                 if fp_name != body_name and get_sign(t_mid, fp_name) != f_sign_idx:
                                     c_ok = False; break
                         if c_ok: t2_final = t_mid
                         else: t1_final = t_mid
-
                     result_queue.put({"status": "success", "result_jd_utc": float(t2_final)})
                     return
                 else:
@@ -263,7 +248,6 @@ def perform_transit_search(params, result_queue, stop_event):
 
             prev_sign = current_sign
             jd += step * direction
-
         result_queue.put({"status": "stopped"})
     except Exception as e:
         result_queue.put({"status": "error", "message": str(e)})
@@ -289,12 +273,10 @@ class EphemerisEngine:
 
     def find_adjacent_ascendant_transits(self, jd_utc, lat, lon):
         orig_sign = self.get_ascendant_sign(jd_utc, lat, lon)
-        
         jd_next = jd_utc
         for _ in range(300):
             jd_next += 0.01
             if self.get_ascendant_sign(jd_next, lat, lon) != orig_sign: break
-        
         t1, t2 = jd_next - 0.01, jd_next
         for _ in range(12):
             tm = (t1 + t2) / 2.0
@@ -306,17 +288,383 @@ class EphemerisEngine:
         for _ in range(300):
             jd_prev -= 0.01
             if self.get_ascendant_sign(jd_prev, lat, lon) != orig_sign: break
-                
         t1, t2 = jd_prev, jd_prev + 0.01
         for _ in range(12):
             tm = (t1 + t2) / 2.0
             if self.get_ascendant_sign(tm, lat, lon) != orig_sign: t1 = tm
             else: t2 = tm
         jd_prev_exact = t1
-        
         return jd_prev_exact, jd_next_exact
 
-    def calculate_chart(self, dt, lat: float, lon: float, tz_name: str):
+    def calculate_vimshottari_dasha(self, birth_jd, moon_lon, target_jd, forecast_start_jd=None, forecast_end_jd=None):
+        """Calculates exact 5-level Vimshottari Dasha sequence using strict fractional product division down to Pran."""
+        lords = ["Ketu", "Venus", "Sun", "Moon", "Mars", "Rahu", "Jupiter", "Saturn", "Mercury"]
+        years = [7, 20, 6, 10, 7, 18, 16, 19, 17]
+        
+        total_mas = int(round(moon_lon * 3600000.0))
+        nak_len = 48000000 
+        nak_idx = total_mas // nak_len
+        lord_idx = nak_idx % 9
+        passed_frac = (total_mas % nak_len) / float(nak_len)
+        passed_years = passed_frac * years[lord_idx]
+        
+        dasha_start_jd = birth_jd - (passed_years * 365.2421904)
+
+        def get_node(t_jd):
+            elapsed_years = (t_jd - dasha_start_jd) / 365.2421904
+            # Ensure it never goes out of bounds by dynamically wrapping inside the 120-year cycle
+            elapsed_years %= 120.0
+            
+            y_acc = 0.0
+            for i in range(9):
+                l1 = (lord_idx + i) % 9
+                d1 = years[l1]
+                if i == 8 or elapsed_years < y_acc + d1:
+                    rem1 = elapsed_years - y_acc
+                    s1 = dasha_start_jd + y_acc * 365.2421904
+                    break
+                y_acc += d1
+                
+            y_acc2 = 0.0
+            for i in range(9):
+                l2 = (l1 + i) % 9
+                d2 = d1 * years[l2] / 120.0
+                if i == 8 or rem1 < y_acc2 + d2:
+                    rem2 = rem1 - y_acc2
+                    s2 = s1 + y_acc2 * 365.2421904
+                    break
+                y_acc2 += d2
+                
+            y_acc3 = 0.0
+            for i in range(9):
+                l3 = (l2 + i) % 9
+                d3 = d2 * years[l3] / 120.0
+                if i == 8 or rem2 < y_acc3 + d3:
+                    rem3 = rem2 - y_acc3
+                    s3 = s2 + y_acc3 * 365.2421904
+                    break
+                y_acc3 += d3
+                
+            y_acc4 = 0.0
+            for i in range(9):
+                l4 = (l3 + i) % 9
+                d4 = d3 * years[l4] / 120.0
+                if i == 8 or rem3 < y_acc4 + d4:
+                    rem4 = rem3 - y_acc4
+                    s4 = s3 + y_acc4 * 365.2421904
+                    break
+                y_acc4 += d4
+                
+            y_acc5 = 0.0
+            for i in range(9):
+                l5 = (l4 + i) % 9
+                d5 = d4 * years[l5] / 120.0
+                if i == 8 or rem4 < y_acc5 + d5:
+                    s5 = s4 + y_acc5 * 365.2421904
+                    e5 = s4 + (y_acc5 + d5) * 365.2421904
+                    break
+                y_acc5 += d5
+                
+            return [lords[l1], lords[l2], lords[l3], lords[l4], lords[l5]], s5, e5
+
+        current_seq, _, _ = get_node(target_jd)
+
+        pran_list = []
+        if forecast_start_jd and forecast_end_jd:
+            jd_iter = forecast_start_jd
+            while jd_iter < forecast_end_jd:
+                seq, s_jd, e_jd = get_node(jd_iter)
+                if not seq: break
+                pran_list.append({"sequence": seq, "start_jd": s_jd, "end_jd": e_jd})
+                # Bump by exactly 1 minute to safely step into the next Prana period block
+                jd_iter = e_jd + 0.00069 
+
+        return {"current_sequence": current_seq, "pran_forecast": pran_list}
+
+    def generate_broad_dasha_insight(self, seq, d1, d9, d10, d20, d30, d60):
+        """Generates the broad predictive outline based on Mahadasha, Antardasha, and Pratyantar."""
+        if not seq or len(seq) < 3: return "<h3>Dasha Sequence unavailable.</h3>"
+        
+        md, ad, pd = seq[0], seq[1], seq[2]
+        
+        def get_p(chart, name):
+            return next((p for p in chart["planets"] if p["name"] == name), None)
+            
+        md_d1, ad_d1, pd_d1 = get_p(d1, md), get_p(d1, ad), get_p(d1, pd)
+        
+        if not md_d1 or not ad_d1 or not pd_d1:
+            return "<h3>Planetary data missing.</h3>"
+            
+        house_themes = {
+            1: "identity, personality transformation, health shifts",
+            2: "wealth building, speech influence, family events",
+            3: "skill development, writing, media, travel",
+            4: "home changes, property, emotional life",
+            5: "romance, children, creativity, speculation",
+            6: "competition, illness, litigation, employment struggle",
+            7: "marriage, business partnerships, diplomacy",
+            8: "crisis, inheritance, occult, psychological transformation",
+            9: "education, philosophy, long travel, mentors",
+            10: "career power, status, recognition",
+            11: "gains, networking, ambitions fulfilled",
+            12: "isolation, foreign lands, spirituality, expenses"
+        }
+        
+        planet_themes = {
+            "Sun": "authority, father, leadership, politics",
+            "Moon": "emotions, mother, public reputation",
+            "Mars": "energy, courage, aggression, surgery",
+            "Mercury": "communication, business, learning",
+            "Jupiter": "wisdom, expansion, wealth",
+            "Venus": "love, beauty, pleasure",
+            "Saturn": "discipline, delay, endurance",
+            "Rahu": "obsession, innovation, sudden rise",
+            "Ketu": "detachment, spiritual awakening"
+        }
+        
+        def get_best_placements(p_name):
+            placements = []
+            charts = {"D1 (Rashi)": d1, "D9 (Navamsha)": d9, "D10 (Dashamsha)": d10, "D20 (Vimshamsha)": d20, "D30 (Trimshamsha)": d30, "D60 (Shashtiamsha)": d60}
+            for c_name, c_data in charts.items():
+                p = get_p(c_data, p_name)
+                if p:
+                    digs = []
+                    if p.get("exalted"): digs.append("Exalted")
+                    elif p.get("debilitated"): digs.append("Debilitated")
+                    elif p.get("own_sign"): digs.append("Own Sign")
+                    if p.get("vargottama") and c_name != "D1 (Rashi)": digs.append("Vargottama")
+                    
+                    if digs:
+                        placements.append(f"<b>{c_name}</b> (House {p['house']}): {', '.join(digs)}")
+            if not placements:
+                p1 = get_p(d1, p_name)
+                if p1: placements.append(f"<b>D1 (Rashi)</b> (House {p1['house']})")
+            return placements
+
+        md_places = get_best_placements(md)
+        ad_places = get_best_placements(ad)
+        pd_places = get_best_placements(pd)
+
+        # Build Exhaustive Broad HTML Layout
+        html = f"<h2 style='color: #2c3e50; border-bottom: 2px solid #ccc; padding-bottom: 5px; margin-top: 0;'>Broad Life Era Forecast</h2>"
+        html += f"<p style='color: #555; font-size: 13px;'><i>The first three layers of the Vimshottari Dasha are where the real narrative of life is written. Analysis begins with the D1 chart, then confirmed through divisional charts.</i></p>"
+        
+        # 0. Most Important Placements
+        html += f"<h3 style='color: #c0392b;'>Responsible Planets & Divisional Strength</h3>"
+        html += "<ul style='line-height: 1.6;'>"
+        html += f"<li><b>Mahadasha Lord (MD) - {md}:</b><br> " + "<br>".join([f"&nbsp;&nbsp;&bull; {x}" for x in md_places]) + "</li>"
+        html += f"<li><b>Antardasha Lord (AD) - {ad}:</b><br> " + "<br>".join([f"&nbsp;&nbsp;&bull; {x}" for x in ad_places]) + "</li>"
+        html += f"<li><b>Pratyantar Lord (PD) - {pd}:</b><br> " + "<br>".join([f"&nbsp;&nbsp;&bull; {x}" for x in pd_places]) + "</li>"
+        html += "</ul>"
+        
+        # 1. Mahadasha
+        md_h = md_d1["house"]
+        md_h_theme = house_themes.get(md_h, "general focus")
+        md_p_theme = planet_themes.get(md, "general karma")
+        
+        html += f"<h3 style='color: #2980b9; margin-top: 25px;'>1. Mahadasha — the dominant life era</h3>"
+        html += f"<p><b>{md}</b> sits in the <b>{md_h}th house</b>.</p>"
+        html += f"<p><b>Themes:</b> {md_h_theme}.<br>"
+        html += f"<b>Planetary Nature:</b> {md_p_theme}.</p>"
+        html += f"<p style='background-color: #f1f8ff; padding: 10px; border-left: 4px solid #2980b9;'>This era pushes the native toward <b>{md_h_theme.split(',')[0]}</b> and <b>{md_p_theme.split(',')[0]}</b>.</p>"
+        
+        # 2. Antardasha
+        ad_h = ad_d1["house"]
+        ad_h_theme = house_themes.get(ad_h, "general focus")
+        ad_p_theme = planet_themes.get(ad, "general karma")
+        
+        html += f"<h3 style='color: #2980b9; margin-top: 25px;'>2. Antardasha — the interaction phase</h3>"
+        html += f"<p><b>{ad}</b> sits in the <b>{ad_h}th house</b>.</p>"
+        html += f"<p><b>Themes:</b> {ad_h_theme}.<br>"
+        html += f"<b>Planetary Nature:</b> {ad_p_theme}.</p>"
+        html += f"<p>Now combine <b>{md}</b> and <b>{ad}</b>.</p>"
+        html += f"<p style='background-color: #f1f8ff; padding: 10px; border-left: 4px solid #2980b9;'>Possible themes: <b>{md_p_theme.split(',')[0]}</b> combined with <b>{ad_h_theme.split(',')[0]}</b>, or <b>{md_h_theme.split(',')[0]}</b> influencing <b>{ad_p_theme.split(',')[0]}</b>.</p>"
+
+        # 3. Pratyantar
+        pd_h = pd_d1["house"]
+        pd_p_theme = planet_themes.get(pd, "general karma")
+        
+        html += f"<h3 style='color: #2980b9; margin-top: 25px;'>3. Pratyantar Dasha — event generator</h3>"
+        html += f"<p><b>{pd}</b> sits in the <b>{pd_h}th house</b>.</p>"
+        html += f"<p><b>Represents:</b> {pd_p_theme}.</p>"
+        html += f"<p style='background-color: #f1f8ff; padding: 10px; border-left: 4px solid #2980b9;'>Now the theme becomes extremely clear:<br>"
+        html += f"<b>{md}</b> ({md_p_theme.split(',')[0]}) &rarr; <b>{ad}</b> ({ad_p_theme.split(',')[0]}) &rarr; <b>{pd}</b> ({pd_p_theme.split(',')[0]}).</p>"
+        
+        # 4. Universal Formula
+        html += f"<p><b>Universal Combination Formula:</b><br>"
+        html += f"<b>{md_h}th house + {ad_h}th house + {pd}</b></p>"
+        
+        # 5. Divisional Chart Filtering
+        html += f"<h3 style='color: #8e44ad; margin-top: 25px;'>4. Divisional Chart Filtering</h3>"
+        html += "<ul style='line-height: 1.6;'>"
+        
+        def check_div(chart, chart_name, target_houses, theme):
+            active = []
+            for p_name in [md, ad, pd]:
+                p = get_p(chart, p_name)
+                if p and p["house"] in target_houses:
+                    active.append(f"{p_name} in House {p['house']}")
+            if active:
+                return f"<li><b>{chart_name}:</b> {theme}. Active elements: <b>{', '.join(active)}</b>.</li>"
+            return ""
+
+        html += check_div(d9, "D9 (Navamsha)", [1, 7], "Relationship / Marriage confirmation is highly active")
+        html += check_div(d10, "D10 (Dashamsha)", [1, 10], "Career / Status confirmation is highly active")
+        html += check_div(d20, "D20 (Vimshamsha)", [1, 5, 9, 12], "Spiritual activity / Religious travel emerges")
+        html += check_div(d30, "D30 (Trimshamsha)", [6, 8, 12], "Hidden suffering / Conflict appears; caution required")
+        
+        d60_active = []
+        for p_name in [md, ad, pd]:
+            p = get_p(d60, p_name)
+            if p:
+                dig = []
+                if p.get("exalted"): dig.append("Exalted")
+                elif p.get("own_sign"): dig.append("Own Sign")
+                elif p.get("debilitated"): dig.append("Debilitated")
+                if dig:
+                    d60_active.append(f"{p_name} is {dig[0]} in House {p['house']}")
+                else:
+                    d60_active.append(f"{p_name} in House {p['house']}")
+        
+        if d60_active:
+            html += f"<li><b>D60 (Shashtiamsha):</b> Karmic depth applies powerfully (Active elements: <b>{', '.join(d60_active)}</b>).</li>"
+        else:
+            html += "<li><b>D60 (Shashtiamsha):</b> Karmic depth applies to all outcomes.</li>"
+            
+        html += "</ul>"
+        
+        return html
+
+    def generate_prana_insight(self, seq, d1, d9, d10, d20, d30, d60):
+        """Generates an exhaustive multi-layered prediction based on Sookshma (Cause) and Prana (Effect)."""
+        m_lord, a_lord, p_lord, s_lord, pr_lord = seq
+        
+        def get_d_house(chart, lord):
+            p = next((p for p in chart["planets"] if p["name"] == lord), None)
+            return p["house"] if p else -1
+
+        s_d1 = next((p for p in d1["planets"] if p["name"] == s_lord), None)
+        pr_d1 = next((p for p in d1["planets"] if p["name"] == pr_lord), None)
+        
+        if not s_d1 or not pr_d1: return "<i>Chart data unavailable for deep analysis.</i>"
+
+        s_h, pr_h = s_d1["house"], pr_d1["house"]
+
+        s_d9, pr_d9 = get_d_house(d9, s_lord), get_d_house(d9, pr_lord)
+        s_d10, pr_d10 = get_d_house(d10, s_lord), get_d_house(d10, pr_lord)
+        s_d20, pr_d20 = get_d_house(d20, s_lord), get_d_house(d20, pr_lord)
+        s_d30, pr_d30 = get_d_house(d30, s_lord), get_d_house(d30, pr_lord)
+        pr_p60 = next((p for p in d60["planets"] if p["name"] == pr_lord), None)
+
+        directions = {"Sun": "East", "Venus": "Southeast", "Mars": "South", "Rahu": "Southwest", "Saturn": "West", "Moon": "Northwest", "Mercury": "North", "Jupiter": "Northeast", "Ketu": "Southwest"}
+        
+        # Build Exhaustive HTML Layout
+        html = f"""
+        <div style='margin-bottom: 5px;'>
+            <h3 style='color: #2c3e50; margin-bottom: 5px; font-size: 16px; border-bottom: 1px solid #ccc; padding-bottom: 3px;'>1. Planetary Roles & Positions</h3>
+            <p style='margin-top: 0; line-height: 1.4;'>
+                <b>Sookshma Lord ({s_lord}):</b> Placed in House {s_h} of D1.<br>
+                <b>Prana Lord ({pr_lord}):</b> Placed in House {pr_h} of D1.
+            </p>
+            
+            <h3 style='color: #2c3e50; margin-bottom: 5px; font-size: 16px; border-bottom: 1px solid #ccc; padding-bottom: 3px;'>2. Astrological Mechanism</h3>
+            <p style='margin-top: 0; line-height: 1.4;'>
+                <b style='color:#B8860B;'>The Cause (Sookshma):</b> The environment is prepared by {s_lord} in House {s_h}. This establishes the underlying theme or tension.<br>
+                <b style='color:#d35400;'>The Effect (Prana):</b> {pr_lord} in House {pr_h} is the final spark that forces the actual event to manifest.
+            </p>
+
+            <h3 style='color: #2c3e50; margin-bottom: 5px; font-size: 16px; border-bottom: 1px solid #ccc; padding-bottom: 3px;'>3. Cross-Divisional Synthesis</h3>
+            <ul style='margin-top: 0; padding-left: 20px; line-height: 1.4;'>
+        """
+
+        # Cross-Divisional Checks
+        if s_h in [5,7,11] or pr_h in [5,7,11]:
+            html += f"<li><b>D9 (Navamsha):</b> "
+            active = []
+            if s_d9 in [1,7]: active.append(f"{s_lord} in House {s_d9}")
+            if pr_d9 in [1,7]: active.append(f"{pr_lord} in House {pr_d9}")
+            if active: html += f"Strong confirmation of relationship developments or deepening bonds (Active: <b>{', '.join(active)}</b>).</li>"
+            else: html += "Neutral impact on relationships.</li>"
+            
+        if s_h in [1,10] or pr_h in [1,10]:
+            html += f"<li><b>D10 (Dashamsha):</b> "
+            active = []
+            if s_d10 in [1,10,11]: active.append(f"{s_lord} in House {s_d10}")
+            if pr_d10 in [1,10,11]: active.append(f"{pr_lord} in House {pr_d10}")
+            if active: html += f"Strong confirmation of a career milestone, public recognition, or authority interaction (Active: <b>{', '.join(active)}</b>).</li>"
+            else: html += "Routine professional duties.</li>"
+            
+        if s_h in [3,9,12] or pr_h in [3,9,12]:
+            html += f"<li><b>D20 (Vimshamsha):</b> "
+            active = []
+            if s_d20 in [1,5,9]: active.append(f"{s_lord} in House {s_d20}")
+            if pr_d20 in [1,5,9]: active.append(f"{pr_lord} in House {pr_d20}")
+            if active: html += f"Validates spiritual alignment; highly auspicious for visiting religious places (Active: <b>{', '.join(active)}</b>).</li>"
+            else: html += "General travel or routine learning.</li>"
+            
+        if s_h in [6,8,12] or pr_h in [6,8,12]:
+            html += f"<li><b>D30 (Trimshamsha):</b> "
+            active = []
+            if s_d30 in [6,8,12]: active.append(f"{s_lord} in House {s_d30}")
+            if pr_d30 in [6,8,12]: active.append(f"{pr_lord} in House {pr_d30}")
+            if active: html += f"<b>Warning:</b> D30 shows deep hidden friction. High risk of disputes or misfortune (Active: <b>{', '.join(active)}</b>).</li>"
+            else: html += "Minor passing stress, easily resolved.</li>"
+            
+        html += "</ul>"
+
+        # Final Exhaustive Outcomes (The 10 Domains)
+        html += "<h3 style='color: #2c3e50; margin-bottom: 5px; font-size: 16px; border-bottom: 1px solid #ccc; padding-bottom: 3px;'>4. Final Predictive Outcomes</h3>"
+        html += "<ul style='margin-top: 0; padding-left: 20px; line-height: 1.5;'>"
+
+        # 1. Health & Physical
+        if s_h in [1,6,8,12] or pr_h in [1,6,8,12] or s_lord in ["Mars", "Saturn"] or pr_lord in ["Mars", "Saturn"]:
+            html += "<li><b>Health & Physical:</b> High pressure on vitality. "
+            if s_lord=="Mars" or pr_lord=="Mars": html += "Risk of physical exertion, sudden injury, or inflammation. "
+            if s_lord=="Saturn" or pr_lord=="Saturn": html += "Expect fatigue, delays, or chronic stress build-up. "
+            html += "</li>"
+        else: html += "<li><b>Health & Physical:</b> Vitality remains stable. Routine physical maintenance.</li>"
+
+        # 2. Finance
+        if s_h in [2,11] or pr_h in [2,11] or s_lord in ["Jupiter", "Venus"] or pr_lord in ["Jupiter", "Venus"]:
+            html += "<li><b>Finance & Resources:</b> Money flow is actively engaged. Expect discussions on income, savings, or spontaneous financial shifts.</li>"
+
+        # 3. Career
+        if s_h in [10, 1] or pr_h in [10, 1] or s_d10 in [1,10,11] or pr_d10 in [1,10,11]:
+            html += "<li><b>Career & Status:</b> Professional direction shifts. High visibility, interaction with authority figures, or new responsibilities.</li>"
+
+        # 4. Relationships
+        if s_h == 7 or pr_h == 7 or s_lord == "Venus" or pr_lord == "Venus" or s_d9 in [1,7] or pr_d9 in [1,7]:
+            html += "<li><b>Relationships & Marriage:</b> Strong social interactions. Favorable window for romantic alliances, negotiations, or meeting a special friend.</li>"
+
+        # 5. Family
+        if s_h == 4 or pr_h == 4 or s_lord == "Moon" or pr_lord == "Moon":
+            html += "<li><b>Family & Domestic:</b> Emotional atmosphere of the home shifts. Property issues or family-centric events take priority.</li>"
+
+        # 6. Learning & Travel
+        if s_h in [3,5,9] or pr_h in [3,5,9]:
+            dir_str = directions.get(pr_lord, 'North')
+            html += f"<li><b>Learning & Travel:</b> Favorable for higher studies or planning travel. Any movement is likely to be towards the <b>{dir_str}</b> direction.</li>"
+
+        # 7. Spiritual
+        if s_d20 in [1,5,9,12] or pr_d20 in [1,5,9,12]:
+            html += "<li><b>Spiritual Development:</b> Deep introspection period. Excellent time for meditation, philosophical study, or spiritual initiation.</li>"
+
+        # 8. Difficulties
+        if s_d30 in [6,8,12] or pr_d30 in [6,8,12]:
+            time_of_day = "evening/night" if pr_lord in ["Saturn", "Rahu", "Moon", "Ketu"] else "daytime"
+            html += f"<li><b>Difficulties & Conflicts:</b> Stress points activated. Risk of sudden anger, psychological strain, or disputes—especially during the <b>{time_of_day}</b>.</li>"
+
+        # 9. Deep Karmic
+        if pr_p60:
+            if pr_p60.get("exalted") or pr_p60.get("own_sign"):
+                html += "<li><b>Deep Karmic Outcome (D60):</b> Supported by immense positive karma. Fated to yield highly enduring and beneficial results.</li>"
+            elif pr_p60.get("debilitated"):
+                html += "<li><b>Deep Karmic Outcome (D60):</b> Hampered by karmic resistance. Fated delays, tests of endurance, or intense inner friction expected.</li>"
+
+        html += "</ul></div>"
+        return html
+
+    def calculate_chart(self, dt, lat: float, lon: float, tz_name: str, real_now_jd: float = None):
         if isinstance(dt, dict) and 'year' in dt: jd_utc = dt_dict_to_utc_jd(dt, tz_name)
         elif isinstance(dt, dict) and 'jd' in dt: jd_utc = float(dt['jd'])
         else:
@@ -357,7 +705,6 @@ class EphemerisEngine:
             speed = res[3]
             p_sign_idx = int(lon_deg / 30)
             p_sign_num = p_sign_idx + 1
-            
             is_retro = speed < 0 if name not in ["Sun", "Moon", "Rahu", "Ketu"] else False
             if name == "Rahu": is_retro = True
 
@@ -380,70 +727,81 @@ class EphemerisEngine:
         })
 
         sun_p = next((p for p in chart_data["planets"] if p["name"] == "Sun"), None)
-        sun_lon = sun_p["lon"] if sun_p else 0.0
-        combust_rules = {"Moon": {"dir": 12, "retro": 12}, "Mercury": {"dir": 14, "retro": 12}, "Venus": {"dir": 10, "retro": 8},
-                         "Mars": {"dir": 17, "retro": 17}, "Jupiter": {"dir": 11, "retro": 11}, "Saturn": {"dir": 15, "retro": 15}}
-        
-        for p in chart_data["planets"]:
-            if p["name"] in combust_rules:
-                dist = min(abs(p["lon"] - sun_lon), 360.0 - abs(p["lon"] - sun_lon))
-                p["combust"] = (dist <= (combust_rules[p["name"]]["retro"] if p["retro"] else combust_rules[p["name"]]["dir"]))
-            else: p["combust"] = False
+        if sun_p:
+            sun_lon = sun_p["lon"]
+            combust_rules = {
+                "Moon": {"dir": 12, "retro": 12},
+                "Mars": {"dir": 17, "retro": 17},
+                "Mercury": {"dir": 14, "retro": 12},
+                "Jupiter": {"dir": 11, "retro": 11},
+                "Venus": {"dir": 10, "retro": 8},
+                "Saturn": {"dir": 15, "retro": 15}
+            }
+            
+            for p in chart_data["planets"]:
+                if p["name"] in combust_rules:
+                    # Calculate absolute angular difference on the 360 degree circle
+                    diff = abs(sun_lon - p["lon"])
+                    # Shortest path between the two points across the 360/0 degree line
+                    if diff > 180.0:
+                        diff = 360.0 - diff
+                    
+                    limit = combust_rules[p["name"]]["retro"] if p.get("retro") else combust_rules[p["name"]]["dir"]
+                    p["combust"] = (diff <= limit)
+                else:
+                    p["combust"] = False
+        else:
+            for p in chart_data["planets"]:
+                p["combust"] = False
+
+        valid_ak_planets = [p for p in chart_data["planets"] if p["name"] not in ["Rahu", "Ketu"]]
+        if valid_ak_planets:
+            ak_planet = max(valid_ak_planets, key=lambda x: x["deg_in_sign"])
+            for p in chart_data["planets"]:
+                p["is_ak"] = (p["name"] == ak_planet["name"])
+
+        # Fetch basic sequence for UI explicitly avoiding tuple unpacking crash
+        moon_p = next((p for p in chart_data["planets"] if p["name"] == "Moon"), None)
+        if moon_p:
+            dasha_target = real_now_jd if real_now_jd else jd_utc
+            dasha_info = self.calculate_vimshottari_dasha(jd_utc, moon_p["lon"], dasha_target)
+            chart_data["dasha_sequence"] = dasha_info["current_sequence"] or []
 
         chart_data["aspects"] = self.calculate_vedic_aspects(chart_data["planets"])
         return chart_data
 
     def compute_divisional_chart(self, base_chart, div_type):
-        """Generates dynamic divisional charts scaled using strict integer milliarcseconds to eliminate floating-point boundary errors."""
         chart = copy.deepcopy(base_chart)
 
         def get_div_sign_and_lon(lon_deg, div_type):
-            # Convert longitude to absolute milli-arcseconds (mas) mathematically bypassing 1e-9 float issues entirely
-            # 1 degree = 60 mins = 3600 secs = 3,600,000 mas. 
-            # 1 Sign (30 degrees) = 108,000,000 mas.
             total_mas = int(round(lon_deg * 3600000.0))
             sign_index = (total_mas // 108000000) % 12
             mas_in_sign = total_mas % 108000000
             deg_in_sign = mas_in_sign / 3600000.0
             
-            if div_type == "D1":
-                return sign_index, lon_deg
-                
+            if div_type == "D1": return sign_index, lon_deg
             elif div_type == "D9":
-                # Navamsha: 1 segment = 3°20' = 12,000,000 mas
                 segment = mas_in_sign // 12000000
                 rem_mas = mas_in_sign % 12000000
                 deg_in_div_sign = (rem_mas / 12000000.0) * 30.0
-                
-                # Fire(0,4,8)->Aries(0), Earth(1,5,9)->Cap(9), Air(2,6,10)->Libra(6), Water(3,7,11)->Cancer(3)
                 element = sign_index % 4
                 start_sign = [0, 9, 6, 3][element]
                 div_sign_index = (start_sign + segment) % 12
-                
             elif div_type == "D10":
-                # Dashamsha: 1 segment = 3°00' = 10,800,000 mas
                 segment = mas_in_sign // 10800000
                 rem_mas = mas_in_sign % 10800000
                 deg_in_div_sign = (rem_mas / 10800000.0) * 30.0
-                
-                # Odd -> Starts at sign itself. Even -> Starts 9th from sign (sign_index + 8)
                 is_odd = (sign_index % 2 == 0)
                 start_sign = sign_index if is_odd else (sign_index + 8)
                 div_sign_index = (start_sign + segment) % 12
-                
             elif div_type == "D20":
-                # Vimshamsha: 1 segment = 1°30' = 5,400,000 mas
                 segment = mas_in_sign // 5400000
                 rem_mas = mas_in_sign % 5400000
                 deg_in_div_sign = (rem_mas / 5400000.0) * 30.0
-                
-                # Movable(0,3,6,9)->Aries(0), Fixed(1,4,7,10)->Sag(8), Dual(2,5,8,11)->Leo(4)
                 modality = sign_index % 3
                 start_sign = [0, 8, 4][modality]
                 div_sign_index = (start_sign + segment) % 12
-                
             elif div_type == "D30":
-                # Trimshamsha relies on thresholds
                 is_odd = (sign_index % 2 == 0)
                 if is_odd:
                     if mas_in_sign < 18000000:       div_sign_index = 0;  deg_in_div_sign = (mas_in_sign / 18000000.0) * 30.0
@@ -457,34 +815,24 @@ class EphemerisEngine:
                     elif mas_in_sign < 72000000:     div_sign_index = 11; deg_in_div_sign = ((mas_in_sign - 43200000) / 28800000.0) * 30.0
                     elif mas_in_sign < 90000000:     div_sign_index = 9;  deg_in_div_sign = ((mas_in_sign - 72000000) / 18000000.0) * 30.0
                     else:                            div_sign_index = 7;  deg_in_div_sign = ((mas_in_sign - 90000000) / 18000000.0) * 30.0
-                    
             elif div_type == "D60":
-                # Shashtiamsha: 1 segment = 0°30' = 1,800,000 mas
                 segment = mas_in_sign // 1800000
                 rem_mas = mas_in_sign % 1800000
                 deg_in_div_sign = (rem_mas / 1800000.0) * 30.0
-                
-                # Standard Parashari D60 spans completely continuously from the base sign 
                 div_sign_index = (sign_index + segment) % 12
-                
             else:
                 div_sign_index = sign_index
                 deg_in_div_sign = deg_in_sign
 
             return div_sign_index, div_sign_index * 30.0 + deg_in_div_sign
 
-        # Re-derive the Ascendant
         asc_d1_sign = chart["ascendant"]["sign_index"]
         asc_lon = (asc_d1_sign * 30.0) + (chart["ascendant"]["degree"] % 30.0)
         new_asc_sign_index, new_asc_div_lon = get_div_sign_and_lon(asc_lon, div_type)
         
         chart["ascendant"]["sign_index"] = new_asc_sign_index
         chart["ascendant"]["sign_num"] = new_asc_sign_index + 1
-        
-        # Storing divisional longitude cleanly enables Circular Charts to draw the planets proportionally
         chart["ascendant"]["div_lon"] = new_asc_div_lon
-        
-        # Set Vargottama directly if it matches D1 sign
         chart["ascendant"]["vargottama"] = (asc_d1_sign == new_asc_sign_index) and (div_type != "D1")
         
         exaltation_rules = {"Sun": 1, "Moon": 2, "Mars": 10, "Mercury": 6, "Jupiter": 4, "Venus": 12, "Saturn": 7, "Rahu": 2, "Ketu": 8}
@@ -505,14 +853,13 @@ class EphemerisEngine:
             p["sign_num"] = new_sign_idx + 1
             p["div_lon"] = new_div_lon
             p["house"] = (new_sign_idx - new_asc_sign_index) % 12 + 1
-            
             p["exalted"] = (p["sign_num"] == exaltation_rules.get(p["name"]))
             p["debilitated"] = (p["sign_num"] == debilitation_rules.get(p["name"]))
             p["own_sign"] = (sign_rulers.get(p["sign_num"]) == p["name"])
             p["lord_of"] = planet_lordships.get(p["name"], [])
-            
-            # Flag Vargottama onto individual planets
             p["vargottama"] = (p_d1_sign == p["sign_index"]) and (div_type != "D1")
+            if div_type != "D1":
+                p["combust"] = False
             
         chart["aspects"] = self.calculate_vedic_aspects(chart["planets"])
         return chart
@@ -520,7 +867,6 @@ class EphemerisEngine:
     def calculate_vedic_aspects(self, planets):
         aspects = []
         aspect_rules = {"Sun": [7], "Moon": [7], "Mercury": [7], "Venus": [7], "Mars": [4, 7, 8], "Jupiter": [5, 7, 9], "Saturn": [3, 7, 10], "Rahu": [5, 7, 9], "Ketu": [5, 7, 9]}
-        
         for p in planets:
             for aspect_count in aspect_rules.get(p["name"], []):
                 aspects.append({
