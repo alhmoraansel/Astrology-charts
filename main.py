@@ -1146,6 +1146,7 @@ class AstroApp(QMainWindow):
         self.btn_next_rashi.clicked.connect(lambda: self.jump_to_transit(self.cb_transit_planet.currentText(), 1))
         self.btn_stop_transit.clicked.connect(self.stop_transit_search)
         
+        self.cb_transit_planet.currentIndexChanged.connect(self.recalculate)
         self.cb_transit_div.currentIndexChanged.connect(self.recalculate)
         
         self.cb_ayanamsa.currentTextChanged.connect(self.update_settings)
@@ -1794,7 +1795,9 @@ class AstroApp(QMainWindow):
             real_now_jd = swe.julday(real_now.year, real_now.month, real_now.day, real_now.hour + real_now.minute/60.0 + real_now.second/3600.0)
             
             transit_div = getattr(self, 'cb_transit_div', None) and self.cb_transit_div.currentText() or "D1"
-            chart_data = self.ephemeris.calculate_chart(self.time_ctrl.current_time, self.current_lat, self.current_lon, self.current_tz, real_now_jd, transit_div)
+            transit_planet = getattr(self, 'cb_transit_planet', None) and self.cb_transit_planet.currentText() or "Sun"
+            
+            chart_data = self.ephemeris.calculate_chart(self.time_ctrl.current_time, self.current_lat, self.current_lon, self.current_tz, real_now_jd, transit_div, transit_planet)
             self.current_base_chart = chart_data
             
             violation, violating_planet, violating_div = False, None, None
@@ -1827,11 +1830,29 @@ class AstroApp(QMainWindow):
             self.last_good_time = dict(self.time_ctrl.current_time)
 
             if "current_jd" in chart_data and "next_asc_jd" in chart_data and "prev_asc_jd" in chart_data:
-                curr_jd, next_jd, prev_jd = chart_data["current_jd"], chart_data["next_asc_jd"], chart_data["prev_asc_jd"]
-                diff_next_mins, diff_prev_mins = max(0, int((next_jd - curr_jd) * 1440)), max(0, int((curr_jd - prev_jd) * 1440))
-                def fmt_time(m): return f"{m}m" if m < 60 else f"{m//60}h {m%60}m"
-                self.btn_next_lagna.setText(f">\n({fmt_time(diff_next_mins)})")
-                self.btn_prev_lagna.setText(f"<\n({fmt_time(diff_prev_mins)})")
+                curr_jd = chart_data["current_jd"]
+                next_asc_jd, prev_asc_jd = chart_data["next_asc_jd"], chart_data["prev_asc_jd"]
+                
+                diff_next_asc = max(0, int((next_asc_jd - curr_jd) * 1440))
+                diff_prev_asc = max(0, int((curr_jd - prev_asc_jd) * 1440))
+                
+                def fmt_time(m): 
+                    if m < 60: return f"{m}m"
+                    elif m < 1440: return f"{m//60}h {m%60}m"
+                    elif m < 10080: return f"{m//1440}d {(m%1440)//60}h"
+                    elif m < 43200: return f"{m//1440}d"
+                    elif m < 525600: return f"{m//43200}mo {(m%43200)//1440}d"
+                    else: return f"{m//525600}y {(m%525600)//43200}mo"
+                    
+                self.btn_next_lagna.setText(f">\n({fmt_time(diff_next_asc)})")
+                self.btn_prev_lagna.setText(f"<\n({fmt_time(diff_prev_asc)})")
+
+                if "next_p_jd" in chart_data and "prev_p_jd" in chart_data:
+                    next_p_jd, prev_p_jd = chart_data["next_p_jd"], chart_data["prev_p_jd"]
+                    diff_next_p = max(0, int((next_p_jd - curr_jd) * 1440))
+                    diff_prev_p = max(0, int((curr_jd - prev_p_jd) * 1440))
+                    self.btn_next_rashi.setText(f">\n({fmt_time(diff_next_p)})")
+                    self.btn_prev_rashi.setText(f"<\n({fmt_time(diff_prev_p)})")
 
             if "dasha_sequence" in chart_data and chart_data["dasha_sequence"]:
                 short = {"Sun": "Su", "Moon": "Mo", "Mars": "Ma", "Mercury": "Me", "Jupiter": "Ju", "Venus": "Ve", "Saturn": "Sa", "Rahu": "Ra", "Ketu": "Ke"}

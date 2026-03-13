@@ -670,6 +670,56 @@ class EphemerisEngine:
         jd_prev_exact = t1
         return jd_prev_exact, jd_next_exact
 
+    def find_adjacent_planet_transits(self, jd_utc, planet_name, div_type="D1"):
+        swe.set_sid_mode(self.ayanamsa_modes[self.current_ayanamsa])
+        calc_flag = swe.FLG_SWIEPH | swe.FLG_SIDEREAL
+        
+        body_map = {"Sun": swe.SUN, "Moon": swe.MOON, "Mars": swe.MARS, "Mercury": swe.MERCURY, "Jupiter": swe.JUPITER, "Venus": swe.VENUS, "Saturn": swe.SATURN, "Rahu": swe.TRUE_NODE, "Ketu": swe.TRUE_NODE}
+        
+        if planet_name not in body_map: return jd_utc, jd_utc
+        
+        def get_sign(j):
+            res, _ = safe_calc_ut(j, body_map[planet_name], calc_flag)
+            lon = res[0] if planet_name != "Ketu" else (res[0] + 180.0) % 360.0
+            sign_idx, _ = self.get_div_sign_and_lon(lon, div_type)
+            return sign_idx
+
+        orig_sign = get_sign(jd_utc)
+        div_factor = int(div_type[1:]) if div_type != "D1" else 1
+        
+        # Base steps based on average planetary speeds to guarantee fast execution without jumping over boundaries
+        base_steps = {
+            "Moon": 0.05, "Sun": 0.5, "Mercury": 0.5, "Venus": 0.5,
+            "Mars": 1.0, "Jupiter": 2.0, "Saturn": 5.0, "Rahu": 5.0, "Ketu": 5.0
+        }
+        step = base_steps.get(planet_name, 1.0) / div_factor
+        
+        # Fast Forward Search
+        jd_next = jd_utc
+        for _ in range(4000):
+            jd_next += step
+            if get_sign(jd_next) != orig_sign: break
+        t1, t2 = jd_next - step, jd_next
+        for _ in range(12):
+            tm = (t1 + t2) / 2.0
+            if get_sign(tm) != orig_sign: t2 = tm
+            else: t1 = tm
+        exact_next = t2
+        
+        # Fast Backward Search
+        jd_prev = jd_utc
+        for _ in range(4000):
+            jd_prev -= step
+            if get_sign(jd_prev) != orig_sign: break
+        t1, t2 = jd_prev, jd_prev + step
+        for _ in range(12):
+            tm = (t1 + t2) / 2.0
+            if get_sign(tm) != orig_sign: t1 = tm
+            else: t2 = tm
+        exact_prev = t1
+        
+        return exact_prev, exact_next
+
     def calculate_vimshottari_dasha(self, birth_jd, moon_lon, target_jd, forecast_start_jd=None, forecast_end_jd=None):
         lords = ["Ketu", "Venus", "Sun", "Moon", "Mars", "Rahu", "Jupiter", "Saturn", "Mercury"]
         years = [7, 20, 6, 10, 7, 18, 16, 19, 17]
@@ -1111,7 +1161,7 @@ class EphemerisEngine:
             "sun_lon": sun_lon
         }
 
-    def calculate_chart(self, dt, lat: float, lon: float, tz_name: str, real_now_jd: float = None, transit_div: str = "D1"):
+    def calculate_chart(self, dt, lat: float, lon: float, tz_name: str, real_now_jd: float = None, transit_div: str = "D1", transit_planet: str = "Sun"):
         if isinstance(dt, dict) and 'year' in dt: jd_utc = dt_dict_to_utc_jd(dt, tz_name)
         elif isinstance(dt, dict) and 'jd' in dt: jd_utc = float(dt['jd'])
         else:
@@ -1140,8 +1190,12 @@ class EphemerisEngine:
         }
         
         jd_prev_asc, jd_next_asc = self.find_adjacent_ascendant_transits(jd_utc, lat, lon, transit_div)
+        jd_prev_p, jd_next_p = self.find_adjacent_planet_transits(jd_utc, transit_planet, transit_div)
+        
         chart_data["prev_asc_jd"] = jd_prev_asc
         chart_data["next_asc_jd"] = jd_next_asc
+        chart_data["prev_p_jd"] = jd_prev_p
+        chart_data["next_p_jd"] = jd_next_p
         chart_data["current_jd"] = jd_utc
 
         exaltation_rules = {"Sun": 1, "Moon": 2, "Mars": 10, "Mercury": 6, "Jupiter": 4, "Venus": 12, "Saturn": 7, "Rahu": 2, "Ketu": 8}
