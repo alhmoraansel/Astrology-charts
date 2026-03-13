@@ -1,14 +1,14 @@
 {
-    "location": "sultanpur",
-    "lat": 26.2604732,
-    "lon": 82.2380532,
+    "location": "akhri",
+    "lat": 26.552217,
+    "lon": 74.7985267,
     "tz": "Asia/Kolkata",
     "ayanamsa": "Lahiri",
     "use_symbols": false,
     "show_rahu_ketu": true,
     "show_arrows": true,
     "use_tint": true,
-    "show_aspects": true,
+    "show_aspects": false,
     "show_details": true,
     "use_circular": false,
     "aspect_planets": {
@@ -24,9 +24,15 @@
     },
     "div_charts": {
         "D1": true,
-        "D9": true,
+        "D2": false,
+        "D4": false,
+        "D7": false,
+        "D9": false,
         "D10": false,
-        "D20": false,
+        "D12": false,
+        "D16": false,
+        "D20": true,
+        "D24": false,
         "D30": false,
         "D60": false
     }
