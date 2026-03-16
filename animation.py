@@ -15,11 +15,11 @@ class TimeController(QObject):
         
         # Animation timer
         self.timer = QTimer(self)
-        self.timer.setInterval(300) # 10 FPS
+        self.timer.setInterval(300) # 30 FPS
         self.timer.timeout.connect(self._on_tick)
         
         self.is_playing = False
-        self.speed_multiplier = 1.0 # 1 real sec = x virtual secs
+        self.speed_multiplier = 3.11 # 1 real sec = x virtual secs
 
     def set_time(self, dt):
         if isinstance(dt, datetime.datetime):
