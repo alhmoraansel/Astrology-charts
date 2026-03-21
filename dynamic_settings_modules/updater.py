@@ -76,10 +76,10 @@ class UpdateWorker(QThread):
             
             dl_count = 0
             for rel_path in files_to_update.keys():
+                print(UPDATE_SERVER_URL + rel_path)
                 # Ensure spaces and slashes are formatted cleanly for the web request
                 url_rel_path = rel_path.replace("\\", "/").replace(" ", "%20")
                 file_url = UPDATE_SERVER_URL + url_rel_path
-                print(file_url)
                 target_path = os.path.join(update_cache_dir, rel_path)
                 
                 os.makedirs(os.path.dirname(target_path), exist_ok=True)
