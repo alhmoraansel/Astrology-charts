@@ -68,12 +68,48 @@ class UpdateWorker(QThread):
             if not files_to_update:
                 self.finished.emit(True, {}, f"You are up to date! (v{remote_version})")
                 return
-                
-            # 3. Download differing files
+                # 3. Download differing files
             self.progress.emit(60, f"Downloading {len(files_to_update)} updated files...")
             update_cache_dir = os.path.join(base_dir, "update_cache")
             os.makedirs(update_cache_dir, exist_ok=True)
             
+            dl_count = 0
+            for rel_path, remote_hash in files_to_update.items():
+                url_rel_path = rel_path.replace("\\", "/").replace(" ", "%20")
+                file_url = UPDATE_SERVER_URL + url_rel_path
+                target_path = os.path.join(update_cache_dir, rel_path)
+                part_path = target_path + ".part" # Temporary download path
+                
+                # 1. Check if the FULL file already exists and matches hash
+                if os.path.exists(target_path):
+                    if get_file_hash(target_path) == remote_hash:
+                        dl_count += 1
+                        self.progress.emit(60 + int((dl_count / len(files_to_update)) * 40), f"Verified {dl_count}/{len(files_to_update)}...")
+                        continue
+
+                os.makedirs(os.path.dirname(target_path), exist_ok=True)
+                
+                # 2. Download to the .part file
+                try:
+                    req = urllib.request.Request(file_url, headers={'User-Agent': 'AstroUpdater/1.0', 'Cache-Control': 'no-cache'})
+                    with urllib.request.urlopen(req) as response, open(part_path, 'wb') as out_file:
+                        # You could even do chunks here for better progress tracking
+                        out_file.write(response.read())
+                    
+                    # 3. Download finished successfully? Rename it to the final name.
+                    # os.replace is "atomic" on most systems, preventing corruption.
+                    if os.path.exists(target_path):
+                        os.remove(target_path) # Clean up old version if it existed
+                    os.rename(part_path, target_path)
+                    
+                except Exception as e:
+                    # Clean up the partial file if it fails so it doesn't clutter
+                    if os.path.exists(part_path):
+                        os.remove(part_path)
+                    raise e 
+                
+                dl_count += 1
+                self.progress.emit(60 + int((dl_count / len(files_to_update)) * 40), f"Downloaded {dl_count}/{len(files_to_update)}...")
             dl_count = 0
             for rel_path in files_to_update.keys():
                 print(UPDATE_SERVER_URL + rel_path)
@@ -100,7 +136,7 @@ class UpdateWorker(QThread):
 
 def setup_ui(app, layout):
     """Contract method for dynamic module loader"""
-    group = QGroupBox("Smart Updater")
+    group = QGroupBox("Updater")
     v_layout = QVBoxLayout()
     v_layout.setContentsMargins(8, 8, 8, 8)
     
