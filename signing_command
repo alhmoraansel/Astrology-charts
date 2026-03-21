@@ -1,0 +1,24 @@
+New-SelfSignedCertificate -Type Custom -Subject "CN=AstroBasics" -KeyUsage DigitalSignature -FriendlyName "AstroBasics" -CertStoreLocation "Cert:\CurrentUser\My" -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.3", "2.5.29.19={text}")
+
+
+
+####################################################
+------------------------------RESULTS---------------------------------
+####################################################
+
+
+Thumbprint                                Subject
+----------                                -------
+E6A6224D7B9C2C1F2C80548E7FB43ADE8A95C6EF  CN=AstroBasics
+
+
+
+
+$password = ConvertTo-SecureString -String "AstroBasics" -Force -AsPlainText 
+Export-PfxCertificate -cert "Cert:\CurrentUser\My\E6A6224D7B9C2C1F2C80548E7FB43ADE8A95C6EF" -FilePath "C:\Source\Astrology-charts\certificate.pfx" -Password $password
+
+
+
+
+
+signtool sign /f "C:\Source\Astrology-charts\certificate.pfx" /p "AstroBasics" /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 <YourApp.exe>

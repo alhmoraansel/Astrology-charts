@@ -10,8 +10,9 @@ from PyQt6.QtWidgets import QGroupBox, QVBoxLayout, QPushButton, QLabel, QHBoxLa
 from PyQt6.QtCore import QThread, pyqtSignal, Qt
 
 # --- CONFIGURATION ---
-# Replace this with the raw URL of your server or GitHub repository
-UPDATE_SERVER_URL = "https://raw.githubusercontent.com/YOUR_USERNAME/YOUR_REPO/main/"
+# Points directly to the raw files of your PyInstaller 'dist/Astro Basics' folder on GitHub
+# Note: '%20' handles the space in 'Astro Basics'
+UPDATE_SERVER_URL = "https://raw.githubusercontent.com/alhmoraansel/Astrology-charts/main/dist/AstroBasics/"
 MANIFEST_FILENAME = "manifest.json"
 
 def get_base_dir():
@@ -42,7 +43,7 @@ class UpdateWorker(QThread):
             
             # 1. Fetch remote manifest
             manifest_url = UPDATE_SERVER_URL + MANIFEST_FILENAME
-            req = urllib.request.Request(manifest_url, headers={'User-Agent': 'AstroUpdater/1.0'})
+            req = urllib.request.Request(manifest_url, headers={'User-Agent': 'AstroUpdater/1.0', 'Cache-Control': 'no-cache'})
             with urllib.request.urlopen(req, timeout=10) as response:
                 remote_manifest = json.loads(response.read().decode())
                 
@@ -63,7 +64,7 @@ class UpdateWorker(QThread):
                 if local_hash != remote_hash:
                     files_to_update[rel_path] = remote_hash
                     
-                self.progress.emit(30 + int((i / total_files) * 30), f"Checking {rel_path}...")
+                self.progress.emit(30 + int((i / total_files) * 30), f"Checking files...")
                 
             if not files_to_update:
                 self.finished.emit(True, {}, f"You are up to date! (v{remote_version})")
@@ -76,19 +77,24 @@ class UpdateWorker(QThread):
             
             dl_count = 0
             for rel_path in files_to_update.keys():
-                file_url = UPDATE_SERVER_URL + rel_path.replace("\\", "/")
+                # Ensure spaces and slashes are formatted cleanly for the web request
+                url_rel_path = rel_path.replace("\\", "/").replace(" ", "%20")
+                file_url = UPDATE_SERVER_URL + url_rel_path
                 target_path = os.path.join(update_cache_dir, rel_path)
                 
                 os.makedirs(os.path.dirname(target_path), exist_ok=True)
-                urllib.request.urlretrieve(file_url, target_path)
+                
+                req = urllib.request.Request(file_url, headers={'User-Agent': 'AstroUpdater/1.0', 'Cache-Control': 'no-cache'})
+                with urllib.request.urlopen(req, timeout=15) as response, open(target_path, 'wb') as out_file:
+                    out_file.write(response.read())
                 
                 dl_count += 1
-                self.progress.emit(60 + int((dl_count / len(files_to_update)) * 40), f"Downloaded {rel_path}...")
+                self.progress.emit(60 + int((dl_count / len(files_to_update)) * 40), f"Downloaded file {dl_count}/{len(files_to_update)}...")
                 
             self.finished.emit(True, files_to_update, "Download complete! Ready to install.")
             
         except URLError as e:
-            self.finished.emit(False, {}, f"Network error: {str(e)}")
+            self.finished.emit(False, {}, f"Network error. Check internet connection.")
         except Exception as e:
             self.finished.emit(False, {}, f"Update failed: {str(e)}")
 
@@ -98,7 +104,7 @@ def setup_ui(app, layout):
     v_layout = QVBoxLayout()
     v_layout.setContentsMargins(8, 8, 8, 8)
     
-    status_label = QLabel("Ready to check for updates.")
+    status_label = QLabel("Ready to check GitHub for updates.")
     status_label.setWordWrap(True)
     status_label.setStyleSheet("color: #555; font-size: 12px;")
     
@@ -115,7 +121,6 @@ def setup_ui(app, layout):
     group.setLayout(v_layout)
     layout.addWidget(group)
     
-    # Instance tracking to prevent garbage collection
     app.updater_worker = None
     
     def on_check_clicked():
@@ -127,9 +132,7 @@ def setup_ui(app, layout):
         app.updater_worker.progress.connect(
             lambda val, msg: (progress_bar.setValue(val), status_label.setText(msg))
         )
-        app.updater_worker.finished.connect(
-            lambda success, files, msg: on_update_finished(success, files, msg)
-        )
+        app.updater_worker.finished.connect(on_update_finished)
         app.updater_worker.start()
 
     def on_update_finished(success, files_to_update, msg):
@@ -148,7 +151,6 @@ def setup_ui(app, layout):
                 apply_update_and_restart()
 
     def apply_update_and_restart():
-        """Creates a batch script to overwrite files (bypassing locks) and restarts."""
         base_dir = get_base_dir()
         cache_dir = os.path.join(base_dir, "update_cache")
         
@@ -157,7 +159,6 @@ def setup_ui(app, layout):
             exe_name = os.path.basename(sys.executable) if getattr(sys, 'frozen', False) else "main.py"
             launch_cmd = f'start "" "{exe_name}"' if getattr(sys, 'frozen', False) else f'python "{exe_name}"'
             
-            # Batch script: Wait 2 secs, XCOPY files from cache to base, delete cache, launch app, delete itself
             bat_content = f"""@echo off
 timeout /t 2 /nobreak > NUL
 xcopy /s /y /q "{cache_dir}\\*" "{base_dir}\\"
@@ -168,27 +169,7 @@ del "%~f0"
             with open(bat_path, "w") as f:
                 f.write(bat_content)
                 
-            # Launch script detach and exit
             subprocess.Popen(bat_path, shell=True, creationflags=subprocess.CREATE_NEW_CONSOLE)
             sys.exit(0)
             
-        else:
-            # Unix (Linux/Mac) doesn't strictly lock executing files, but shell script is still safer
-            sh_path = os.path.join(base_dir, "apply_update.sh")
-            exe_name = sys.executable if getattr(sys, 'frozen', False) else f"python {os.path.basename(sys.argv[0])}"
-            
-            sh_content = f"""#!/bin/bash
-sleep 2
-cp -R "{cache_dir}"/* "{base_dir}/"
-rm -rf "{cache_dir}"
-{exe_name} &
-rm "$0"
-"""
-            with open(sh_path, "w") as f:
-                f.write(sh_content)
-            os.chmod(sh_path, 0o755)
-            
-            subprocess.Popen(sh_path, shell=True)
-            sys.exit(0)
-
     btn_check.clicked.connect(on_check_clicked)

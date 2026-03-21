@@ -23,15 +23,18 @@ def build_app():
     command = [
         "pyinstaller",
         "--noconfirm",
-        "--name", "Astro Basics",
+        "--name", "AstroBasics",
         "--windowed",
         "--icon", "icon.ico",
         "--add-data", "icon.ico;.",
         "--add-data", "ephe;ephe",
         "--add-data", "dynamic_settings_modules;dynamic_settings_modules",
-        "--collect-data", "timezonefinder"
+        "--collect-data", "timezonefinder", "--onedir",
+        "--hidden-import", "pyjhora",
+        "--collect-all", "pyjhora",
+        "--collect-all", "jhora"
     ]
-
+#"--collect-all" , "jhora"
     # Append all our exclusions to the command
     for exc in EXCLUDES:
         command.extend(["--exclude-module", exc])

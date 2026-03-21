@@ -8,11 +8,14 @@ import json
 # ==========================================
 
 VERSION = "1.0.1"
-OUTPUT_FILE = "manifest.json"
+
+# We want the manifest to go directly into the built PyInstaller folder
+BUILD_DIR = os.path.abspath(os.path.join("dist", "Astro Basics"))
+OUTPUT_FILE = os.path.join(BUILD_DIR, "manifest.json")
 
 # Files and folders to EXCLUDE from the update checks
-EXCLUDE_DIRS = ['__pycache__', '.git', 'saves', 'update_cache', 'autosave', 'analysis_export', 'build', 'dist']
-EXCLUDE_FILES = [OUTPUT_FILE, 'manifest_generator.py', 'astro_settings.json', 'apply_update.bat', 'apply_update.sh']
+EXCLUDE_DIRS = ['update_cache', 'autosave', 'analysis_export']
+EXCLUDE_FILES = ['manifest.json', 'astro_settings.json', 'apply_update.bat', 'apply_update.sh']
 
 def get_file_hash(filepath):
     hasher = hashlib.sha256()
@@ -29,7 +32,12 @@ def build_manifest():
         "files": {}
     }
     
-    base_dir = os.path.abspath(".")
+    # Target the PyInstaller build directory, NOT the source root
+    base_dir = BUILD_DIR
+    
+    if not os.path.exists(base_dir):
+        print(f"Error: Could not find '{base_dir}'. Run PyInstaller first!")
+        return
     
     for root, dirs, files in os.walk(base_dir):
         # Exclude directories
@@ -50,9 +58,9 @@ def build_manifest():
     with open(OUTPUT_FILE, 'w') as f:
         json.dump(manifest, f, indent=4)
         
-    print(f"✅ Generated {OUTPUT_FILE} for Version {VERSION}")
+    print(f"Generated {OUTPUT_FILE} for Version {VERSION}")
     print(f"Files tracked: {len(manifest['files'])}")
-    print("Upload this file alongside your changed application files to your server/GitHub.")
+    print("Upload this file to GitHub. for apps to detect that update is available")
 
 if __name__ == "__main__":
     build_manifest()

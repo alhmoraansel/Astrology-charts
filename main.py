@@ -471,8 +471,6 @@ class ChartCalcWorker(QThread):
         self.is_running = False
         self.wait()
 
-
-
 class ChartRenderer(QWidget):
     def __init__(self):
         super().__init__()
