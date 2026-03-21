@@ -36,7 +36,7 @@ SolidCompression=yes
 
 [Files]
 ; Core Application Files (Grabs everything from the PyInstaller dist folder)
-Source: "dist\Astro Basics\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "dist\AstroBasics\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; Explicitly copies the icon file into the app folder so shortcuts can use it
 Source: "icon.ico"; DestDir: "{app}"; Flags: ignoreversion
