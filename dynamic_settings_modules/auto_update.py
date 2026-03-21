@@ -11,7 +11,7 @@ from PyQt6.QtCore import Qt, QThread, pyqtSignal
 # =========================================================
 # CONFIGURATION - UPDATE THESE FOR YOUR APP
 # =========================================================
-CURRENT_VERSION = "1.0.0"
+CURRENT_VERSION = "0.0.1"
 # URL to a JSON file on your server/GitHub containing update info.
 # Example JSON: {"latest_version": "1.0.1", "download_url": "https://example.com/AstroApp_Setup_1.0.1.exe", "release_notes": "Bug fixes."}
 UPDATE_CHECK_URL = "https://raw.githubusercontent.com/YourUser/YourRepo/main/update_info.json" 
