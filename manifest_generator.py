@@ -10,7 +10,7 @@ import json
 VERSION = "1.0.1"
 
 # We want the manifest to go directly into the built PyInstaller folder
-BUILD_DIR = os.path.abspath(os.path.join("dist", "Astro Basics"))
+BUILD_DIR = os.path.abspath(os.path.join("dist", "AstroBasics"))
 OUTPUT_FILE = os.path.join(BUILD_DIR, "manifest.json")
 
 # Files and folders to EXCLUDE from the update checks
