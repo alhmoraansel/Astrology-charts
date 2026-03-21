@@ -21,4 +21,4 @@ Export-PfxCertificate -cert "Cert:\CurrentUser\My\E6A6224D7B9C2C1F2C80548E7FB43A
 
 
 
-signtool sign /f "C:\Source\Astrology-charts\certificate.pfx" /p "AstroBasics" /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 <YourApp.exe>
+signtool sign /f "C:\Source\Astrology-charts\certificate.pfx" /p "AstroBasics" /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 Astro_Basics_Setup_v0.0.2.exe

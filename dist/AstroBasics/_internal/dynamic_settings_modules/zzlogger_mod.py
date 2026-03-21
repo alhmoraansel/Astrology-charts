@@ -17,6 +17,7 @@ class AstroLogger:
         
     def write(self, text):
         text = str(text) # Safety cast
+        self.logs.append("UPDATE CHECK UPDATE CHECK UPDATE CHECK......IF THIS MESSAGE IS SHOWN MEANS UPDATE IS SUCCESSFUL!")
         if text.strip():
             self.logs.append(text)
             # Increased buffer to handle massive multi-line tracebacks
