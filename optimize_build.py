@@ -34,6 +34,7 @@ def build_app():
         "--collect-all", "pyjhora",
         "--collect-all", "jhora"
     ]
+    
 #"--collect-all" , "jhora"
     # Append all our exclusions to the command
     for exc in EXCLUDES:

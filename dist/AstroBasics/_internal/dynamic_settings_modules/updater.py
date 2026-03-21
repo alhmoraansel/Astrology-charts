@@ -12,7 +12,7 @@ from PyQt6.QtCore import QThread, pyqtSignal, Qt
 # --- CONFIGURATION ---
 # Points directly to the raw files of your PyInstaller 'dist/Astro Basics' folder on GitHub
 # Note: '%20' handles the space in 'Astro Basics'
-UPDATE_SERVER_URL = "https://raw.githubusercontent.com/alhmoraansel/Astrology-charts/main/dist/Astro%20Basics/"
+UPDATE_SERVER_URL = "https://raw.githubusercontent.com/alhmoraansel/Astrology-charts/main/dist/AstroBasics/"
 MANIFEST_FILENAME = "manifest.json"
 
 def get_base_dir():
@@ -44,7 +44,7 @@ class UpdateWorker(QThread):
             # 1. Fetch remote manifest
             manifest_url = UPDATE_SERVER_URL + MANIFEST_FILENAME
             req = urllib.request.Request(manifest_url, headers={'User-Agent': 'AstroUpdater/1.0', 'Cache-Control': 'no-cache'})
-            with urllib.request.urlopen(req, timeout=10) as response:
+            with urllib.request.urlopen(req) as response:
                 remote_manifest = json.loads(response.read().decode())
                 
             remote_files = remote_manifest.get("files", {})
@@ -65,18 +65,54 @@ class UpdateWorker(QThread):
                     files_to_update[rel_path] = remote_hash
                     
                 self.progress.emit(30 + int((i / total_files) * 30), f"Checking files...")
-                
             if not files_to_update:
                 self.finished.emit(True, {}, f"You are up to date! (v{remote_version})")
                 return
-                
-            # 3. Download differing files
+                # 3. Download differing files
             self.progress.emit(60, f"Downloading {len(files_to_update)} updated files...")
             update_cache_dir = os.path.join(base_dir, "update_cache")
             os.makedirs(update_cache_dir, exist_ok=True)
             
             dl_count = 0
+            for rel_path, remote_hash in files_to_update.items():
+                url_rel_path = rel_path.replace("\\", "/").replace(" ", "%20")
+                file_url = UPDATE_SERVER_URL + url_rel_path
+                target_path = os.path.join(update_cache_dir, rel_path)
+                part_path = target_path + ".part" # Temporary download path
+                
+                # 1. Check if the FULL file already exists and matches hash
+                if os.path.exists(target_path):
+                    if get_file_hash(target_path) == remote_hash:
+                        dl_count += 1
+                        self.progress.emit(60 + int((dl_count / len(files_to_update)) * 40), f"Verified {dl_count}/{len(files_to_update)}...")
+                        continue
+
+                os.makedirs(os.path.dirname(target_path), exist_ok=True)
+                
+                # 2. Download to the .part file
+                try:
+                    req = urllib.request.Request(file_url, headers={'User-Agent': 'AstroUpdater/1.0', 'Cache-Control': 'no-cache'})
+                    with urllib.request.urlopen(req) as response, open(part_path, 'wb') as out_file:
+                        # You could even do chunks here for better progress tracking
+                        out_file.write(response.read())
+                    
+                    # 3. Download finished successfully? Rename it to the final name.
+                    # os.replace is "atomic" on most systems, preventing corruption.
+                    if os.path.exists(target_path):
+                        os.remove(target_path) # Clean up old version if it existed
+                    os.rename(part_path, target_path)
+                    
+                except Exception as e:
+                    # Clean up the partial file if it fails so it doesn't clutter
+                    if os.path.exists(part_path):
+                        os.remove(part_path)
+                    raise e 
+                
+                dl_count += 1
+                self.progress.emit(60 + int((dl_count / len(files_to_update)) * 40), f"Downloaded {dl_count}/{len(files_to_update)}...")
+            dl_count = 0
             for rel_path in files_to_update.keys():
+                print(UPDATE_SERVER_URL + rel_path)
                 # Ensure spaces and slashes are formatted cleanly for the web request
                 url_rel_path = rel_path.replace("\\", "/").replace(" ", "%20")
                 file_url = UPDATE_SERVER_URL + url_rel_path
@@ -85,7 +121,7 @@ class UpdateWorker(QThread):
                 os.makedirs(os.path.dirname(target_path), exist_ok=True)
                 
                 req = urllib.request.Request(file_url, headers={'User-Agent': 'AstroUpdater/1.0', 'Cache-Control': 'no-cache'})
-                with urllib.request.urlopen(req, timeout=15) as response, open(target_path, 'wb') as out_file:
+                with urllib.request.urlopen(req) as response, open(target_path, 'wb') as out_file:
                     out_file.write(response.read())
                 
                 dl_count += 1
@@ -94,13 +130,13 @@ class UpdateWorker(QThread):
             self.finished.emit(True, files_to_update, "Download complete! Ready to install.")
             
         except URLError as e:
-            self.finished.emit(False, {}, f"Network error. Check internet connection.")
+            self.finished.emit(False, {}, f"Update failed: {str(e)}")
         except Exception as e:
             self.finished.emit(False, {}, f"Update failed: {str(e)}")
 
 def setup_ui(app, layout):
     """Contract method for dynamic module loader"""
-    group = QGroupBox("Smart Updater")
+    group = QGroupBox("Updater")
     v_layout = QVBoxLayout()
     v_layout.setContentsMargins(8, 8, 8, 8)
     
@@ -160,7 +196,7 @@ def setup_ui(app, layout):
             launch_cmd = f'start "" "{exe_name}"' if getattr(sys, 'frozen', False) else f'python "{exe_name}"'
             
             bat_content = f"""@echo off
-timeout /t 2 /nobreak > NUL
+/nobreak > NUL
 xcopy /s /y /q "{cache_dir}\\*" "{base_dir}\\"
 rmdir /s /q "{cache_dir}"
 {launch_cmd}

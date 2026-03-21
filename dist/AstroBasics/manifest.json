@@ -1,7 +1,7 @@
 {
     "version": "1.0.1",
     "files": {
-        "AstroBasics.exe": "106eda85fffc59644fb86be20600e58ddab0cd38f114f93e7019836c38a2e4cf",
+        "AstroBasics.exe": "02c2e6ef2cdf6d43ac56d9ce9930a7fe82d5e4705dca12c9a9fd3a135b04aeb5",
         "_internal/api-ms-win-core-console-l1-1-0.dll": "f0f7cb2a9ffccb43400db88d6bf99f2fcc3161de1ac96c48501d4d522c48c2ca",
         "_internal/api-ms-win-core-datetime-l1-1-0.dll": "55e5f10d0dd9c85ff1c6dc7798e46b3a4422fb7ebc583bb00d06a7df2494397b",
         "_internal/api-ms-win-core-debug-l1-1-0.dll": "092b72832c47f9c4edcde61f1a111c20eb73452984e0a6109482de74eb03c34d",
@@ -42,7 +42,7 @@
         "_internal/api-ms-win-crt-string-l1-1-0.dll": "44ddab31c182235ac5405d31c1cba048316cc230698e392a732ac941ec683bad",
         "_internal/api-ms-win-crt-time-l1-1-0.dll": "a409e25a9d3c252cc0a5af9df85d3733e946087b06cd1fb2cf1bf640eb0d49ba",
         "_internal/api-ms-win-crt-utility-l1-1-0.dll": "cfb2ee4e426bb00b76163c1a66cf8cfef8d7450cbf9bbce3bc9eb2053f51e0e5",
-        "_internal/base_library.zip": "e369ae0e9db95301c4d50367d115375717a7b320c67a6f443205da11cee9848b",
+        "_internal/base_library.zip": "b8747b5a87f49c726186cdddf1d9c0be3428d68616ca8771d4d9a762dbf34024",
         "_internal/icon.ico": "0dcde557f0f8d55e0e7cb2b6b7ef4bf9196fd3b5dfcf0defe1d66fba097378b8",
         "_internal/libcrypto-3.dll": "e03dd02fdcfb791981c9962827cfcf495f2a47a514c1526efb57f847a9df514a",
         "_internal/libffi-8.dll": "eff52743773eb550fcc6ce3efc37c85724502233b6b002a35496d828bd7b280a",
@@ -80,7 +80,7 @@
         "_internal/dynamic_settings_modules/chart_rectification_plugin.py": "4d2edcc863bde62e80a71a00ff5966485302b4722b2eda47beea51fa02f9ae60",
         "_internal/dynamic_settings_modules/logger_mod.py": "43a7ff7c2990ca2bc4763b7c70b649d7f2b10b3257d21701b10f8ebb86cfbd16",
         "_internal/dynamic_settings_modules/shadbal_mod.py": "07483431e09268228dc06f8a41923a18ee8f9db9bbc02d566af8b238751776a6",
-        "_internal/dynamic_settings_modules/updater.py": "b5c52380d67c7615a86d81ecbedc62ae17c644331e711f8d29aaf223b2a1e952",
+        "_internal/dynamic_settings_modules/updater.py": "b885651bba95d506855dede1dccb53b2a84ed9cba12e07a7f8f50e29a75bd3a5",
         "_internal/dynamic_settings_modules/vishmottari_mod.py": "6f496aed34ac00ee4b4cc2f30007c1537112ef89d917fe5ff3356ca1aa682355",
         "_internal/ephe/seasm06.se1": "2d3b578bacf6eae9739a602bd2fb02d2f992b77abd1476551bbee953f270c75f",
         "_internal/ephe/seasm102.se1": "f3e2f23b834a823b8550095698f7909f3aef7e4ed9997651a14effae9e885791",
