@@ -1,341 +1,298 @@
-import sys
-import datetime
-import json
-import os
-import math
-import pytz
-import swisseph as swe
-import time
-import multiprocessing
-import queue
-import glob
+#main.py
 
-from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
-                             QHBoxLayout, QSplitter, QLabel, QLineEdit, 
-                             QPushButton, QComboBox, QTimeEdit, 
-                             QTableWidget, QTableWidgetItem, QCheckBox,
-                             QHeaderView, QMessageBox, QGroupBox, QFileDialog,
-                             QScrollArea, QGridLayout, QSpinBox, QDialog, QTextBrowser,
-                             QDoubleSpinBox, QTabWidget, QSizePolicy)
-from PyQt6.QtGui import QPainter, QPen, QColor, QFont, QBrush, QPolygonF, QCursor, QIcon, QPainterPath
-from PyQt6.QtCore import Qt, QDate, QTime, QThread, pyqtSignal, QRectF, QPointF, QObject, QTimer, QEvent
+import sys,datetime,json,os,math,pytz,swisseph as swe,time,multiprocessing,queue,glob,copy,importlib.util
 
+from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QLabel, QLineEdit, QPushButton, QComboBox, QTimeEdit, QTableWidget, QTableWidgetItem, QCheckBox,QHeaderView, QMessageBox, QGroupBox, QFileDialog,QScrollArea, QGridLayout, QSpinBox, QDialog, QTextBrowser,QDoubleSpinBox, QTabWidget, QSizePolicy, QAbstractItemView, QMenu)
+from PyQt6.QtGui import QPainter, QPen, QColor, QFont, QBrush, QPolygonF, QCursor, QIcon, QPainterPath, QPixmap
+from PyQt6.QtCore import Qt, QDate, QTime, QThread, pyqtSignal, QRectF, QPointF, QObject, QTimer, QEvent, QFileSystemWatcher
+from PyQt6.QtGui import QDrag
+from PyQt6.QtCore import QMimeData, QPoint
+
+from astral import LocationInfo
+from astral.sun import sun
 from geopy.geocoders import Nominatim
 from timezonefinder import TimezoneFinder
 
-import save_prefs
-import animation
-import astro_engine
+#own file dependencies, need not to be changed
+import save_prefs,animation,astro_engine
+try:
+    import custom_vargas
+    HAS_CUSTOM_VARGAS = True
+except ImportError:
+    HAS_CUSTOM_VARGAS = False
 
 # ==========================================
 # GLOBAL SETTINGS & STYLES
 # ==========================================
-# Changing GLOBAL_FONT_SCALE_MULTIPLIER safely modifies the multiplier for everything seamlessly
 GLOBAL_FONT_FAMILY = "Segoe UI"
 GLOBAL_UI_FONT_FAMILY = GLOBAL_FONT_FAMILY
 GLOBAL_CHART_FONT_FAMILY = "Arial"
 GLOBAL_RASHI_FONT_FAMILY = "Arial"
 GLOBAL_HOUSE_FONT_FAMILY = "Arial"
 GLOBAL_EMOJI_FONT_FAMILY = "Segoe UI Emoji"
-GLOBAL_FONT_SCALE_MULTIPLIER = 1.0 # Multiplier for scaling all UI and chart fonts 
+GLOBAL_FONT_SCALE_MULTIPLIER = 1.0
 GLOBAL_PRIMARY_COLOR = "#0026ff"
 
-# ==========================================
-# CUSTOM VARGA EXTENSION LOADER
-# ==========================================
-try:
-    import custom_vargas
-    HAS_CUSTOM_VARGAS = True
-except ImportError:
-    HAS_CUSTOM_VARGAS = False
-
-# ==========================================
-# CUSTOM VARGA EXTENSION LOADER
-# ==========================================
-try:
-    import custom_vargas
-    HAS_CUSTOM_VARGAS = True
-except ImportError:
-    HAS_CUSTOM_VARGAS = False
-
-# ==========================================
-# PYINSTALLER RESOURCE PATH HELPER
-# ==========================================
 def resource_path(relative_path):
-    """ Get absolute path to resource, works for dev and for PyInstaller """
-    try:
-        # PyInstaller creates a temp folder and stores path in _MEIPASS
-        base_path = sys._MEIPASS
-    except Exception:
-        base_path = os.path.abspath(".")
+    try: base_path = sys._MEIPASS
+    except Exception: base_path = os.path.abspath(".")
     return os.path.join(base_path, relative_path)
-
-# ==========================================
-# ASTROLOGICAL REFERENCE DICTIONARIES
-# ==========================================
-D1_HOUSE_MEANINGS = {
-    1: "Physical body, complexion, appearance, head, intelligence, strength, energy, fame, success, nature of birth, and caste.",
-    2: "Wealth, assets, family, speech, eyes, mouth, face, voice, and food.",
-    3: "Younger co-borns, confidants, courage, mental strength, communication skills, creativity, throat, ears, arms, and travels.",
-    4: "Mother, vehicles, house, lands, immovable property, motherland, childhood, wealth from real estate, education, relatives, happiness, comforts, pleasures, peace, state of mind, and heart.",
-    5: "Children, poorvapunya (good deeds of previous lives), intelligence, knowledge & scholarship, devotion, mantras (prayers), stomach, digestive system, authority/power, fame, love, affection, emotions, judgment, and speculation.",
-    6: "Enemies, service, servants, relatives, mental tension, injuries, health, diseases, agriculture, accidents, mental affliction, mother's younger brother, and hips.",
-    7: "Marriage, marital life, life partner, sex, passion (and related happiness), long journeys, partners, business, death, and the portion of the body below the navel.",
-    8: "Longevity, debts, disease, ill-fame, inheritance, loss of friends, occult studies, evils, gifts, unearned wealth, windfall, disgrace, secrets, and genitals.",
-    9: "Father, teacher, boss, fortune, religiousness, spirituality, God, higher studies & high knowledge, fortune in a foreign land, foreign trips, and diksha (joining a religious order). It additionally represents past life and the cause of birth, grandchildren, principles, dharma, intuition, compassion, sympathy, leadership, charity, and thighs.",
-    10: "Growth, profession, career, karma (action), conduct in society, fame, honors, awards, self-respect, dignity, and knees.",
-    11: "Elder co-borns, income, gains, realization of hopes, friends, and ankles.",
-    12: "Losses, expenditure, punishment, imprisonment, hospitalization, pleasures in bed, misfortune, bad habits, sleep, meditation, donation, secret enemies, heaven, left eye, feet, residence away from the place of birth, and moksha (emancipation/liberation)."
-}
-
-BHAVAT_BHAVAM = {
-    1: { 1: "Physical body, complexion, intelligence, and strength.", 2: "Personal wealth, family, and speech.", 3: "Own courage, communication, and younger siblings.", 4: "Own mother, happiness, and vehicles.", 5: "Own children, intelligence, and scholarship.", 6: "Own diseases, enemies, and service.", 7: "Own spouse, partners, and business.", 8: "Own longevity, secrets, and inheritance.", 9: "Own father, fortune, and spirituality.", 10: "Own profession, career, and fame.", 11: "Own gains, income, and elder siblings.", 12: "Own losses, expenditure, and moksha." },
-    2: { 2: "Wealth, assets, and family.", 3: "Growth of wealth; speech of the family.", 4: "Communication within the family; courage regarding assets.", 5: "Happiness from wealth; the 'home' of the family.", 6: "Intelligence applied to finance; children of the family.", 7: "Debts/enemies related to wealth; family disputes.", 8: "Spouse of the family (relatives by marriage); wealth through partners.", 9: "Longevity of wealth; inheritance of the family.", 10: "Fortune of the family; father of the family.", 11: "Professional status of the family; work related to assets.", 12: "Gains from family; income from assets.", 1: "Losses of wealth; expenditure of the family." },
-    3: { 3: "Younger siblings, courage, and communication.", 4: "Wealth and speech of the younger sibling.", 5: "Courage and skills of the younger sibling.", 6: "Mother/happiness of the younger sibling.", 7: "Children and intelligence of the younger sibling.", 8: "Debts and diseases of the younger sibling.", 9: "Spouse of the younger sibling.", 10: "Longevity or secrets of the younger sibling.", 11: "Fortune/father-figure of the younger sibling.", 12: "Career and profession of the younger sibling.", 1: "Gains and income of the younger sibling.", 2: "Losses and expenditure of the younger sibling." },
-    4: { 4: "Mother, vehicles, and education.", 5: "Wealth and assets of the mother.", 6: "Siblings of the mother (maternal uncles/aunts).", 7: "Mother's mother (maternal grandmother); mother's happiness.", 8: "Children of the mother; mother's intelligence.", 9: "Mother's health, debts, or enemies.", 10: "Mother's spouse (the Father).", 11: "Mother's longevity and inheritance.", 12: "Mother's fortune and spirituality.", 1: "Mother's career and social status.", 2: "Mother's gains and elder siblings.", 3: "Mother's losses and expenditure." },
-    5: { 5: "Children and knowledge.", 6: "Wealth of children; speech of students.", 7: "Younger siblings of children; communication of students.", 8: "Mother of children; happiness/home of students.", 9: "Grandchildren (children of children).", 10: "Debts/health of children.", 11: "Spouse of children.", 12: "Longevity/secrets of children.", 1: "Fortune/father-figure of children.", 2: "Career and growth of children.", 3: "Gains of children; friends of students.", 4: "Losses/expenditure of children." },
-    6: { 6: "Enemies, diseases, and servants.", 7: "Wealth of enemies; speech of servants.", 8: "Courage of enemies; siblings of servants.", 9: "Home of enemies; mother of servants.", 10: "Intelligence of enemies; children of servants.", 11: "Diseases of enemies; debts of servants.", 12: "Spouse of enemies; partners of servants.", 1: "Longevity/death of enemies.", 2: "Fortune/father of enemies.", 3: "Career of enemies.", 4: "Gains of enemies.", 5: "Losses/expenditure of enemies." },
-    7: { 7: "Spouse, partners, and marriage.", 8: "Wealth and speech of the spouse; spouse's family.", 9: "Younger siblings of the spouse.", 10: "Mother and home of the spouse.", 11: "Children and intelligence of the spouse.", 12: "Enemies and health of the spouse.", 1: "Spouse's spouse (the Self).", 2: "Longevity/inheritance of the spouse.", 3: "Father/Fortune of the spouse.", 4: "Profession and career of the spouse.", 5: "Income and gains of the spouse.", 6: "Losses/expenditure of the spouse." },
-    8: { 8: "Longevity, secrets, and inheritance.", 9: "Assets from inheritance; speech regarding secrets.", 10: "Communication regarding occult studies.", 11: "Peace of mind from inheritance; home of secrets.", 12: "Intelligence in occult research; children of secrets.", 1: "Diseases resulting from chronic issues.", 2: "Partners in secrets or inheritance.", 3: "Longevity of longevity (vitality).", 4: "Fortune from hidden things.", 5: "Profession involving research or secrets.", 6: "Gains from inheritance or windfalls.", 7: "Losses of inheritance; expenditure on secrets." },
-    9: { 9: "Father, teacher, and fortune.", 10: "Wealth and speech of the father.", 11: "Younger siblings of the father (paternal uncles).", 12: "Mother and home of the father.", 1: "Children and intelligence of the father (The Self).", 2: "Health and debts of the father.", 3: "Spouse of the father (The Mother).", 4: "Longevity/inheritance of the father.", 5: "Father's father (paternal grandfather).", 6: "Profession and career of the father.", 7: "Income and gains of the father.", 8: "Losses and expenditure of the father." },
-    10: { 10: "Profession, honors, and growth.", 11: "Income from profession; wealth of the career.", 12: "Communication skills in the career.", 1: "Happiness from career; office/workplace.", 2: "Creativity and intelligence in profession.", 3: "Competitors and struggles in career.", 4: "Business partners and public image.", 5: "Ups and downs or secrets of the career.", 6: "Fortune/higher knowledge in profession.", 7: "Professional status and achievements.", 8: "Gains and realizations from career.", 9: "Losses or expenditure related to career." },
-    11: { 11: "Gains, income, and friends.", 12: "Wealth of friends; assets from gains.", 1: "Younger siblings of friends; courage in social circles.", 2: "Mother and home of friends.", 3: "Children and intelligence of friends.", 4: "Enemies, diseases, and debts of friends.", 5: "Spouse of friends.", 6: "Longevity/inheritance of friends.", 7: "Fortune/father of friends.", 8: "Career and profession of friends.", 9: "Gains and income of friends.", 10: "Losses and expenditure of friends." },
-    12: { 12: "Losses, expenditure, and meditation.", 1: "Assets from foreign lands; speech regarding losses.", 2: "Communication about spirituality/meditation.", 3: "Happiness from isolation or donation.", 4: "Intelligence in spiritual matters.", 5: "Enemies in foreign lands; debts from expenditure.", 6: "Spouse/Partners in foreign lands.", 7: "Secrets of losses; longevity of the spiritual path.", 8: "Fortune from donation or hidden studies.", 9: "Profession involving hospitals, jails, or isolation.", 10: "Gains from expenditure or foreign residence.", 11: "Loss of losses (Gains/Realization)." }
-}
-
-D_CHART_KARAKA = {
-    "D1": 1, "D2": 2, "D3": 3, "D4": 4, "D5": 5, "D6": 6, 
-    "D7": 5, "D8": 8, "D9": 7, "D10": 10, "D11": 11, "D12": 9, 
-    "D16": 4, "D20": 9, "D24": 4, "D27": 1, "D30": 6, 
-    "D40": 9, "D45": 1, "D60": 9
-}
-
-D_CHART_THEMES = {
-    "D1": "Physical Self", "D2": "Wealth", "D3": "Siblings", "D4": "Properties/Fortune", 
-    "D5": "Power/Authority", "D6": "Health/Enemies", "D7": "Children", "D8": "Troubles/Transformation", 
-    "D9": "Marriage/Dharma", "D10": "Career/Status", "D11": "Destruction", "D12": "Parents", 
-    "D16": "Vehicles/Comforts", "D20": "Spirituality/Religion", "D24": "Education/Learning", 
-    "D27": "Inherent Nature", "D30": "Evils/Diseases", "D40": "Auspicious Events", 
-    "D45": "All Matters", "D60": "Past Karma"
-}
-
-CONCISE_MEANINGS = {
-    1: "self, physical body, and overall vitality",
-    2: "wealth, family, and speech",
-    3: "courage, siblings, and efforts",
-    4: "mother, happiness, and home",
-    5: "children, intelligence, and creativity",
-    6: "enemies, debts, and diseases",
-    7: "spouse, partnerships, and marriage",
-    8: "longevity, secrets, and transformation",
-    9: "father, fortune, and spirituality",
-    10: "career, status, and karma",
-    11: "gains, aspirations, and friends",
-    12: "losses, isolation, and moksha"
-}
-
-REL_KEYWORDS = {
-    1: ["physical body", "overall health", "general appearance", "complexion", "innate intelligence", "fundamental strength", "core energy", "personal fame", "life success", "nature of birth", "true identity", "innate disposition", "head and brain", "self-awareness"],
-    2: ["accumulated wealth", "material assets", "immediate family", "style of speech", "facial features", "food and diet", "vocal tone", "bank balance", "core values", "early childhood", "movable properties", "precious gems", "earning capacity", "right eye"],
-    3: ["courage and valor", "younger co-borns", "mental strength", "communication skills", "inherent creativity", "short travels", "close confidants", "physical efforts", "writing abilities", "hobbies and talents", "neighborhood relations", "shoulders and arms", "nervous system", "self-made efforts"],
-    4: ["inner happiness", "mother figure", "vehicles and conveyances", "immovable property", "homeland and roots", "general comforts", "peace of mind", "real estate assets", "private emotional life", "foundational education", "heart and chest", "subconscious feelings", "end of matters", "farming and agriculture"],
-    5: ["children and progeny", "past life credit (poorvapunya)", "creative intelligence", "academic scholarship", "spiritual devotion", "romantic affairs", "emotional affections", "speculative luck", "decision making", "mantras and prayers", "artistic expression", "upper stomach", "sports and gaming", "joy and entertainment"],
-    6: ["open enemies", "daily service", "subordinate workers", "mental tensions", "physical injuries", "acute diseases", "accidents and obstacles", "litigation and disputes", "competitive strength", "debts and loans", "maternal relatives", "digestive tract", "pets and small animals", "healing and medicine"],
-    7: ["marriage partner", "long-term relationships", "business partners", "diplomatic relations", "sexual passion", "public image", "trade and commerce", "open interactions", "legal contracts", "foreign residences", "vitality in partnerships", "lower abdomen", "public standing", "courts and lawsuits"],
-    8: ["ultimate longevity", "hidden secrets", "chronic diseases", "unearned wealth", "sudden windfalls", "occult knowledge", "deep transformations", "inheritances and wills", "sudden disgrace", "psychological crises", "mystical experiences", "reproductive organs", "research and investigation", "taxes and insurance"],
-    9: ["father figure", "spiritual teachers", "general fortune", "religious beliefs", "higher education", "long distance travel", "karmic dharma", "inherent intuition", "moral principles", "divine grace", "grandchildren", "thighs and hips", "law and philosophy", "publishing and broadcasting"],
-    10: ["career trajectory", "professional growth", "public reputation", "social conduct", "karmic actions", "honors and awards", "self-respect and dignity", "authoritative power", "government relations", "ambition and drive", "worldly achievements", "knees and joints", "public visibility", "executive roles"],
-    11: ["realized gains", "steady income", "elder co-borns", "social networks", "close friends", "fulfilled hopes", "large organizations", "cash flow", "community involvement", "titles and degrees", "future aspirations", "calves and ankles", "philanthropy", "bonuses and dividends"],
-    12: ["inevitable losses", "financial expenditure", "deep meditation", "foreign settlements", "subconscious mind", "bed pleasures", "secret enemies", "spiritual liberation (moksha)", "hospitalization", "charitable donations", "hidden sorrows", "feet and toes", "unseen realms", "sleep and dreams"]
-}
-
-BASE_THEMES = {
-    1: "the self",
-    2: "the family & wealth",
-    3: "the younger siblings",
-    4: "the mother",
-    5: "the children",
-    6: "the enemies & servants",
-    7: "the spouse & partners",
-    8: "the hidden elements",
-    9: "the father & gurus",
-    10: "the career & bosses",
-    11: "the friends & elder siblings",
-    12: "the spiritual & foreign aspects"
-}
 
 # ==========================================
 # CUSTOM UI WIDGETS & DIALOGS
 # ==========================================
+
 class NoScrollComboBox(QComboBox):
-    def wheelEvent(self, event):
-        event.ignore()
+    def wheelEvent(self, event): event.ignore()
+
+class SmoothScroller(QObject):
+    def __init__(self, scroll_area, speed=0.15, fps=60):
+        super().__init__(scroll_area)
+        self.scroll_area = scroll_area
+        self.speed = speed
+        self._is_animating_step = False
+        
+        # Required to make items in tables/lists scroll smoothly per pixel
+        if isinstance(scroll_area, QAbstractItemView):
+            scroll_area.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+            scroll_area.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+            
+        self._vbar = scroll_area.verticalScrollBar()
+        self._hbar = scroll_area.horizontalScrollBar()
+        
+        self.target_v = float(self._vbar.value())
+        self.target_h = float(self._hbar.value())
+        
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self._animate)
+        
+        # Attach listener directly to viewport
+        self.scroll_area.viewport().installEventFilter(self)
+        
+        self._vbar.valueChanged.connect(self._on_v_changed)
+        self._hbar.valueChanged.connect(self._on_h_changed)
+        
+    def _on_v_changed(self, val):
+        if not self._is_animating_step:
+            self.target_v = float(val)
+            
+    def _on_h_changed(self, val):
+        if not self._is_animating_step:
+            self.target_h = float(val)
+
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.Type.Wheel:
+            v_delta = event.angleDelta().y()
+            h_delta = event.angleDelta().x()
+            
+            if v_delta == 0 and h_delta == 0:
+                return False
+                
+            # AngleDelta is typically 120 per notch. Set multiplier to ~0.8 to give approx 96px scrolls per notch.
+            step_size = 0.8  
+            self.target_v -= float(v_delta) * step_size
+            self.target_h -= float(h_delta) * step_size
+            
+            # Constrain targets instantly
+            self.target_v = max(float(self._vbar.minimum()), min(self.target_v, float(self._vbar.maximum())))
+            self.target_h = max(float(self._hbar.minimum()), min(self.target_h, float(self._hbar.maximum())))
+            
+            if not self.timer.isActive():
+                self.timer.start(1000 // 60)
+            return True
+        return super().eventFilter(obj, event)
+
+    def _animate(self):
+        # Allow dragging the physical scrollbar to halt animation immediately
+        if self._vbar.isSliderDown() or self._hbar.isSliderDown():
+            self.timer.stop()
+            self.target_v = float(self._vbar.value())
+            self.target_h = float(self._hbar.value())
+            return
+            
+        # Re-constrain in case bounds changed while animating
+        self.target_v = max(float(self._vbar.minimum()), min(self.target_v, float(self._vbar.maximum())))
+        self.target_h = max(float(self._hbar.minimum()), min(self.target_h, float(self._hbar.maximum())))
+        
+        v_val = float(self._vbar.value())
+        h_val = float(self._hbar.value())
+        
+        v_diff = self.target_v - v_val
+        h_diff = self.target_h - h_val
+        
+        # Halt once comfortably close to target
+        if abs(v_diff) < 0.5 and abs(h_diff) < 0.5:
+            self._is_animating_step = True
+            self._vbar.setValue(int(round(self.target_v)))
+            self._hbar.setValue(int(round(self.target_h)))
+            self._is_animating_step = False
+            self.timer.stop()
+            return
+            
+        new_v = v_val + v_diff * self.speed
+        new_h = h_val + h_diff * self.speed
+        
+        self._is_animating_step = True
+        self._vbar.setValue(int(round(new_v)))
+        self._hbar.setValue(int(round(new_h)))
+        self._is_animating_step = False
 
 class VisualGuideDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Chart Visual Guide & Legend")
+        self.setWindowTitle("Chart Visual Guide Legend and credits")
         self.resize(850, 700)
         
-        # Apply global scaling to the inner HTML viewer
-        base_fs = int(14 * GLOBAL_FONT_SCALE_MULTIPLIER)
-        self.setStyleSheet(f"QTextBrowser {{ background-color: #fcfcfc; padding: 15px; font-size: {base_fs}px; line-height: 1.6; }}")
+        # Dynamically fetch the default system font
+        sys_font = QApplication.font().family()
+        
+        # Global style for the dialog and text browser using the system font
+        self.setStyleSheet(f"""
+            QDialog {{
+                background-color: #f7fafc;
+            }}
+            QTextBrowser {{ 
+                background-color: #ffffff; 
+                padding: 20px; 
+                font-family: "{sys_font}", system-ui, sans-serif;
+                font-size: {int(14 * GLOBAL_FONT_SCALE_MULTIPLIER)}px; 
+                line-height: 1.6; 
+                border: none;
+            }}
+        """)
         
         layout = QVBoxLayout(self)
-        tabs = QTabWidget()
-        tabs.setStyleSheet("QTabBar::tab { font-weight: bold; padding: 10px 20px; }")
         
-        t1, t2, t3, t4, t5 = QTextBrowser(), QTextBrowser(), QTextBrowser(), QTextBrowser(), QTextBrowser()
-        t1.setHtml("<h2>Vitality (Lords)</h2><p>Shows strength...</p>")
-        tabs.addTab(t1, "1. Vitality (Lords)")
+        # --- Modernized Tab Widget Styling ---
+        tabs = QTabWidget()
+        tabs.setStyleSheet(f"""
+            QTabWidget::pane {{
+                border: 1px solid #e2e8f0;
+                background-color: #ffffff;
+                border-bottom-left-radius: 8px;
+                border-bottom-right-radius: 8px;
+                border-top-right-radius: 8px;
+                top: -1px; /* Overlaps with the tab bar to hide the bottom border of the selected tab */
+            }}
+            QTabBar::tab {{
+                font-family: "{sys_font}", system-ui, sans-serif;
+                font-size: {int(13 * GLOBAL_FONT_SCALE_MULTIPLIER)}px;
+                background-color: #f7fafc;
+                color: #718096;
+                padding: 10px 24px;
+                border: 1px solid #e2e8f0;
+                border-bottom: none;
+                border-top-left-radius: 8px;
+                border-top-right-radius: 8px;
+                margin-right: 4px;
+            }}
+            QTabBar::tab:selected {{
+                background-color: #ffffff;
+                color: #2b6cb0;
+                font-weight: bold;
+                border-bottom: 1px solid #ffffff; /* Creates a seamless merge with the pane below */
+            }}
+            QTabBar::tab:hover:!selected {{
+                background-color: #edf2f7;
+                color: #2d3748;
+            }}
+        """)
+        
+        # --- Tab 1: Vitality (Lords) ---
+        t1 = QTextBrowser()
+        help_html = """<h2>Help</h2><p>Double click on a house to view from that house</p>"""
+        t1.setHtml(help_html)
+        
+        self.t1_scroller = SmoothScroller(t1) # Attach smooth scrolling
+        tabs.addTab(t1, "Help and Guide")
+        
+        # --- Tab 2: Credits & Info ---
+        t2 = QTextBrowser()
+        credits_html = """
+        <div>
+            <p>This application is an independent effort built with the intent 
+            to explore and implement classical Vedic astrological computations and 
+            visualizations in a modern software environment.</p>
+
+            <h3 style="color: #2980b9; margin-top: 20px;">Core Technologies Used</h3>
+            <ul>
+                <li><b>PyQt6</b> — for the graphical user interface and application framework</li>
+                <li><b>Swiss Ephemeris (swisseph)</b> — for astronomical and planetary calculations</li>
+                <li><b>Custom rendering logic</b> (using QPainter) for diamond-style chart visualization</li>
+            </ul>
+
+            <h3 style="color: #2980b9; margin-top: 20px;">Credits and References</h3>
+            <p>The design philosophy, workflow clarity, and certain interpretative structures 
+            were inspired by Jagannatha Hora software without which this work would not have been be possible.</p>
+            <p>Classical Vedic astrology principles, including Shadbala, Vargas, and planetary strengths, 
+            are based on traditional texts and standard computational doctrines.</p>
+
+            <h3 style="color: #c0392b; margin-top: 25px;">Important Clarification on Accuracy and Responsibility</h3>
+            <p>This application is a personal implementation of complex astrological systems.<br>
+            While significant effort has been made to align calculations with traditional methods 
+            and known software references, this is <b>NOT</b> an authoritative or certified 
+            implementation.</p>
+            
+            <p>Any discrepancies, inaccuracies, computational deviations, or interpretational 
+            inconsistencies within this application are:</p>
+            <ul style="list-style-type: square;">
+                <li><b>SOLELY</b> the responsibility of the developer of this application</li>
+                <li><b>Not</b> attributable to Swiss Ephemeris, Jagannatha Hora, or 
+                <b>any</b> classical sources referenced.</li>
+                <li>Should be brought into attention (so corrections could be made) to the developer.</li>
+            </ul>
+
+            <div style="background-color: #fdf2f2; border-left: 5px solid #e74c3c; padding: 12px; 
+            margin-top: 20px; border-radius: 3px;">
+                <p style="margin-top: 0;"><b>In other words:</b></p>
+                <p>If something is wrong, unclear, inconsistent, or behaves unexpectedly — 
+                the fault lies in <b>IMPLEMENTATION</b> of complex vedic mathematics and 
+                computations and <b>NOT</b> the sources themselves.</p>
+                <p style="margin-bottom: 0;">This software is provided as-is, without guarantees of 
+                accuracy, completeness, or fitness for any specific purpose. 
+                It is intended for educational, exploratory, and personal use <b>ONLY</b>.</p>
+            </div>
+
+            <h3 style="color: #2c3e50; margin-top: 25px;">Final Note</h3>
+            <p><i>Astrology itself is a deeply interpretative discipline. 
+            This application represents one attempt at structuring, computing and visualizing its 
+            principles - <b>NO CLAIMS ARE MADE REGARDING CORRECTNESS OF RESULTS 
+            DERIVED FORM THIS APP.</b></i></p>
+
+            <p style="text-align: right; font-weight: bold; margin-top: 30px;">—-- Developer</p>
+        </div>
+        """
+        
+        t2.setHtml(credits_html)
+        self.t2_scroller = SmoothScroller(t2) # Attach smooth scrolling
+        tabs.addTab(t2, "Credits")
+        
         layout.addWidget(tabs)
         
+        # --- Bottom Button Box ---
         btn_box = QHBoxLayout()
         btn_box.addStretch()
+        
+        # Modernize the button slightly to match the new UI
         close_btn = QPushButton("Close Guide")
+        close_btn.setStyleSheet(f"""
+            QPushButton {{
+                font-family: "{sys_font}", system-ui, sans-serif;
+                background-color: #e2e8f0;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 4px;
+                font-weight: bold;
+                color: #4a5568;
+            }}
+            QPushButton:hover {{
+                background-color: #cbd5e0;
+            }}
+        """)
         close_btn.clicked.connect(self.accept)
+        
         btn_box.addWidget(close_btn)
         layout.addLayout(btn_box)
-
-class ChartBuilderDialog(QDialog):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Visual Target Chart Builder")
-        self.resize(800, 500)
-        
-        main_layout = QHBoxLayout(self)
-        
-        left_panel = QWidget()
-        layout = QGridLayout(left_panel)
-
-        self.div_cb = NoScrollComboBox()
-        self.div_cb.addItems(div_keys)
-        self.div_cb.setCurrentText("D9")
-        self.div_cb.currentIndexChanged.connect(self.update_live_chart)
-        layout.addWidget(QLabel("Target Division:"), 0, 0)
-        layout.addWidget(self.div_cb, 0, 1)
-
-        self.planet_spins = {}
-        row = 1
-        for p in ["Ascendant", "Sun", "Moon", "Mars", "Mercury", "Jupiter", "Venus", "Saturn", "Rahu", "Ketu"]:
-            spin = QSpinBox()
-            spin.setRange(0, 12)
-            spin.setSpecialValueText("0 (Ignore)")
-            spin.valueChanged.connect(self.update_live_chart)
-            layout.addWidget(QLabel(f"{p}:"), row, 0)
-            layout.addWidget(spin, row, 1)
-            self.planet_spins[p] = spin
-            row += 1
-
-        btn_box = QHBoxLayout()
-        self.search_btn = QPushButton("Search Birth Time")
-        self.search_btn.setStyleSheet("background-color: #27ae60; color: white; font-weight: bold;")
-        self.search_btn.clicked.connect(self.accept)
-        cancel_btn = QPushButton("Cancel")
-        cancel_btn.clicked.connect(self.reject)
-        
-        btn_box.addWidget(self.search_btn)
-        btn_box.addWidget(cancel_btn)
-        
-        layout.addLayout(btn_box, row, 0, 1, 2)
-        
-        right_panel = QWidget()
-        right_layout = QVBoxLayout(right_panel)
-        self.renderer = ChartRenderer()
-        self.renderer.title = "Hypothetical Target"
-        if parent:
-            self.renderer.use_symbols = parent.chk_symbols.isChecked()
-            self.renderer.show_rahu_ketu = parent.chk_rahu.isChecked()
-            self.renderer.show_aspects = parent.chk_aspects.isChecked()
-            self.renderer.show_arrows = parent.chk_arrows.isChecked()
-            self.renderer.use_tint = parent.chk_tint.isChecked()
-            self.renderer.use_circular = parent.chk_circular.isChecked()
-        right_layout.addWidget(self.renderer)
-        
-        main_layout.addWidget(left_panel)
-        main_layout.addWidget(right_panel)
-        main_layout.setStretch(0, 1)
-        main_layout.setStretch(1, 2)
-        
-        self.update_live_chart()
-
-    def update_live_chart(self):
-        target_div = self.div_cb.currentText()
-        target_asc = self.planet_spins["Ascendant"].value() - 1
-        if target_asc < 0: target_asc = 0 
-        
-        self.renderer.title = f"Hypothetical Target {target_div}"
-        
-        synthetic_chart = {
-            "ascendant": {
-                "sign_index": target_asc,
-                "sign_num": target_asc + 1,
-                "degree": target_asc * 30 + 15.0,
-                "div_lon": target_asc * 30 + 15.0,
-                "vargottama": False
-            },
-            "planets": [],
-            "aspects": []
-        }
-        
-        exaltation_rules = {"Sun": 1, "Moon": 2, "Mars": 10, "Mercury": 6, "Jupiter": 4, "Venus": 12, "Saturn": 7, "Rahu": 2, "Ketu": 8}
-        debilitation_rules = {"Sun": 7, "Moon": 8, "Mars": 4, "Mercury": 12, "Jupiter": 10, "Venus": 6, "Saturn": 1, "Rahu": 8, "Ketu": 2}
-        sign_rulers = {1: "Mars", 2: "Venus", 3: "Mercury", 4: "Moon", 5: "Sun", 6: "Mercury", 7: "Venus", 8: "Mars", 9: "Jupiter", 10: "Saturn", 11: "Saturn", 12: "Jupiter"}
-
-        for p_name in ["Sun", "Moon", "Mars", "Mercury", "Jupiter", "Venus", "Saturn", "Rahu", "Ketu"]:
-            val = self.planet_spins[p_name].value()
-            if val == 0: continue
-            s_idx = val - 1
-            sign_num = val
-            
-            is_exalted = False
-            is_own = (sign_rulers.get(sign_num) == p_name)
-            is_debilitated = (sign_num == debilitation_rules.get(p_name))
-            
-            if p_name == "Moon" and sign_num == 2:
-                is_exalted = False; is_own = True
-            elif p_name == "Mercury" and sign_num == 6:
-                is_exalted = True; is_own = False
-            else:
-                is_exalted = (sign_num == exaltation_rules.get(p_name))
-                
-            if p_name == "Moon" and sign_num == 8:
-                is_debilitated = False 
-            elif p_name == "Mercury" and sign_num == 12:
-                is_debilitated = True 
-
-            synthetic_chart["planets"].append({
-                "name": p_name,
-                "sym": p_name[:2],
-                "lon": s_idx * 30 + 15.0,
-                "div_lon": s_idx * 30 + 15.0,
-                "sign_index": s_idx,
-                "sign_num": sign_num,
-                "deg_in_sign": 15.0, 
-                "house": ((s_idx - target_asc) % 12) + 1,
-                "retro": False,
-                "exalted": is_exalted,
-                "debilitated": is_debilitated,
-                "combust": False,
-                "own_sign": is_own,
-                "vargottama": False,
-                "is_ak": False
-            })
-            
-        self.renderer.update_chart(synthetic_chart)
-
-    def get_chart_data(self):
-        target_div = self.div_cb.currentText()
-        target_asc = self.planet_spins["Ascendant"].value() - 1
-        if target_asc < 0: target_asc = None
-
-        target_planets = {}
-        for p in ["Sun", "Moon", "Mars", "Mercury", "Jupiter", "Venus", "Saturn", "Rahu", "Ketu"]:
-            val = self.planet_spins[p].value()
-            if val > 0:
-                target_planets[p] = val - 1
-
-        return target_div, target_asc, target_planets
 
 class CustomLocationDialog(QDialog):
     def __init__(self, lat, lon, parent=None):
@@ -345,188 +302,227 @@ class CustomLocationDialog(QDialog):
         layout = QGridLayout(self)
         
         layout.addWidget(QLabel("Latitude:"), 0, 0)
-        self.lat_spin = QDoubleSpinBox()
-        self.lat_spin.setRange(-90.0, 90.0)
-        self.lat_spin.setDecimals(4)
-        self.lat_spin.setValue(lat)
+        self.lat_spin = QDoubleSpinBox(); self.lat_spin.setRange(-90.0, 90.0); self.lat_spin.setDecimals(4); self.lat_spin.setValue(lat)
         layout.addWidget(self.lat_spin, 0, 1)
 
         layout.addWidget(QLabel("Longitude:"), 1, 0)
-        self.lon_spin = QDoubleSpinBox()
-        self.lon_spin.setRange(-180.0, 180.0)
-        self.lon_spin.setDecimals(4)
-        self.lon_spin.setValue(lon)
+        self.lon_spin = QDoubleSpinBox(); self.lon_spin.setRange(-180.0, 180.0); self.lon_spin.setDecimals(4); self.lon_spin.setValue(lon)
         layout.addWidget(self.lon_spin, 1, 1)
 
         btn_layout = QHBoxLayout()
-        ok_btn = QPushButton("OK")
-        ok_btn.clicked.connect(self.accept)
-        cancel_btn = QPushButton("Cancel")
-        cancel_btn.clicked.connect(self.reject)
-        btn_layout.addWidget(ok_btn)
-        btn_layout.addWidget(cancel_btn)
-        
+        ok_btn, cancel_btn = QPushButton("OK"), QPushButton("Cancel")
+        ok_btn.clicked.connect(self.accept); cancel_btn.clicked.connect(self.reject)
+        btn_layout.addWidget(ok_btn); btn_layout.addWidget(cancel_btn)
         layout.addLayout(btn_layout, 2, 0, 1, 2)
 
-    def get_coordinates(self):
-        return self.lat_spin.value(), self.lon_spin.value()
+    def get_coordinates(self): return self.lat_spin.value(), self.lon_spin.value()
 
 # ==========================================
-# 1. LOCATION WORKER
+# THREAD WORKERS & RENDERING ENGINE
 # ==========================================
+
 class LocationWorker(QThread):
-    result_ready = pyqtSignal(float, float, str, str)
-    error_occurred = pyqtSignal(str)
-
-    def __init__(self, location_name):
-        super().__init__()
-        self.location_name = location_name
-
+    result_ready = pyqtSignal(float, float, str, str); error_occurred = pyqtSignal(str)
+    def __init__(self, location_name): super().__init__(); self.location_name = location_name
     def run(self):
         try:
-            geolocator = Nominatim(user_agent="vedic_astro_app_v1")
-            location = geolocator.geocode(self.location_name, timeout=10)
-            if location:
-                tz_name = TimezoneFinder().timezone_at(lng=location.longitude, lat=location.latitude) or "UTC"
-                self.result_ready.emit(location.latitude, location.longitude, tz_name, location.address)
+            location = Nominatim(user_agent="astro_basics").geocode(self.location_name, timeout=10)
+            if location: self.result_ready.emit(location.latitude, location.longitude, TimezoneFinder().timezone_at(lng=location.longitude, lat=location.latitude) or "UTC", location.address)
             else: self.error_occurred.emit("Location not found.")
         except Exception as e: self.error_occurred.emit(f"Network Error: {str(e)}")
 
-# ==========================================
-# 2. TRANSIT WORKER THREAD
-# ==========================================
-class TransitWorkerThread(QThread):
-    finished = pyqtSignal(object)
-    error = pyqtSignal(str)
-    stopped = pyqtSignal()
-    progress = pyqtSignal(str) 
-
-    def __init__(self, params):
+class ButtonTimeWorker(QThread):
+    partial_result = pyqtSignal(str, object)
+    results_ready = pyqtSignal(dict)
+    
+    def __init__(self, jd_utc, lat, lon, frozen_planets, transit_div, transit_planet, ayanamsa, custom_vargas):
         super().__init__()
-        self.params = params
-        self.stop_event = multiprocessing.Event()
-        self.result_queue = multiprocessing.Queue()
-        self.process = None
+        self.jd_utc, self.lat, self.lon = jd_utc, lat, lon
+        self.frozen_planets = copy.deepcopy(frozen_planets)
+        self.transit_div, self.transit_planet = transit_div, transit_planet
+        self.ayanamsa, self.custom_vargas = ayanamsa, custom_vargas
+        self.stop_flag = False
 
     def run(self):
-        self.process = multiprocessing.Process(
-            target=astro_engine.perform_transit_search,
-            args=(self.params, self.result_queue, self.stop_event)
-        )
-        self.process.start()
+        res = {'asc_prev': None, 'asc_next': None, 'p_prev': None, 'p_next': None}
+        try:
+            engine = astro_engine.EphemerisEngine()
+            engine.set_ayanamsa(self.ayanamsa)
+            engine.set_custom_vargas(self.custom_vargas)
+            zodiacs = ["Aries", "Taurus", "Gemini", "Cancer", "Leo", "Virgo", "Libra", "Scorpio", "Sagittarius", "Capricorn", "Aquarius", "Pisces"]
+            
+            class DummyStop:
+                def __init__(self, worker): self.worker = worker
+                def is_set(self): return self.worker.stop_flag
+            ds = DummyStop(self)
 
-        while self.process.is_alive():
-            if self.isInterruptionRequested():
-                self.stop_event.set()
-                self.process.join(timeout=0.5)
-                if self.process.is_alive(): self.process.terminate()
-                self.stopped.emit()
-                return
-            try:
-                res = self.result_queue.get(timeout=0.1)
-                if res["status"] == "success":
-                    self.finished.emit(res["result_jd_utc"]); return
-                elif res["status"] == "stopped":
-                    self.stopped.emit(); return
-                elif res["status"] == "not_found":
-                    self.finished.emit(None); return
-                elif res["status"] == "progress":
-                    self.progress.emit(res["date"])
-                else:
-                    self.error.emit(res.get("message", "Unknown error")); return
-            except queue.Empty: continue
+            if "Ascendant" in self.frozen_planets and self.frozen_planets["Ascendant"]["div"] == self.transit_div:
+                asc_tgt_sign = zodiacs[self.frozen_planets["Ascendant"]["sign_idx"]]
+            else:
+                asc_tgt_sign = "Any Rashi"
 
-        handled = False
-        while not self.result_queue.empty():
-            try:
-                res = self.result_queue.get_nowait()
-                if res["status"] == "success":
-                    self.finished.emit(res["result_jd_utc"]); handled = True; break
-                elif res["status"] == "stopped":
-                    self.stopped.emit(); handled = True; break
-                elif res["status"] == "not_found":
-                    self.finished.emit(None); handled = True; break
-                elif res["status"] == "progress":
-                    self.progress.emit(res["date"])
-                else:
-                    self.error.emit(res.get("message", "Unknown error")); handled = True; break
-            except queue.Empty: break
+            res['asc_prev'] = engine.search_transit_core(self.jd_utc, self.lat, self.lon, "Ascendant", -1, self.transit_div, copy.deepcopy(self.frozen_planets), asc_tgt_sign, ds)
+            if self.stop_flag: return
+            self.partial_result.emit('asc_prev', res['asc_prev'])
+
+            res['asc_next'] = engine.search_transit_core(self.jd_utc, self.lat, self.lon, "Ascendant", 1, self.transit_div, copy.deepcopy(self.frozen_planets), asc_tgt_sign, ds)
+            if self.stop_flag: return
+            self.partial_result.emit('asc_next', res['asc_next'])
+
+            if self.transit_planet in self.frozen_planets and self.frozen_planets[self.transit_planet]["div"] == self.transit_div:
+                p_tgt_sign = zodiacs[self.frozen_planets[self.transit_planet]["sign_idx"]]
+            else:
+                p_tgt_sign = "Any Rashi"
+
+            res['p_prev'] = engine.search_transit_core(self.jd_utc, self.lat, self.lon, self.transit_planet, -1, self.transit_div, copy.deepcopy(self.frozen_planets), p_tgt_sign, ds)
+            if self.stop_flag: return
+            self.partial_result.emit('p_prev', res['p_prev'])
+
+            res['p_next'] = engine.search_transit_core(self.jd_utc, self.lat, self.lon, self.transit_planet, 1, self.transit_div, copy.deepcopy(self.frozen_planets), p_tgt_sign, ds)
+            if self.stop_flag: return
+            self.partial_result.emit('p_next', res['p_next'])
+
+        except Exception as e:
+            print(f"Background Transit Worker error: {e}")
+        finally:
+            if not self.stop_flag:
+                self.results_ready.emit(res)
+
+class JumpSearchWorker(QThread):
+    finished = pyqtSignal(object)
+    
+    def __init__(self, engine, jd_utc, lat, lon, body_name, direction, transit_div, frozen_planets, tgt_sign):
+        super().__init__()
+        self.engine = engine
+        self.jd_utc = jd_utc
+        self.lat = lat
+        self.lon = lon
+        self.body_name = body_name
+        self.direction = direction
+        self.transit_div = transit_div
+        self.frozen_planets = copy.deepcopy(frozen_planets)
+        self.tgt_sign = tgt_sign
+        self.stop_flag = False
+
+    def run(self):
+        class DummyStop:
+            def __init__(self, worker): self.worker = worker
+            def is_set(self): return self.worker.stop_flag
         
-        if not handled and not self.isInterruptionRequested():
-            self.error.emit("Background search terminated unexpectedly.")
+        ds = DummyStop(self)
+        result = self.engine.search_transit_core(
+            self.jd_utc, self.lat, self.lon, self.body_name, self.direction, 
+            self.transit_div, self.frozen_planets, self.tgt_sign, ds
+        )
+        if not self.stop_flag:
+            self.finished.emit(result)
 
-    def stop(self): self.requestInterruption()
-
-# ==========================================
-# 3. RECTIFICATION WORKER THREAD
-# ==========================================
-class RectificationWorkerThread(QThread):
-    finished = pyqtSignal(object)
-    error = pyqtSignal(str)
-    progress = pyqtSignal(str)
-
-    def __init__(self, params):
+class ChartCalcWorker(QThread):
+    calc_finished = pyqtSignal(dict, dict, bool, str, str)
+    
+    def __init__(self, ephemeris):
         super().__init__()
-        self.params = params
-        self.stop_event = multiprocessing.Event()
-        self.result_queue = multiprocessing.Queue()
-        self.process = None
+        self.ephemeris = ephemeris
+        self.req_queue = queue.Queue()
+        self.is_running = True
+
+    def request_calc(self, time_dict, lat, lon, tz, real_now_jd, selected_div, selected_planet, active_divs, frozen_planets):
+        # Empty queue heavily to jump right to the latest animation frame and not freeze UI
+        while not self.req_queue.empty():
+            try: self.req_queue.get_nowait()
+            except queue.Empty: break
+        self.req_queue.put((time_dict, lat, lon, tz, real_now_jd, selected_div, selected_planet, active_divs, frozen_planets))
 
     def run(self):
-        self.process = multiprocessing.Process(
-            target=astro_engine.perform_rectification_search,
-            args=(self.params, self.result_queue, self.stop_event)
-        )
-        self.process.start()
-
-        while self.process.is_alive():
-            if self.isInterruptionRequested():
-                self.stop_event.set()
-                self.process.join(timeout=0.5)
-                if self.process.is_alive(): self.process.terminate()
-                return
+        while self.is_running:
             try:
-                res = self.result_queue.get(timeout=0.1)
-                if res["status"] in ["success", "not_found", "phase1_failed"]:
-                    self.finished.emit(res); return
-                elif res["status"] == "progress":
-                    self.progress.emit(res["msg"])
-                elif res["status"] == "error":
-                    self.error.emit(res["message"]); return
-            except queue.Empty: continue
+                req = self.req_queue.get(timeout=0.1)
+                time_dict, lat, lon, tz, real_now_jd, selected_div, selected_planet, active_divs, frozen_planets = req
+                
+                chart_data = self.ephemeris.calculate_chart(time_dict, lat, lon, tz, real_now_jd, selected_div, selected_planet)
+                div_charts = {}
+                for div in active_divs:
+                    div_charts[div] = self.ephemeris.compute_divisional_chart(chart_data, div) if div != "D1" else chart_data
+                    
+                violation, violating_planet, violating_div = False, None, None
+                if "Ascendant" in frozen_planets:
+                    asc_f_info = frozen_planets["Ascendant"]
+                    asc_f_div_chart = div_charts.get(asc_f_info["div"]) or (self.ephemeris.compute_divisional_chart(chart_data, asc_f_info["div"]) if asc_f_info["div"] != "D1" else chart_data)
+                    if asc_f_div_chart["ascendant"]["sign_index"] != asc_f_info["sign_idx"]:
+                        violation, violating_planet, violating_div = True, "Ascendant", asc_f_info["div"]
 
-    def stop(self): self.requestInterruption()
+                if not violation:
+                    for p in chart_data["planets"]:
+                        if p["name"] in frozen_planets:
+                            p_f_info = frozen_planets[p["name"]]
+                            p_f_div_chart = div_charts.get(p_f_info["div"]) or (self.ephemeris.compute_divisional_chart(chart_data, p_f_info["div"]) if p_f_info["div"] != "D1" else chart_data)
+                            p_in_div = next((x for x in p_f_div_chart["planets"] if x["name"] == p["name"]), None)
+                            if p_in_div and p_in_div["sign_index"] != p_f_info["sign_idx"]:
+                                violation, violating_planet, violating_div = True, p["name"], p_f_info["div"]
+                                break
+                                
+                self.calc_finished.emit(chart_data, div_charts, violation, str(violating_planet), str(violating_div))
+            except queue.Empty:
+                continue
+            except Exception as e:
+                print(f"Background calculation error: {e}")
 
-# ==========================================
-# 4. CHART RENDERER (ANIMATION ENGINE)
-# ==========================================
+    def stop(self):
+        self.is_running = False
+        self.wait()
+
+
 
 class ChartRenderer(QWidget):
     def __init__(self):
         super().__init__()
+        
+        # --- Widget Configuration ---
         self.setMinimumSize(100, 100)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setMouseTracking(True)
-        self.title = "" 
+        
+        # --- State Initialization ---
+        self.title = ""
         self.d1_data = None
         self.outline_mode = "Vitality (Lords)"
         self.rotated_asc_sign_idx = None
+        self.hitboxes = []
+        self.house_polys = {}
+        self.chart_data = None
         
-        self.hitboxes, self.house_polys, self.chart_data = [], {}, None
-        self.use_symbols, self.show_rahu_ketu, self.highlight_asc_moon = False, True, True
-        self.show_aspects, self.show_arrows, self.use_tint, self.use_circular = False, True, True, False
+        # --- Display Flags ---
+        self.use_symbols = False
+        self.show_rahu_ketu = True
+        self.highlight_asc_moon = True
+        self.show_aspects = False
+        self.show_arrows = True
+        self.use_tint = True
+        self.use_circular = False
         self.visible_aspect_planets = set()
-
-        self.tooltip_label = QLabel(None)
-        self.tooltip_label.setWindowFlags(Qt.WindowType.ToolTip | Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
+        
+        # --- Tooltip Configuration ---
+        self.tooltip_label = QLabel(self)
+        self.tooltip_label.setWindowFlags(
+            Qt.WindowType.ToolTip | 
+            Qt.WindowType.FramelessWindowHint | 
+            Qt.WindowType.WindowStaysOnTopHint
+        )
         self.tooltip_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         
-        # Apply global scaling to tooltip base size
-        tt_fs = int(13 * GLOBAL_FONT_SCALE_MULTIPLIER)
-        self.tooltip_label.setStyleSheet(f"QLabel {{ background-color: #FDFDFD; color: #222222; border: 1px solid #BBBBBB; padding: 6px; font-size: {tt_fs}px; }}")
+        # Assuming GLOBAL_FONT_SCALE_MULTIPLIER exists in the environment
+        font_size = int(13 * GLOBAL_FONT_SCALE_MULTIPLIER) if 'GLOBAL_FONT_SCALE_MULTIPLIER' in globals() else 13
+        self.tooltip_label.setStyleSheet(
+            f"QLabel {{ background-color: #FDFDFD; color: #222222; border: 1px solid #BBBBBB; padding: 6px; font-size: {font_size}px; }}"
+        )
         self.tooltip_label.hide()
-
-        self.unicode_syms = {"Sun": "☉", "Moon": "☽", "Mars": "♂", "Mercury": "☿", "Jupiter": "♃", "Venus": "♀", "Saturn": "♄", "Rahu": "☊", "Ketu": "☋"}
+        
+        # --- Visual Dictionaries ---
+        self.unicode_syms = {
+            "Sun": "☉", "Moon": "☽", "Mars": "♂", "Mercury": "☿", 
+            "Jupiter": "♃", "Venus": "♀", "Saturn": "♄", 
+            "Rahu": "☊", "Ketu": "☋"
+        }
         
         self.bright_colors = {
             "Sun": QColor("#FF8C00"), "Moon": QColor("#00BCD4"), "Mars": QColor("#FF0000"), 
@@ -534,600 +530,1302 @@ class ChartRenderer(QWidget):
             "Saturn": QColor("#0000CD"), "Rahu": QColor("#708090"), "Ketu": QColor("#8B4513"), 
             "Ascendant": QColor("#C0392B")
         }
+        
         self.dark_colors = {
             "Sun": QColor("#CC5500"), "Moon": QColor("#007A8C"), "Mars": QColor("#AA0000"), 
             "Mercury": QColor("#008033"), "Jupiter": QColor("#A68A00"), "Venus": QColor("#B30066"), 
             "Saturn": QColor("#000080"), "Rahu": QColor("#444444"), "Ketu": QColor("#5C3A21"), 
             "Ascendant": QColor("#8B0000")
         }
-
-        self.anim_timer = QTimer(self); self.anim_timer.timeout.connect(self._on_anim_tick)
-        self.anim_duration, self.anim_start_time = 500.0, 0
-        self.source_layout, self.target_layout, self.current_layout, self.data_changed_flag = None, None, None, False
+        
+        # --- Animation State ---
+        self.anim_timer = QTimer(self)
+        self.anim_timer.timeout.connect(self._on_anim_tick)
+        self.anim_duration = 300.0
+        self.anim_start_time = 0
+        self.source_layout = None
+        self.target_layout = None
+        self.current_layout = None
+        self.data_changed_flag = False
 
     def _get_dynamic_functional_nature(self, p_name, base_lords, base_asc_idx, current_asc_idx):
-        if p_name in ["Rahu", "Ketu"]: return "#7f8c8d", "Neutral (Node)"
-        if not base_lords: return "#7f8c8d", "Neutral"
+        """Calculates the functional benefic/malefic nature of a planet."""
+        # Nodes are always treated as neutral for this logic
+        if p_name in ["Rahu", "Ketu"]: 
+            return "#7f8c8d", "Neutral (Node)"
+            
+        if not base_lords: 
+            return "#7f8c8d", "Neutral"
+            
+        # Calculate visual houses relative to current ascendant
         visual_lords = [((base_asc_idx + l - 1 - current_asc_idx) % 12) + 1 for l in base_lords]
-        is_yk = any(h in [4,7,10] for h in visual_lords) and any(h in [1,5,9] for h in visual_lords)
-        if is_yk: return "#FFD700", "Yoga Karaka (Gold)"
-        elif any(h in [1,5,9] for h in visual_lords): return "#27ae60", "Functional Benefic (Trine)"
-        elif any(h in [3,11] for h in visual_lords):
-            if any(h in [6,8,12] for h in visual_lords): return "#c0392b", "Functional Malefic"
-            return "#f1c40f", "Mixed/Opportunistic"
-        elif any(h in [6,8,12] for h in visual_lords): return "#c0392b", "Functional Malefic"
-        elif any(h in [4,7,10] for h in visual_lords): return "#000000", "Situational/Neutral (Kendra)"
+        
+        # --- Determine Astrological Functional Nature ---
+        # In Vedic astrology, a planet's functional nature (benefic/malefic) depends on the houses it rules.
+        
+        # Kendra (Angular) houses represent foundational pillars and situational neutrality (4, 7, 10). 
+        # Note: House 1 is both Kendra and Trine, but grouped with Trines for benefic calculations.
+        has_kendra = any(h in [4, 7, 10] for h in visual_lords)
+        
+        # Trikona (Trine) houses represent dharma, luck, and are always auspicious (1, 5, 9).
+        has_trine = any(h in [1, 5, 9] for h in visual_lords)
+        
+        # Dusthana houses represent obstacles, delays, and losses (6, 8, 12).
+        has_malefic = any(h in [6, 8, 12] for h in visual_lords)
+        
+        # Trishadaya houses represent desires and gains but create functionally malefic lords (3, 11).
+        has_upachaya_malefic = any(h in [3, 11] for h in visual_lords)
+        
+        # --- Evaluate Rulership Combinations ---
+        if has_kendra and has_trine:
+            # Ruling both a Kendra and a Trine makes a planet a highly auspicious "Yoga Karaka"
+            return "#FFD700", "Yoga Karaka (Gold)"
+        elif has_trine:
+            # Ruling a Trine makes the planet a Functional Benefic
+            return "#27ae60", "Functional Benefic (Trine)"
+        elif has_upachaya_malefic:
+            # Ruling a 3rd or 11th house makes it malefic, or mixed if it also rules another neutral house
+            if has_malefic:
+                return "#c0392b", "Functional Malefic"
+            else:
+                return "#f1c40f", "Mixed/Opportunistic"
+        elif has_malefic:
+            # Strictly ruling a Dusthana house makes it a Functional Malefic
+            return "#c0392b", "Functional Malefic"
+        elif has_kendra:
+            # Ruling only a Kendra house strips natural benefics of their goodness (Kendradhipati Dosha)
+            # making them act as situational neutrals
+            return "#000000", "Situational/Neutral (Kendra)"
+            
         return "#7f8c8d", "Neutral"
 
     def _get_house_polygon(self, h_num, x, y, w, h):
-        p_tl, p_tr, p_bl, p_br = QPointF(x, y), QPointF(x+w, y), QPointF(x, y+h), QPointF(x+w, y+h)
-        p_tc, p_bc, p_lc, p_rc = QPointF(x+w/2, y), QPointF(x+w/2, y+h), QPointF(x, y+h/2), QPointF(x+w, y+h/2)
-        p_cc = QPointF(x+w/2, y+h/2)
-        p_i_tl, p_i_tr = QPointF(x+w/4, y+h/4), QPointF(x+3*w/4, y+h/4)
-        p_i_bl, p_i_br = QPointF(x+w/4, y+3*h/4), QPointF(x+3*w/4, y+3*h/4)
-        polys = {1: [p_tc, p_i_tr, p_cc, p_i_tl], 2: [p_tl, p_tc, p_i_tl], 3: [p_tl, p_i_tl, p_lc], 4: [p_lc, p_i_tl, p_cc, p_i_bl], 5: [p_lc, p_i_bl, p_bl], 6: [p_i_bl, p_bc, p_bl], 7: [p_cc, p_i_br, p_bc, p_i_bl], 8: [p_bc, p_i_br, p_br], 9: [p_i_br, p_rc, p_br], 10: [p_i_tr, p_rc, p_i_br, p_cc], 11: [p_tr, p_rc, p_i_tr], 12: [p_tc, p_tr, p_i_tr]}
-        return QPolygonF(polys[h_num])
-
+        """Generates the QPolygonF for the Vedic Diamond Chart houses."""
+        # Key reference points of the bounding square
+        p_tl, p_tr = QPointF(x, y), QPointF(x + w, y)
+        p_bl, p_br = QPointF(x, y + h), QPointF(x + w, y + h)
+        p_tc, p_bc = QPointF(x + w / 2, y), QPointF(x + w / 2, y + h)
+        p_lc, p_rc = QPointF(x, y + h / 2), QPointF(x + w, y + h / 2)
+        p_cc = QPointF(x + w / 2, y + h / 2)
+        
+        # Inner diagonal midpoints
+        p_i_tl = QPointF(x + w / 4, y + h / 4)
+        p_i_tr = QPointF(x + 3 * w / 4, y + h / 4)
+        p_i_bl = QPointF(x + w / 4, y + 3 * h / 4)
+        p_i_br = QPointF(x + 3 * w / 4, y + 3 * h / 4)
+        
+        # Map visual house number (1-12) to its respective diamond shape
+        polygons = {
+            1: [p_tc, p_i_tr, p_cc, p_i_tl],
+            2: [p_tl, p_tc, p_i_tl],
+            3: [p_tl, p_i_tl, p_lc],
+            4: [p_lc, p_i_tl, p_cc, p_i_bl],
+            5: [p_lc, p_i_bl, p_bl],
+            6: [p_i_bl, p_bc, p_bl],
+            7: [p_cc, p_i_br, p_bc, p_i_bl],
+            8: [p_bc, p_i_br, p_br],
+            9: [p_i_br, p_rc, p_br],
+            10: [p_i_tr, p_rc, p_i_br, p_cc],
+            11: [p_tr, p_rc, p_i_tr],
+            12: [p_tc, p_tr, p_i_tr]
+        }
+        return QPolygonF(polygons[h_num])
+    
     def update_chart(self, data, d1_data=None):
-        self.chart_data = data; self.d1_data = d1_data; self.rotated_asc_sign_idx = None; self.data_changed_flag = True
-        self.update()
+        """Triggered from outside to inject new chart data."""
+        self.chart_data = data
+        self.d1_data = d1_data
+        self.rotated_asc_sign_idx = None
+        self.data_changed_flag = True
 
+        current_time = time.time() * 1000
+        time_since_last = current_time - getattr(self, 'last_update_time', current_time)
+        self.last_update_time = current_time
+        
+        # Decoupled Animation Logic:
+        # If updates are coming in continuously (e.g., every 250ms),
+        # dynamically stretch the 60fps UI tween to perfectly bridge the time gap.
+        if 0 < time_since_last < 1000:
+            self.instant_snap = False
+            self.anim_duration = time_since_last
+            self.use_linear_easing = True
+        else:
+            self.instant_snap = False
+            self.anim_duration = 350.0
+            self.use_linear_easing = False
+            
+        self.update()  
+    
     def _on_anim_tick(self):
-        t = (time.time() * 1000 - self.anim_start_time) / self.anim_duration
+        """Handles the frame-by-frame interpolation during a chart update."""
+        elapsed = (time.time() * 1000) - self.anim_start_time
+        
+        # Prevent division by zero just in case
+        if self.anim_duration <= 0:
+            self.anim_duration = 1.0 
+            
+        t = elapsed / self.anim_duration
+        
+        # --- THE HARD CLAMP FIX ---
         if t >= 1.0:
-            self.anim_timer.stop(); self.current_layout = self.target_layout
-        else: self.current_layout = self._lerp_layout(self.source_layout, self.target_layout, t)
+            t = 1.0 # Cap progress perfectly at 100%
+            if self.anim_timer.isActive():
+                self.anim_timer.stop() # Kill the timer
+            # Discard the interpolation math and lock the coordinates exactly to the target
+            self.current_layout = self.target_layout 
+        else:
+            # Only run the complex Ease-Out/Linear math if we are actively animating
+            self.current_layout = self._lerp_layout(self.source_layout, self.target_layout, t)
+            
         self.update()
-
+    
     def _lerp_layout(self, src, tgt, t):
-        e = (4 * t * t * t if t < 0.5 else 1 - math.pow(-2 * t + 2, 3) / 2) if getattr(self, "use_circular", False) else t
-        cur = {"zodiacs": {}, "planets": {}, "houses": {}, "tints": []}
-        for k, t_v in tgt["zodiacs"].items():
-            s_v = src["zodiacs"].get(k, t_v)
-            cur["zodiacs"][k] = {"x": s_v["x"] + (t_v["x"] - s_v["x"]) * e, "y": s_v["y"] + (t_v["y"] - s_v["y"]) * e, "val": t_v["val"]}
-        for k, t_v in tgt["houses"].items():
-            s_v = src["houses"].get(k, t_v)
-            cur["houses"][k] = {"x": s_v["x"] + (t_v["x"] - s_v["x"]) * e, "y": s_v["y"] + (t_v["y"] - s_v["y"]) * e, "outline_color": t_v.get("outline_color", "#BDC3C7"), "outline_width": t_v.get("outline_width", 1.0), "regime_colors": t_v.get("regime_colors", []), "original_h_num": t_v.get("original_h_num", 1)}
-        for k, t_v in tgt["planets"].items():
-            s_v = src["planets"].get(k, t_v)
-            cur["planets"][k] = {"x": s_v["x"] + (t_v["x"] - s_v["x"]) * e, "y": s_v["y"] + (t_v["y"] - s_v["y"]) * e, "str": t_v["str"], "color_dark": t_v["color_dark"], "retro": t_v["retro"], "exalted": t_v["exalted"], "debilitated": t_v["debilitated"], "combust": t_v["combust"], "raw": t_v["raw"]}
-        tgt_tints_pool = list(tgt.get("tints", []))
+        """Interpolates between two layouts (coordinates, scales, alpha tints)."""
+        if getattr(self, 'use_linear_easing', False):
+            e = t  # Pure linear for perfectly smooth continuous playback bridging
+        else:
+            e = 1 - (1 - t)**1  # (linear -> change to 2 for quad and 3 for cubic)
+            
+        def lerp(a, b):
+            return a + (b - a) * e
+        
+        cur = {"zodiacs": {}, "houses": {}, "planets": {}, "tints": []}
+
+        # Interpolate spatial properties
+        for cat in ["zodiacs", "houses", "planets"]:
+            for k, t_v in tgt[cat].items():
+                s_v = src[cat].get(k, t_v)
+                cur[cat][k] = t_v.copy() 
+                cur[cat][k]["x"] = lerp(s_v["x"], t_v["x"])
+                cur[cat][k]["y"] = lerp(s_v["y"], t_v["y"])
+                
+                if cat == "planets":
+                    cur[cat][k]["scale"] = lerp(s_v.get("scale", 1.0), t_v.get("scale", 1.0))
+
+        # Interpolate tint alphas for cross-fading
+        tgt_tints = list(tgt.get("tints", []))
         for s_tint in src.get("tints", []):
-            match_idx = next((i for i, t_tint in enumerate(tgt_tints_pool) if s_tint["h2"] == t_tint["h2"] and s_tint["color"].rgb() == t_tint["color"].rgb()), -1)
-            if match_idx != -1:
-                c = QColor(s_tint["color"]); tgt_c = tgt_tints_pool[match_idx]["color"]; c.setAlpha(int(c.alpha() + (tgt_c.alpha() - c.alpha()) * e)); cur["tints"].append({"h2": s_tint["h2"], "color": c}); tgt_tints_pool.pop(match_idx)
+            c = QColor(s_tint["color"])
+            
+            # Find matching tint in target
+            match = -1
+            for i, t_t in enumerate(tgt_tints):
+                if s_tint["h2"] == t_t["h2"] and c.rgb() == t_t["color"].rgb():
+                    match = i
+                    break
+            
+            if match != -1:
+                # Fade towards target alpha
+                c.setAlpha(int(lerp(c.alpha(), tgt_tints[match]["color"].alpha())))
+                tgt_tints.pop(match)
             else:
-                c = QColor(s_tint["color"]); c.setAlpha(int(c.alpha() * (1.0 - e))); cur["tints"].append({"h2": s_tint["h2"], "color": c})
-        for t_tint in tgt_tints_pool:
-            c = QColor(t_tint["color"]); c.setAlpha(int(c.alpha() * e)); cur["tints"].append({"h2": t_tint["h2"], "color": c})
+                # Fade out entirely
+                c.setAlpha(int(c.alpha() * (1.0 - e)))
+            
+            cur["tints"].append({"h2": s_tint["h2"], "color": c})
+            
+        # Fade in new target tints
+        for t_tint in tgt_tints:
+            c = QColor(t_tint["color"])
+            c.setAlpha(int(c.alpha() * e))
+            cur["tints"].append({"h2": t_tint["h2"], "color": c})
+            
         return cur
 
     def _compute_layout(self, x, y, w, h):
+        """Calculates the absolute target positions of all chart elements."""
         layout = {"zodiacs": {}, "planets": {}, "houses": {}, "tints": []}
         if not self.chart_data: return layout
+        
         base_asc_sign_idx = self.chart_data["ascendant"]["sign_index"]
-        asc_sign_idx = self.rotated_asc_sign_idx if getattr(self, 'rotated_asc_sign_idx', None) is not None else base_asc_sign_idx
-        asc_deg_effective = asc_sign_idx * 30.0 + 15.0 if getattr(self, 'rotated_asc_sign_idx', None) is not None else self.chart_data["ascendant"].get("div_lon", self.chart_data["ascendant"]["degree"])
+        
+        # Support interactive chart rotation
+        if getattr(self, 'rotated_asc_sign_idx', None) is not None:
+            asc_sign_idx = self.rotated_asc_sign_idx
+            asc_deg_effective = asc_sign_idx * 30.0 + 15.0
+        else:
+            asc_sign_idx = base_asc_sign_idx
+            asc_deg_effective = self.chart_data["ascendant"].get("div_lon", self.chart_data["ascendant"]["degree"])
+            
         all_bodies = []
-        if self.highlight_asc_moon:
-            is_varg = self.chart_data["ascendant"].get("vargottama", False)
-            str_val = "Asc*" if is_varg and self.title and "D1" not in self.title else "Asc"
-            all_bodies.append({"name": "Ascendant", "str": str_val, "color_dark": self.dark_colors.get("Ascendant", QColor("#000000")), "lon": asc_deg_effective, "retro": False, "exalted": False, "debilitated": False, "combust": False, "raw": {"name": "Ascendant", "sign_index": base_asc_sign_idx, "deg_in_sign": self.chart_data["ascendant"]["degree"] % 30, "retro": False, "combust": False, "house": 1, "vargottama": is_varg}})
+        
+        # 1. Add Ascendant (if highlighted)
+        if self.highlight_asc_moon: 
+            is_vargottama = self.chart_data["ascendant"].get("vargottama", False)
+            asc_str = "Asc*" if is_vargottama and self.title and "D1" not in self.title else "Asc"
+            all_bodies.append({
+                "name": "Ascendant", 
+                "str": asc_str, 
+                "color_dark": self.dark_colors.get("Ascendant", QColor("#000000")), 
+                "lon": asc_deg_effective, 
+                "retro": False, "exalted": False, "debilitated": False, "combust": False, 
+                "raw": {
+                    "name": "Ascendant", 
+                    "sign_index": base_asc_sign_idx, 
+                    "deg_in_sign": self.chart_data["ascendant"]["degree"] % 30, 
+                    "retro": False, "combust": False, "house": 1, 
+                    "vargottama": is_vargottama
+                }
+            })
+            
+        # 2. Add Planets
         for p in self.chart_data["planets"]:
-            if p["name"] in ["Rahu", "Ketu"] and not self.show_rahu_ketu: continue
-            base_str = self.unicode_syms[p["name"]] if self.use_symbols else p["sym"]
-            is_varg = p.get("vargottama", False)
-            str_val = base_str + "*" if is_varg and self.title and "D1" not in self.title else base_str
-            p_lon_effective = p.get("div_lon", p["lon"])
-            all_bodies.append({"name": p["name"], "str": str_val, "color_dark": self.dark_colors.get(p["name"], QColor("#000000")), "lon": p_lon_effective, "retro": p["retro"], "exalted": p.get("exalted", False), "debilitated": p.get("debilitated", False), "combust": p.get("combust", False), "raw": p})
+            if p["name"] in ["Rahu", "Ketu"] and not self.show_rahu_ketu: 
+                continue
+                
+            p_str = self.unicode_syms[p["name"]] if self.use_symbols else p["sym"]
+            if p.get("vargottama", False) and self.title and "D1" not in self.title:
+                p_str += "*"
+                
+            all_bodies.append({
+                "name": p["name"], 
+                "str": p_str, 
+                "color_dark": self.dark_colors.get(p["name"], QColor("#000000")), 
+                "lon": p.get("div_lon", p["lon"]), 
+                "retro": p["retro"], 
+                "exalted": p.get("exalted", False), 
+                "debilitated": p.get("debilitated", False), 
+                "combust": p.get("combust", False), 
+                "raw": p
+            })
 
+        # Group bodies into houses visually
         bodies_by_house = {i: [] for i in range(1, 13)}
         for b in all_bodies: 
-            p_sign_idx = b["raw"]["sign_index"]
-            visual_h_num = ((p_sign_idx - asc_sign_idx) % 12) + 1
+            visual_h_num = ((b["raw"]["sign_index"] - asc_sign_idx) % 12) + 1
             bodies_by_house[visual_h_num].append(b)
 
+        # 3. Calculate Layout Coordinates
         for visual_h_num in range(1, 13):
             sign_idx = (asc_sign_idx + visual_h_num - 1) % 12
-            sign_num = sign_idx + 1; sign_lon = sign_idx * 30.0 + 15.0
+            sign_num = sign_idx + 1
+            sign_lon = sign_idx * 30.0 + 15.0
             original_h_num = ((sign_idx - base_asc_sign_idx) % 12) + 1
-            has_planets = len(bodies_by_house[visual_h_num]) > 0
-            if getattr(self, "use_circular", False): zx, zy = animation.get_circular_coords(sign_lon, asc_deg_effective, -3, w, h); hx, hy = animation.get_circular_coords(sign_lon, asc_deg_effective, -4, w, h)
-            else: zx, zy = animation.get_diamond_zodiac_coords(visual_h_num, w, h, has_planets); hx, hy = animation.get_diamond_house_center(visual_h_num, w, h)
-            elem_syms = {1: "🔥", 2: "🌍", 3: "💨", 4: "💧", 5: "🔥", 6: "🌍", 7: "💨", 8: "💧", 9: "🔥", 10: "🌍", 11: "💨", 12: "💧"}
-            z_val = f"{sign_num}{elem_syms[sign_num]}"
+            
+            # Position calculations (Circular vs Diamond)
+            if getattr(self, "use_circular", False): 
+                zx, zy = animation.get_circular_coords(sign_lon, asc_deg_effective, -3, w, h)
+                hx, hy = animation.get_circular_coords(sign_lon, asc_deg_effective, -4, w, h)
+            else: 
+                has_bodies = len(bodies_by_house[visual_h_num]) > 0
+                zx, zy = animation.get_diamond_zodiac_coords(visual_h_num, w, h, has_bodies)
+                hx, hy = animation.get_diamond_house_center(visual_h_num, w, h)
+                
+            # --- House Outline Display Logic ---
+            # Depending on the selected 'outline_mode', we style the house borders to reflect different astrological data:
+            # - Pressure (Aspects): Colors/widths indicate how heavily aspected the house is from other planets.
+            # - Regime (Forces): Uses multiple colored borders (regime_colors) to show multiple simultaneous ruling influences.
+            # - Vitality (Lords): Colors/widths indicate the inherent strength of the house based on its lord's condition.
+            
             info = self.chart_data.get("houses_info", {}).get(original_h_num, {})
-            r_cols = []
-            if self.outline_mode == "Pressure (Aspects)": o_col = info.get("pressure_color", "#BDC3C7"); o_wid = info.get("pressure_width", 1.0)
-            elif self.outline_mode == "Regime (Forces)": r_cols = info.get("regime_colors", []); o_col = "#BDC3C7"; o_wid = 1.0
-            elif self.outline_mode == "Vitality (Lords)": o_col = info.get("vitality_color", "#BDC3C7"); o_wid = info.get("vitality_width", 1.0)
-            else: o_col = "#BDC3C7"; o_wid = 1.0
-            layout["houses"][visual_h_num] = {"x": hx + x, "y": hy + y, "outline_color": o_col, "outline_width": o_wid, "regime_colors": r_cols, "original_h_num": original_h_num}
-            layout["zodiacs"][sign_num] = {"x": zx + x, "y": zy + y, "val": z_val}
+            
+            if self.outline_mode == "Pressure (Aspects)":
+                o_col = info.get("pressure_color", "#BDC3C7")
+                o_wid = info.get("pressure_width", 1.0)
+                r_cols = []
+            elif self.outline_mode == "Regime (Forces)":
+                o_col = "#BDC3C7"
+                o_wid = 1.0
+                r_cols = info.get("regime_colors", [])
+            elif self.outline_mode == "Vitality (Lords)":
+                o_col = info.get("vitality_color", "#BDC3C7")
+                o_wid = info.get("vitality_width", 1.0)
+                r_cols = []
+            else:
+                o_col = "#BDC3C7"
+                o_wid = 1.0
+                r_cols = []
+                
+            layout["houses"][visual_h_num] = {
+                "x": hx + x, 
+                "y": hy + y, 
+                "outline_color": o_col, 
+                "outline_width": o_wid, 
+                "regime_colors": r_cols, 
+                "original_h_num": original_h_num
+            }
+            
+            # Zodiac string generation
+            elem_emoji = {1: '🔥', 2: '🌍', 3: '💨', 4: '💧', 5: '🔥', 6: '🌍', 
+                          7: '💨', 8: '💧', 9: '🔥', 10: '🌍', 11: '💨', 12: '💧'}[sign_num]
+            layout["zodiacs"][sign_num] = {"x": zx + x, "y": zy + y, "val": f"{sign_num}{elem_emoji}"}
 
-        LANE_ORDER = {"Sun": 0, "Moon": 1, "Mars": 2, "Mercury": 3, "Jupiter": 4, "Venus": 5, "Saturn": 6, "Rahu": 7, "Ketu": 8, "Ascendant": 9}
+        # Lane Order for circular layouts to prevent planet overlap
+        LANE_ORDER = {"Sun": 0, "Moon": 1, "Mars": 2, "Mercury": 3, "Jupiter": 4, 
+                      "Venus": 5, "Saturn": 6, "Rahu": 7, "Ketu": 8, "Ascendant": 9}
+                      
         for visual_h_num, bodies in bodies_by_house.items():
+            num_b = len(bodies)
+            # Dynamic scaling to fit multiple planets in a single diamond/house
+            if num_b <= 2:
+                scale, spacing = 1.0, 0.08 * h
+            elif num_b <= 4:
+                scale, spacing = 0.85, 0.06 * h
+            elif num_b <= 6:
+                scale, spacing = 0.70, 0.045 * h
+            else:
+                scale, spacing = 0.55, 0.03 * h
+                
             for idx, b in enumerate(bodies):
-                if getattr(self, "use_circular", False): px, py = animation.get_circular_coords(b["lon"], asc_deg_effective, LANE_ORDER.get(b["name"], 4.5), w, h)
-                else: px, _ = animation.get_diamond_planet_coords(visual_h_num, idx, len(bodies), w, h); spacing = 0.065 * h; start_y = -((len(bodies) - 1) * spacing) / 2.0; hx, hy = animation.get_diamond_house_center(visual_h_num, w, h); py = hy + start_y + (idx * spacing)
-                layout["planets"][b["name"]] = {"x": px + x, "y": py + y, "str": b["str"], "color_dark": b["color_dark"], "retro": b["retro"], "exalted": b["exalted"], "debilitated": b["debilitated"], "combust": b["combust"], "raw": b["raw"]}
+                if getattr(self, "use_circular", False): 
+                    px, py = animation.get_circular_coords(b["lon"], asc_deg_effective, LANE_ORDER.get(b["name"], 4.5), w, h)
+                else: 
+                    px, _ = animation.get_diamond_planet_coords(visual_h_num, idx, num_b, w, h)
+                    py = animation.get_diamond_house_center(visual_h_num, w, h)[1] - ((num_b - 1) * spacing) / 2.0 + (idx * spacing)
+                    
+                layout["planets"][b["name"]] = {
+                    "x": px + x, "y": py + y, "str": b["str"], 
+                    "color_dark": b["color_dark"], "retro": b["retro"], 
+                    "exalted": b["exalted"], "debilitated": b["debilitated"], 
+                    "combust": b["combust"], "raw": b["raw"], "scale": scale
+                }
 
+        # Calculate house tints for aspects
         if self.show_aspects and self.use_tint and self.chart_data and self.chart_data.get("aspects"):
             for aspect in self.chart_data["aspects"]:
-                if aspect["aspecting_planet"] in self.visible_aspect_planets and (aspect["aspecting_planet"] not in ["Rahu", "Ketu"] or self.show_rahu_ketu):
-                    orig_target_h = aspect["target_house"]
-                    target_sign_idx = (base_asc_sign_idx + orig_target_h - 1) % 12
-                    visual_target_h = ((target_sign_idx - asc_sign_idx) % 12) + 1
-                    c = QColor(self.bright_colors.get(aspect["aspecting_planet"], QColor(200, 200, 200))); c.setAlpha(25)
-                    layout["tints"].append({"h2": visual_target_h, "color": c})
+                is_node = aspect["aspecting_planet"] in ["Rahu", "Ketu"]
+                if aspect["aspecting_planet"] in self.visible_aspect_planets and (not is_node or self.show_rahu_ketu):
+                    c = QColor(self.bright_colors.get(aspect["aspecting_planet"], QColor(200, 200, 200)))
+                    c.setAlpha(25)
+                    # Convert target aspect house to visual rendering house
+                    target_visual_house = ((((base_asc_sign_idx + aspect["target_house"] - 1) % 12) - asc_sign_idx) % 12) + 1
+                    layout["tints"].append({"h2": target_visual_house, "color": c})
+                    
         return layout
 
     def paintEvent(self, event):
-        self.hitboxes = []
-        painter = QPainter(self); painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.fillRect(self.rect(), QColor("#FFFFFF"))
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         
-        size = min(self.width(), self.height()) - 50 
+        # 1. Base Dimensions & Initialization
+        size = min(self.width(), self.height()) - 50
         cx, cy = self.width() / 2, self.height() / 2
         x, y, w, h = cx - size / 2, cy - size / 2 + 10, size, size
-
-        if self.title:
-            painter.setPen(QColor("#BBBBBB"))
-            # Apply global multiplier to Title text
-            title_fs = int(min(15, max(10, int(size * 0.035))) * GLOBAL_FONT_SCALE_MULTIPLIER)
-            painter.setFont(QFont(GLOBAL_UI_FONT_FAMILY, title_fs, QFont.Weight.Bold))
-            painter.drawText(QRectF(0, 0, self.width(), y - 10), Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignHCenter, self.title)
-
-        self.house_polys.clear()
-        for h_num in range(1, 13): self.house_polys[h_num] = self._get_house_polygon(h_num, x, y, w, h)
-
+        
+        # 2. Animation & Layout State Setup
         new_target_layout = self._compute_layout(x, y, w, h)
         if self.data_changed_flag:
             self.data_changed_flag = False
-            if self.current_layout is None: self.source_layout = self.target_layout = self.current_layout = new_target_layout
+            self.bg_cache = None  # Invalidate background cache to force redraw
+            
+            if getattr(self, 'instant_snap', False) or self.current_layout is None:
+                # Snap instantly for fast playback (flipbook style)
+                self.source_layout = self.target_layout = self.current_layout = new_target_layout
+                if self.anim_timer.isActive():
+                    self.anim_timer.stop()
             else:
+                # Smooth 350ms tween for manual steps or rotations
                 self.source_layout, self.target_layout = self.current_layout, new_target_layout
                 self.anim_start_time = time.time() * 1000
                 self.anim_timer.start(16)
         else:
             self.target_layout = new_target_layout
-            if not self.anim_timer.isActive(): self.source_layout = self.current_layout = new_target_layout
+            if not self.anim_timer.isActive():
+                self.source_layout = self.current_layout = new_target_layout
 
-        layout = self.current_layout
-        if not layout:
-            painter.setPen(QColor("#000000")); painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "No Chart Data")
+        if not self.current_layout:
+            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "No Chart Data")
             return
 
-        for tint in layout["tints"]:
-            painter.setBrush(QBrush(tint["color"])); painter.setPen(Qt.PenStyle.NoPen)
-            if not getattr(self, "use_circular", False): 
-                if tint["h2"] in self.house_polys:
-                    painter.drawPolygon(self.house_polys[tint["h2"]])
-
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        chart_cx, chart_cy = x + w / 2, y + h / 2
-        if getattr(self, "use_circular", False):
-            outer_r = (w - 40) / 2
-            painter.setPen(QPen(QColor("#DAA520"), 2)); painter.drawEllipse(QPointF(chart_cx, chart_cy), outer_r + 4, outer_r + 4)
-            painter.setPen(QPen(QColor("#8B4513"), 1.5)); painter.drawEllipse(QPointF(chart_cx, chart_cy), outer_r + 8, outer_r + 8)
-            inner_r = w * 0.15
-            painter.setPen(QPen(QColor("#222222"), max(1.0, w*0.005)))
-            painter.drawEllipse(QRectF(x + 20, y + 20, w - 40, h - 40)); painter.drawEllipse(QRectF(cx - inner_r, cy - inner_r, inner_r*2, inner_r*2))
-            for i in range(12):
-                angle = math.radians(i * 30 + 15)
-                painter.drawLine(int(cx + inner_r * math.cos(angle)), int(cy - inner_r * math.sin(angle)), int(cx + ((w - 40) / 2) * math.cos(angle)), int(cy - ((w - 40) / 2) * math.sin(angle)))
-        else:
-            painter.setPen(QPen(QColor("#DAA520"), 2)); painter.drawRect(int(x - 4), int(y - 4), int(w + 8), int(h + 8))
-            painter.setPen(QPen(QColor("#8B4513"), 1.5)); painter.drawRect(int(x - 8), int(y - 8), int(w + 16), int(h + 16))
-            painter.setPen(Qt.PenStyle.NoPen); painter.setBrush(QBrush(QColor("#8B4513")))
-            for px in [x - 8, x + w + 8]:
-                for py in [y - 8, y + h + 8]:
-                    painter.drawRect(int(px - 2), int(py - 2), 4, 4)
+        # 3. STATIC CACHE LAYER: Only draw grid, houses, and titles when resizing or data changes
+        if getattr(self, '_last_bg_size', None) != self.size() or not getattr(self, 'bg_cache', None):
+            self._last_bg_size = self.size()
+            self.bg_cache = QPixmap(self.size())
+            self.bg_cache.fill(Qt.GlobalColor.white)
             
-            painter.setBrush(Qt.BrushStyle.NoBrush); painter.setPen(QPen(QColor("#222222"), max(1.0, w*0.005)))
-            painter.drawRect(int(x), int(y), int(w), int(h))
-            painter.drawLine(int(x), int(y), int(x + w), int(y + h)); painter.drawLine(int(x + w), int(y), int(x), int(y + h))
-            painter.drawLine(int(x + w/2), int(y), int(x + w), int(y + h/2)); painter.drawLine(int(x + w), int(y + h/2), int(x + w/2), int(y + h))
-            painter.drawLine(int(x + w/2), int(y + h), int(x), int(y + h/2)); painter.drawLine(int(x), int(y + h/2), int(x + w/2), int(y))
+            bg_p = QPainter(self.bg_cache)
+            bg_p.setRenderHint(QPainter.RenderHint.Antialiasing)
+            
+            # Draw Title
+            if self.title:
+                bg_p.setPen(QColor("#BBBBBB"))
+                font_fam = GLOBAL_UI_FONT_FAMILY if 'GLOBAL_UI_FONT_FAMILY' in globals() else "Arial"
+                font_mult = GLOBAL_FONT_SCALE_MULTIPLIER if 'GLOBAL_FONT_SCALE_MULTIPLIER' in globals() else 1.0
+                calc_size = int(min(15, max(10, int(size * 0.035))) * font_mult)
+                bg_p.setFont(QFont(font_fam, calc_size, QFont.Weight.Bold))
+                bg_p.drawText(QRectF(0, 0, self.width(), y - 10), Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignHCenter, self.title)
 
+            # Pre-compute house polygons for hitboxes and tints
+            self.house_polys.clear()
             for h_num in range(1, 13):
-                h_data = layout["houses"].get(h_num)
-                if not h_data: continue
-                hx, hy = h_data["x"], h_data["y"]; grid_thickness = max(1.0, w*0.005); empty_gap = 2.5 
-                if self.outline_mode == "Regime (Forces)":
-                    colors = h_data.get("regime_colors", [])
-                    if colors:
-                        pen_width = 3.5 
-                        for i, col_hex in enumerate(colors):
-                            c = QColor(col_hex); c.setAlpha(230); inset_poly = QPolygonF()
-                            inset_dist = (grid_thickness / 2.0) + empty_gap + (pen_width / 2.0) + (i * (pen_width + 1.0))
-                            for pt in self.house_polys[h_num]:
-                                dx, dy = hx - pt.x(), hy - pt.y(); dist = math.hypot(dx, dy)
-                                if dist > 0: inset_poly.append(QPointF(pt.x() + (dx/dist)*inset_dist, pt.y() + (dy/dist)*inset_dist))
-                                else: inset_poly.append(pt)
-                            painter.setPen(QPen(c, pen_width, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)); painter.setBrush(Qt.BrushStyle.NoBrush); painter.drawPolygon(inset_poly)
-                else:
-                    if h_data.get("outline_width", 1.0) > 1.05:
-                        c = QColor(h_data["outline_color"]); c.setAlpha(220); inset_poly = QPolygonF(); pen_width = 3.5 
-                        inset_dist = (grid_thickness / 2.0) + empty_gap + (pen_width / 2.0)
-                        for pt in self.house_polys[h_num]:
-                            dx, dy = hx - pt.x(), hy - pt.y(); dist = math.hypot(dx, dy)
-                            if dist > 0: inset_poly.append(QPointF(pt.x() + (dx/dist)*inset_dist, pt.y() + (dy/dist)*inset_dist))
-                            else: inset_poly.append(pt)
-                        painter.setPen(QPen(c, pen_width, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)); painter.setBrush(Qt.BrushStyle.NoBrush); painter.drawPolygon(inset_poly)
+                self.house_polys[h_num] = self._get_house_polygon(h_num, x, y, w, h)
 
-        for z in layout["zodiacs"].values():
-            base_p_fs = min(14, max(9, int(w * 0.035)))
-            # Scale the Rashi text
-            rashi_font_size = int(max(7, int(base_p_fs * 0.5)) * GLOBAL_FONT_SCALE_MULTIPLIER)
-            painter.setFont(QFont(GLOBAL_RASHI_FONT_FAMILY, rashi_font_size, QFont.Weight.Normal)); painter.setPen(QColor("#000000"))
+            # Draw the base chart skeleton (Circular vs Diamond)
+            if getattr(self, "use_circular", False):
+                outer_r, inner_r = (w - 40) / 2, w * 0.15
+                bg_p.setPen(QPen(QColor("#DAA520"), 2))
+                bg_p.drawEllipse(QPointF(cx, cy), outer_r + 4, outer_r + 4)
+                
+                bg_p.setPen(QPen(QColor("#8B4513"), 1.5))
+                bg_p.drawEllipse(QPointF(cx, cy), outer_r + 8, outer_r + 8)
+                
+                bg_p.setPen(QPen(QColor("#222222"), max(1.0, w * 0.005)))
+                bg_p.drawEllipse(QRectF(x + 20, y + 20, w - 40, h - 40))
+                bg_p.drawEllipse(QRectF(cx - inner_r, cy - inner_r, inner_r * 2, inner_r * 2))
+                
+                for i in range(12):
+                    angle = math.radians(i * 30 + 15)
+                    bg_p.drawLine(
+                        int(cx + inner_r * math.cos(angle)), int(cy - inner_r * math.sin(angle)), 
+                        int(cx + outer_r * math.cos(angle)), int(cy - outer_r * math.sin(angle))
+                    )
+            else:
+                bg_p.setPen(QPen(QColor("#DAA520"), 2))
+                bg_p.drawRect(int(x - 4), int(y - 4), int(w + 8), int(h + 8))
+                
+                bg_p.setPen(QPen(QColor("#8B4513"), 1.5))
+                bg_p.drawRect(int(x - 8), int(y - 8), int(w + 16), int(h + 16))
+                
+                bg_p.setPen(Qt.PenStyle.NoPen)
+                bg_p.setBrush(QBrush(QColor("#8B4513")))
+                for px in [x - 8, x + w + 8]:
+                    for py in [y - 8, y + h + 8]: 
+                        bg_p.drawRect(int(px - 2), int(py - 2), 4, 4)
+                        
+                bg_p.setBrush(Qt.BrushStyle.NoBrush)
+                bg_p.setPen(QPen(QColor("#222222"), max(1.0, w * 0.005)))
+                bg_p.drawRect(int(x), int(y), int(w), int(h))
+                
+                lines = [
+                    (x, y, x + w, y + h), 
+                    (x + w, y, x, y + h), 
+                    (x + w/2, y, x + w, y + h/2), 
+                    (x + w, y + h/2, x + w/2, y + h), 
+                    (x + w/2, y + h, x, y + h/2), 
+                    (x, y + h/2, x + w/2, y)
+                ]
+                for L in lines:
+                    bg_p.drawLine(int(L[0]), int(L[1]), int(L[2]), int(L[3]))
+                    
+            bg_p.end()
+
+        # Instantly slap the static background onto the canvas
+        painter.drawPixmap(0, 0, self.bg_cache)
+
+        # 4. Tints and Dynamic Outlines
+        for tint in self.current_layout["tints"]:
+            if not getattr(self, "use_circular", False) and tint["h2"] in self.house_polys:
+                painter.setBrush(QBrush(tint["color"]))
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.drawPolygon(self.house_polys[tint["h2"]])
+        
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        if not getattr(self, "use_circular", False):
+            for h_num in range(1, 13):
+                h_data = self.current_layout["houses"].get(h_num)
+                if not h_data: 
+                    continue
+                    
+                if self.outline_mode == "Regime (Forces)" and h_data.get("regime_colors", []):
+                    # Multi-color outlines for regime forces
+                    for i, col_hex in enumerate(h_data["regime_colors"]):
+                        c = QColor(col_hex)
+                        c.setAlpha(230)
+                        inset_dist = (max(1.0, w * 0.005) / 2.0) + 4.25 + (i * 4.5)
+                        
+                        # Calculate inset polygon points to prevent outline overlap
+                        pts = []
+                        for pt in self.house_polys[h_num]:
+                            dx = h_data["x"] - pt.x()
+                            dy = h_data["y"] - pt.y()
+                            dist = max(1, math.hypot(dx, dy))
+                            nx = pt.x() + (dx / dist) * inset_dist
+                            ny = pt.y() + (dy / dist) * inset_dist
+                            pts.append(QPointF(nx, ny))
+                            
+                        inset_poly = QPolygonF(pts)
+                        painter.setPen(QPen(c, 3.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+                        painter.drawPolygon(inset_poly)
+                        
+                elif self.outline_mode != "Regime (Forces)" and h_data.get("outline_width", 1.0) > 1.05:
+                    # Standard bold outlines
+                    c = QColor(h_data["outline_color"])
+                    c.setAlpha(220)
+                    inset_dist = (max(1.0, w * 0.005) / 2.0) + 4.25
+                    
+                    pts = []
+                    for pt in self.house_polys[h_num]:
+                        dx = h_data["x"] - pt.x()
+                        dy = h_data["y"] - pt.y()
+                        dist = max(1, math.hypot(dx, dy))
+                        nx = pt.x() + (dx / dist) * inset_dist
+                        ny = pt.y() + (dy / dist) * inset_dist
+                        pts.append(QPointF(nx, ny))
+                        
+                    inset_poly = QPolygonF(pts)
+                    painter.setPen(QPen(c, 3.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+                    painter.drawPolygon(inset_poly)
+
+        # 5. Zodiacs
+        font_mult = GLOBAL_FONT_SCALE_MULTIPLIER if 'GLOBAL_FONT_SCALE_MULTIPLIER' in globals() else 1.0
+        z_font_fam = GLOBAL_RASHI_FONT_FAMILY if 'GLOBAL_RASHI_FONT_FAMILY' in globals() else "Arial"
+        z_font = QFont(z_font_fam, int(max(7, min(14, max(9, w * 0.035)) * 0.5) * font_mult))
+        painter.setFont(z_font)
+        painter.setPen(QColor("#000000"))
+        
+        for z in self.current_layout["zodiacs"].values():
             painter.drawText(QRectF(z["x"] - 15, z["y"] - 15, 30, 30), Qt.AlignmentFlag.AlignCenter, z["val"])
 
-        for b in layout["planets"].values():
+        # 6. Planets
+        self.hitboxes.clear()
+        is_animating = self.anim_timer.isActive()
+        p_base_font_size = min(14, max(9, int(w * 0.035))) * font_mult * 1.15
+        marker_base_fs = max(4, min(9, max(6, int(w * 0.022))))
+        chart_font_fam = GLOBAL_CHART_FONT_FAMILY if 'GLOBAL_CHART_FONT_FAMILY' in globals() else "Arial"
+        emoji_font_fam = GLOBAL_EMOJI_FONT_FAMILY if 'GLOBAL_EMOJI_FONT_FAMILY' in globals() else "Segoe UI Emoji"
+        
+        for b in self.current_layout["planets"].values():
+            scale = b.get("scale", 1.0)
+            
+            # Atmakaraka Highlighting Background
             if b["raw"].get("is_ak"):
-                painter.setPen(Qt.PenStyle.NoPen); painter.setBrush(QColor(255, 215, 0, 90)); painter.drawEllipse(QPointF(b["x"], b["y"] - 4), 22, 22)
-            
-            # Scale the Planet text
-            base_planet_fs = min(14, max(9, int(w * 0.035)))
-            planet_font_size = int(base_planet_fs * GLOBAL_FONT_SCALE_MULTIPLIER * 1.15)
-            
-            painter.setPen(b["color_dark"]); painter.setFont(QFont(GLOBAL_CHART_FONT_FAMILY, planet_font_size, QFont.Weight.Bold))
-            p_rect = QRectF(b["x"] - 40, b["y"] - 10, 80, 20)
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(QColor(255, 215, 0, 90))
+                painter.drawEllipse(QPointF(b["x"], b["y"] - 4 * scale), 22 * scale, 22 * scale)
+                
+            # Planet Text
+            painter.setPen(b["color_dark"])
+            painter.setFont(QFont(chart_font_fam, int(p_base_font_size * scale), QFont.Weight.Bold))
+            p_rect = QRectF(b["x"] - 40 * scale, b["y"] - 10 * scale, 80 * scale, 20 * scale)
             painter.drawText(p_rect, Qt.AlignmentFlag.AlignCenter, b["str"])
-            self.hitboxes.append((p_rect, b["raw"]))
-            fm = painter.fontMetrics(); text_width = fm.boundingRect(b["str"]).width()
-            marker_x = b["x"] + text_width / 2.0 + 2; marker_y = b["y"] - 10; marker_h = 20
             
-            # NO MULTIPLIER on Marker fonts to ensure Emojis and Signs remain visible and undistorted
-            marker_font_size = min(9, max(6, int(w * 0.022)))
+            # Hitboxes are only built when the animation finishes to ensure precision clicking
+            if not is_animating:
+                self.hitboxes.append((p_rect, b["raw"]))
+                
+            # Render special status markers (R, ▲, ▼, 🔥)
+            marker_x = b["x"] + painter.fontMetrics().horizontalAdvance(b["str"]) / 2.0 + 2 * scale
+            marker_y, marker_h = b["y"] - 10 * scale, 20 * scale
+            marker_fs = max(4, int(marker_base_fs * scale))
             
             if b["retro"]:
-                painter.setPen(b["color_dark"]); painter.setFont(QFont(GLOBAL_CHART_FONT_FAMILY, max(5, marker_font_size - 1), QFont.Weight.Bold))
-                painter.drawText(QRectF(marker_x, marker_y - 5, 20, marker_h), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, "R")
+                painter.setFont(QFont(chart_font_fam, max(4, marker_fs - 1), QFont.Weight.Bold))
+                painter.drawText(QRectF(marker_x, marker_y - 5 * scale, 20 * scale, marker_h), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, "R")
                 marker_x += painter.fontMetrics().horizontalAdvance("R") + 1
+                
             if b.get("exalted"):
-                painter.setPen(QColor("#27ae60")); painter.setFont(QFont(GLOBAL_CHART_FONT_FAMILY, marker_font_size, QFont.Weight.Bold))
-                painter.drawText(QRectF(marker_x, marker_y, 20, marker_h), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, "▲")
+                painter.setPen(QColor("#27ae60"))
+                painter.setFont(QFont(chart_font_fam, marker_fs, QFont.Weight.Bold))
+                painter.drawText(QRectF(marker_x, marker_y, 20 * scale, marker_h), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, "▲")
                 marker_x += painter.fontMetrics().horizontalAdvance("▲") + 2
             elif b.get("debilitated"):
-                painter.setPen(QColor("#c0392b")); painter.setFont(QFont(GLOBAL_CHART_FONT_FAMILY, marker_font_size, QFont.Weight.Bold))
-                painter.drawText(QRectF(marker_x, marker_y, 20, marker_h), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, "▼")
+                painter.setPen(QColor("#c0392b"))
+                painter.setFont(QFont(chart_font_fam, marker_fs, QFont.Weight.Bold))
+                painter.drawText(QRectF(marker_x, marker_y, 20 * scale, marker_h), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, "▼")
                 marker_x += painter.fontMetrics().horizontalAdvance("▼") + 2
+                
             if b.get("combust"):
-                painter.setFont(QFont(GLOBAL_EMOJI_FONT_FAMILY, marker_font_size))
-                painter.drawText(QRectF(marker_x, marker_y, 20, marker_h), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, "🔥")
+                painter.setFont(QFont(emoji_font_fam, marker_fs))
+                painter.drawText(QRectF(marker_x, marker_y, 20 * scale, marker_h), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, "🔥")
 
+        # 7. Aspect Lines
         if self.show_aspects and self.show_arrows and self.chart_data and self.chart_data.get("aspects"):
-            base_asc_sign_idx = self.chart_data["ascendant"]["sign_index"]
-            asc_sign_idx = getattr(self, 'rotated_asc_sign_idx', None)
-            if asc_sign_idx is None: asc_sign_idx = base_asc_sign_idx
+            asc_sign_idx = self.rotated_asc_sign_idx if getattr(self, 'rotated_asc_sign_idx', None) is not None else self.chart_data["ascendant"]["sign_index"]
+            
             for i, aspect in enumerate(self.chart_data["aspects"]):
-                if aspect["aspecting_planet"] in self.visible_aspect_planets and (aspect["aspecting_planet"] not in ["Rahu", "Ketu"] or self.show_rahu_ketu):
-                    orig_target_h = aspect["target_house"]
-                    target_sign_idx = (base_asc_sign_idx + orig_target_h - 1) % 12
-                    visual_target_h = ((target_sign_idx - asc_sign_idx) % 12) + 1
-                    p_v, h_v = layout["planets"].get(aspect["aspecting_planet"]), layout["houses"].get(visual_target_h)
+                is_node = aspect["aspecting_planet"] in ["Rahu", "Ketu"]
+                if aspect["aspecting_planet"] in self.visible_aspect_planets and (not is_node or self.show_rahu_ketu):
+                    
+                    target_h_visual = ((((self.chart_data["ascendant"]["sign_index"] + aspect["target_house"] - 1) % 12) - asc_sign_idx) % 12) + 1
+                    p_v = self.current_layout["planets"].get(aspect["aspecting_planet"])
+                    h_v = self.current_layout["houses"].get(target_h_visual)
+                    
                     if p_v and h_v:
-                        c = QColor(self.bright_colors.get(aspect["aspecting_planet"], QColor(100, 100, 100))); c.setAlpha(150)
-                        x1, y1, x2, y2 = p_v["x"] + (i % 3 - 1) * 4, p_v["y"] + ((i + 1) % 3 - 1) * 4, h_v["x"] + (i % 3 - 1) * 4, h_v["y"] + ((i + 1) % 3 - 1) * 4
-                        dx, dy = x2 - x1, y2 - y1; dist = math.hypot(dx, dy)
+                        c = QColor(self.bright_colors.get(aspect["aspecting_planet"], QColor(100, 100, 100)))
+                        c.setAlpha(150)
+                        
+                        # Apply slight offsets based on index to separate multiple incoming arrows
+                        offset_x = (i % 3 - 1) * 4
+                        offset_y = ((i + 1) % 3 - 1) * 4
+                        x1, y1 = p_v["x"] + offset_x, p_v["y"] + offset_y
+                        x2, y2 = h_v["x"] + offset_x, h_v["y"] + offset_y
+                        
+                        dist = math.hypot(x2 - x1, y2 - y1)
                         if dist >= 70:
-                            sx, sy, ex, ey = x1 + (dx/dist) * 35, y1 + (dy/dist) * 35, x2 - (dx/dist) * 35, y2 - (dy/dist) * 35
-                            painter.setPen(QPen(c, max(1.5, w*0.005), Qt.PenStyle.SolidLine)); painter.drawLine(int(sx), int(sy), int(ex), int(ey))
+                            # Shorten line slightly to not completely cover endpoints
+                            sx = x1 + ((x2 - x1) / dist) * 35
+                            sy = y1 + ((y2 - y1) / dist) * 35
+                            ex = x2 - ((x2 - x1) / dist) * 35
+                            ey = y2 - ((y2 - y1) / dist) * 35
+                            
+                            painter.setPen(QPen(c, max(1.5, w * 0.005), Qt.PenStyle.SolidLine))
+                            painter.drawLine(int(sx), int(sy), int(ex), int(ey))
+                            
+                            # Draw arrowhead
                             angle = math.atan2(ey - sy, ex - sx)
-                            painter.setBrush(QBrush(c)); painter.setPen(Qt.PenStyle.NoPen)
-                            painter.drawPolygon(QPolygonF([QPointF(ex, ey), QPointF(ex - 9 * math.cos(angle - math.pi / 6), ey - 9 * math.sin(angle - math.pi / 6)), QPointF(ex - 9 * math.cos(angle + math.pi / 6), ey - 9 * math.sin(angle + math.pi / 6))]))
+                            painter.setBrush(QBrush(c))
+                            painter.setPen(Qt.PenStyle.NoPen)
+                            
+                            arrow_pts = [
+                                QPointF(ex, ey), 
+                                QPointF(ex - 9 * math.cos(angle - math.pi / 6), ey - 9 * math.sin(angle - math.pi / 6)), 
+                                QPointF(ex - 9 * math.cos(angle + math.pi / 6), ey - 9 * math.sin(angle + math.pi / 6))
+                            ]
+                            painter.drawPolygon(QPolygonF(arrow_pts))
 
     def mouseDoubleClickEvent(self, event):
+        """Allows users to rotate the chart context by double-clicking a house."""
         if not self.chart_data: return
-        pos_point = event.position()
+        
         for h_num, poly in self.house_polys.items():
-            if poly.containsPoint(pos_point, Qt.FillRule.OddEvenFill):
-                base_asc = self.chart_data["ascendant"]["sign_index"]
-                curr_asc = getattr(self, 'rotated_asc_sign_idx', None)
-                if curr_asc is None: curr_asc = base_asc
-                clicked_sign = (curr_asc + h_num - 1) % 12
-                self.rotated_asc_sign_idx = None if (curr_asc == clicked_sign and curr_asc != base_asc) else clicked_sign
-                self.data_changed_flag = True; self.update()
-                if self.tooltip_label.isVisible(): self.tooltip_label.hide()
+            if poly.containsPoint(event.position(), Qt.FillRule.OddEvenFill):
+                curr_asc = self.rotated_asc_sign_idx if getattr(self, 'rotated_asc_sign_idx', None) is not None else self.chart_data["ascendant"]["sign_index"]
+                target_asc = (curr_asc + h_num - 1) % 12
+                
+                # If clicking the house that is already the 1st, reset to actual ascendant
+                if target_asc == curr_asc and curr_asc != self.chart_data["ascendant"]["sign_index"]:
+                    self.rotated_asc_sign_idx = None
+                else:
+                    self.rotated_asc_sign_idx = target_asc
+                
+                # Force the smooth animation for double-click rotations
+                self.instant_snap = False
+                self.anim_duration = 350.0
+                self.use_linear_easing = False
+                self.data_changed_flag = True
+                
+                self.update()
+                self.tooltip_label.hide()
                 break
-
-    def mouseMoveEvent(self, event): self._update_tooltip(event.position())
+    
+    def mouseMoveEvent(self, event): 
+        self._update_tooltip(event.position())
 
     def _update_tooltip(self, pos):
-        if not self.chart_data or not self.current_layout:
-            if self.tooltip_label.isVisible(): self.tooltip_label.hide()
+        """Builds and displays contextual HTML information based on mouse position."""
+        if not self.chart_data or not self.current_layout: 
+            self.tooltip_label.hide()
             return
             
-        tooltip_html, pos_point = "", QPointF(pos.x(), pos.y())
-        ordinal = lambda n: str(n) + ('th' if 11 <= (n % 100) <= 13 else {1: 'st', 2: 'nd', 3: 'rd'}.get(n % 10, 'th'))
+        tooltip_html = ""
+        pos_point = QPointF(pos.x(), pos.y())
+        
+        # --- Helper Constants / Functions ---
+        def ordinal(n):
+            if 11 <= (n % 100) <= 13: return str(n) + 'th'
+            return str(n) + {1: 'st', 2: 'nd', 3: 'rd'}.get(n % 10, 'th')
+            
         zodiac_names = ["Aries", "Taurus", "Gemini", "Cancer", "Leo", "Virgo", "Libra", "Scorpio", "Sagittarius", "Capricorn", "Aquarius", "Pisces"]
         zodiac_elements = ["🔥 Fire", "🌍 Earth", "💨 Air", "💧 Water"] * 3
         zodiac_natures = ["Movable", "Fixed", "Dual"] * 4
 
-        # Scaled font sizes for tooltips
-        fs_11 = int(11 * GLOBAL_FONT_SCALE_MULTIPLIER)
-        fs_12 = int(12 * GLOBAL_FONT_SCALE_MULTIPLIER)
-        fs_14 = int(14 * GLOBAL_FONT_SCALE_MULTIPLIER)
-        fs_18 = int(18 * GLOBAL_FONT_SCALE_MULTIPLIER)
-
+        font_mult = GLOBAL_FONT_SCALE_MULTIPLIER if 'GLOBAL_FONT_SCALE_MULTIPLIER' in globals() else 1.0
+        fs_11, fs_12, fs_14, fs_18 = int(11 * font_mult), int(12 * font_mult), int(14 * font_mult), int(18 * font_mult)
+        
         base_asc_sign_idx = self.chart_data["ascendant"]["sign_index"]
-        asc_sign_idx = getattr(self, 'rotated_asc_sign_idx', None)
-        if asc_sign_idx is None: asc_sign_idx = base_asc_sign_idx
+        asc_sign_idx = getattr(self, 'rotated_asc_sign_idx', None) if getattr(self, 'rotated_asc_sign_idx', None) is not None else base_asc_sign_idx
 
+        # --- Context Header Formatting ---
         context_prefix = ""
         if self.title and "D1" not in self.title:
             context_prefix += f"<div style='color:#888; font-size:{fs_11}px; margin-bottom:4px;'><b>[{self.title}]</b></div>"
-            if getattr(self, 'd1_data', None):
-                chart_key = self.title.split()[0]
-                div_meanings = {"D9": {"d1_house": 7}, "D10": {"d1_house": 10}, "D20": {"d1_house": 9}, "D30": {"d1_house": 6}, "D60": {"d1_house": 1}}
-                if chart_key in div_meanings:
-                    meaning = div_meanings[chart_key]; d1_h = meaning["d1_house"]; d1_asc_idx = self.d1_data["ascendant"]["sign_index"]
-                    target_sign = (d1_asc_idx + d1_h - 1) % 12 + 1
-                    ruler_map = {1: "Mars", 2: "Venus", 3: "Mercury", 4: "Moon", 5: "Sun", 6: "Mercury", 7: "Venus", 8: "Mars", 9: "Jupiter", 10: "Saturn", 11: "Saturn", 12: "Jupiter"}
-                    lord_name = ruler_map.get(target_sign)
-                    div_lord_p = next((p for p in self.chart_data["planets"] if p["name"] == lord_name), None)
+            
+            # Map D1 lords for Varga charts
+            d1_house_map = {"D9": 7, "D10": 10, "D20": 9, "D30": 6, "D60": 1}
+            chart_prefix = self.title.split()[0]
+            
+            if getattr(self, 'd1_data', None) and chart_prefix in d1_house_map:
+                d1_h = d1_house_map[chart_prefix]
+                
+                if 'astro_engine' in globals():
+                    d1_lord_name = astro_engine.SIGN_RULERS.get((self.d1_data["ascendant"]["sign_index"] + d1_h - 1) % 12 + 1)
+                    div_lord_p = next((p for p in self.chart_data["planets"] if p["name"] == d1_lord_name), None)
+                    
                     if div_lord_p:
-                        dig = [d for d, k in zip(["Exalted", "Debilitated", "Own Sign"], ["exalted", "debilitated", "own_sign"]) if div_lord_p.get(k)]
-                        dig_str = f" ({', '.join(dig)})" if dig else ""
-                        context_prefix += (f"<div style='background-color:#FFF8DC; padding:5px; border:1px solid #EEDD82; border-radius:3px; margin-bottom:8px; font-size:{fs_12}px; color:#555;'>"
-                                           f"<b>D1 {ordinal(d1_h)} lord ({lord_name}) in {chart_key} {ordinal(div_lord_p['house'])} house{dig_str}</b></div>")
+                        dig_flags = []
+                        if div_lord_p.get("exalted"): dig_flags.append("Exalted")
+                        if div_lord_p.get("debilitated"): dig_flags.append("Debilitated")
+                        if div_lord_p.get("own_sign"): dig_flags.append("Own Sign")
+                        
+                        dig_str = f" ({', '.join(dig_flags)})" if dig_flags else ""
+                        context_prefix += (
+                            f"<div style='background-color:#FFF8DC; padding:5px; border:1px solid #EEDD82; "
+                            f"border-radius:3px; margin-bottom:8px; font-size:{fs_12}px; color:#555;'>"
+                            f"<b>D1 {ordinal(d1_h)} lord ({d1_lord_name}) in {chart_prefix} {ordinal(div_lord_p['house'])} house{dig_str}</b>"
+                            f"</div>"
+                        )
 
+        # --- Check Hitboxes for Planet Intersect ---
         for rect, p_raw in self.hitboxes:
             if rect.contains(pos_point):
                 name = p_raw["name"]
                 house = ((p_raw["sign_index"] - asc_sign_idx) % 12) + 1 if "house" in p_raw else "-"
                 
+                # Extract Statuses
                 status_items = []
-                if name in ["Rahu", "Ketu"] or (p_raw.get("retro") and name != "Ascendant"): status_items.append("<span style='color:#d35400;'><b>Retrograde</b></span>")
-                if p_raw.get("combust"): status_items.append("<span style='color:#c0392b;'><b>Combust</b></span>")
-                
+                if name in ["Rahu", "Ketu"] or (p_raw.get("retro") and name != "Ascendant"):
+                    status_items.append("<span style='color:#d35400;'><b>Retrograde</b></span>")
+                if p_raw.get("combust"):
+                    status_items.append("<span style='color:#c0392b;'><b>Combust</b></span>")
+                    
+                # Extract Dignities
                 dignity_list = []
                 if p_raw.get("exalted"): dignity_list.append("<span style='color:#27ae60;'><b>Exalted</b></span>")
                 if p_raw.get("debilitated"): dignity_list.append("<span style='color:#c0392b;'><b>Debilitated</b></span>")
                 if p_raw.get("own_sign"): dignity_list.append("<span style='color:#27ae60;'><b>Own Sign</b></span>")
-                if p_raw.get("vargottama") and self.title and "D1" not in self.title: dignity_list.append("<span style='color:#27ae60;'><b>Vargottama</b></span>")
+                if p_raw.get("vargottama") and self.title and "D1" not in self.title:
+                    dignity_list.append("<span style='color:#27ae60;'><b>Vargottama</b></span>")
                 
                 html = context_prefix
-                if p_raw.get("is_ak"): html += f"<span style='color: #B8860B;'><b>* Brightest Star / Atmakaraka</b></span><br>"
-                
-                base_lords = p_raw.get("lord_of", [])
-                visual_lords = sorted([((base_asc_sign_idx + l - 1 - asc_sign_idx) % 12) + 1 for l in base_lords])
+                if p_raw.get("is_ak"):
+                    html += f"<span style='color: #B8860B;'><b>* Brightest Star / Atmakaraka</b></span><br>"
+                    
+                # Format Lord indicators
+                visual_lords = sorted([((base_asc_sign_idx + l - 1 - asc_sign_idx) % 12) + 1 for l in p_raw.get("lord_of", [])])
                 lord_texts = []
-                if visual_lords:
-                    preferred_houses = {1, 2, 4, 5, 7, 9, 10, 11}
-                    for l in visual_lords:
-                        l_ord = ordinal(l)
-                        lord_texts.append(f"<span style='color: #27ae60;'><b>{l_ord}</b></span>" if l in preferred_houses else f"<span style='color: #c0392b;'><b>{l_ord}</b></span>")
+                for l in visual_lords:
+                    if l in {1, 2, 4, 5, 7, 9, 10, 11}:
+                        lord_texts.append(f"<span style='color: #27ae60;'><b>{ordinal(l)}</b></span>")
+                    else:
+                        lord_texts.append(f"<span style='color: #c0392b;'><b>{ordinal(l)}</b></span>")
                 
-                benefics = {"Moon", "Mercury", "Jupiter", "Venus"}
-                malefics = {"Sun", "Mars", "Saturn", "Rahu", "Ketu"}
-                p_color = "#27ae60" if name in benefics else ("#c0392b" if name in malefics else "#000000")
+                # Planet specific colors
+                if name in {"Moon", "Mercury", "Jupiter", "Venus"}: p_color = "#27ae60"
+                elif name in {"Sun", "Mars", "Saturn", "Rahu", "Ketu"}: p_color = "#c0392b"
+                else: p_color = "#000000"
                 
-                func_color, func_label = self._get_dynamic_functional_nature(name, base_lords, base_asc_sign_idx, asc_sign_idx)
-
-                star_html = f" <span style='color: {func_color}; font-size: {fs_18}px;'>*</span>" if name != "Ascendant" else ""
-                func_desc = f" <span style='font-size:{fs_11}px; color:#555;'>({func_label})</span>" if name != "Ascendant" else ""
+                func_color, func_label = self._get_dynamic_functional_nature(name, p_raw.get("lord_of", []), base_asc_sign_idx, asc_sign_idx)
                 
-                html += f"<b style='color: {p_color}; font-size: {fs_14}px;'>{name}</b>{star_html}{func_desc}<hr style='margin: 4px 0;'/>"
+                # Core identity string
+                html += f"<b style='color: {p_color}; font-size: {fs_14}px;'>{name}</b>"
+                if name != 'Ascendant':
+                    html += f" <span style='color: {func_color}; font-size: {fs_18}px;'>*</span>"
+                    html += f" <span style='font-size:{fs_11}px; color:#555;'>({func_label})</span>"
+                html += "<hr style='margin: 4px 0;'/>"
+                
+                # Info Strings
                 html += f"Sign: {zodiac_names[p_raw['sign_index']]} ({zodiac_elements[p_raw['sign_index']]})<br>"
-                if house != "-": html += f"House: {house}<br>"
-                if visual_lords: html += f"Lord of: <b>{' & '.join(lord_texts)} House</b><br>"
-                if status_items: html += f"Status: {', '.join(status_items)}<br>"
-                if dignity_list: html += f"Dignity: {', '.join(dignity_list)}<br>"
-                
+                if house != "-": 
+                    html += f"House: {house}<br>"
+                if visual_lords: 
+                    html += f"Lord of: <b>{' & '.join(lord_texts)} House</b><br>"
+                if status_items: 
+                    html += f"Status: {', '.join(status_items)}<br>"
+                if dignity_list: 
+                    html += f"Dignity: {', '.join(dignity_list)}<br>"
                 if p_raw.get("nakshatra"): 
                     html += f"Nakshatra: <b>{p_raw['nakshatra']}</b> (Lord: <b style='color: #8e44ad;'>{p_raw['nakshatra_lord']}</b>)<br>"
                     
-                tooltip_html = html + f"Base Longitude: {int(p_raw['deg_in_sign'])}°{int((p_raw['deg_in_sign'] - int(p_raw['deg_in_sign'])) * 60):02d}'"
+                deg, minute = int(p_raw['deg_in_sign']), int((p_raw['deg_in_sign'] - int(p_raw['deg_in_sign'])) * 60)
+                tooltip_html = html + f"Base Longitude: {deg}°{minute:02d}'"
                 break
                 
+        # --- Check Background House Intersect if No Planet Hit ---
         if not tooltip_html:
             hovered_visual_house = None
-            if hasattr(self, 'house_polys') and self.house_polys:
-                for h_num, poly in self.house_polys.items():
-                    if poly.containsPoint(pos_point, Qt.FillRule.OddEvenFill):
-                        hovered_visual_house = h_num
-                        break
-                        
-            if hovered_visual_house:
+            for h, poly in self.house_polys.items():
+                if poly.containsPoint(pos_point, Qt.FillRule.OddEvenFill):
+                    hovered_visual_house = h
+                    break
+                    
+            if hovered_visual_house and hovered_visual_house in self.current_layout.get("houses", {}):
                 sign_idx = (asc_sign_idx + hovered_visual_house - 1) % 12
                 original_h_num = self.current_layout["houses"][hovered_visual_house]["original_h_num"]
+                s_name, s_elem, s_nat = zodiac_names[sign_idx], zodiac_elements[sign_idx], zodiac_natures[sign_idx]
                 
-                s_name = zodiac_names[sign_idx]
-                s_elem = zodiac_elements[sign_idx]
-                s_nat = zodiac_natures[sign_idx]
-                
-                benefics = {"Moon", "Mercury", "Jupiter", "Venus"}
-                malefics = {"Sun", "Mars", "Saturn", "Rahu", "Ketu"}
-                
-                occupants = [p["name"] for p in self.chart_data["planets"] if p["sign_index"] == sign_idx]
+                # Format occupants
                 occ_colored = []
-                for p_name in occupants:
-                    occ_color = "#27ae60" if p_name in benefics else ("#c0392b" if p_name in malefics else "#000000")
-                    occ_colored.append(f"<b style='color: {occ_color};'>{p_name}</b>")
+                for p in self.chart_data["planets"]:
+                    if p["sign_index"] == sign_idx:
+                        pn = p["name"]
+                        if pn in {'Moon', 'Mercury', 'Jupiter', 'Venus'}: c_col = '#27ae60'
+                        elif pn in {'Sun', 'Mars', 'Saturn', 'Rahu', 'Ketu'}: c_col = '#c0392b'
+                        else: c_col = '#000000'
+                        occ_colored.append(f"<b style='color: {c_col};'>{pn}</b>")
                 
-                tooltip_html = context_prefix
-                if hovered_visual_house != original_h_num:
-                    tooltip_html += f"<b style='color: #2980b9; font-size: {fs_14}px;'>{ordinal(hovered_visual_house)} House (from {zodiac_names[asc_sign_idx][:3]}) | Base: {ordinal(original_h_num)}</b><hr style='margin: 4px 0;'/>"
-                else:
-                    tooltip_html += f"<b style='color: #2980b9; font-size: {fs_14}px;'>{ordinal(hovered_visual_house)} House</b><hr style='margin: 4px 0;'/>"
-                    
+                # House base info string
+                base_str = f" | Base: {ordinal(original_h_num)}" if hovered_visual_house != original_h_num else ""
+                tooltip_html = context_prefix + f"<b style='color: #2980b9; font-size: {fs_14}px;'>{ordinal(hovered_visual_house)} House (from {zodiac_names[asc_sign_idx][:3]}){base_str}</b><hr style='margin: 4px 0;'/>"
+                
+                nat_color = {'Movable': '#e67e22', 'Fixed': '#2980b9', 'Dual': '#8e44ad'}.get(s_nat, '#000000')
                 tooltip_html += f"Sign: <b>{sign_idx + 1} - {s_name}</b><br>"
-                
-                nature_colors = {"Movable": "#e67e22", "Fixed": "#2980b9", "Dual": "#8e44ad"}
-                n_color = nature_colors.get(s_nat, "#000000")
-                tooltip_html += f"Nature: <b style='color: {n_color};'>{s_nat}</b><br>"
+                tooltip_html += f"Nature: <b style='color: {nat_color};'>{s_nat}</b><br>"
                 tooltip_html += f"Element: <b>{s_elem}</b><br>"
                 
+                # --- House Metadata (Vitality, Pressure, Regime) ---
+                # Retrieve the pre-computed metrics for the original (base) house to display in the tooltip.
                 h_info = self.chart_data.get("houses_info", {}).get(original_h_num, {})
+                
+                # 1. Vitality: Indicates the core strength of the house (e.g., is the lord exalted or debilitated?)
                 v_lbl = h_info.get("vitality_label", "Background Scenery (Neutral)")
-                if v_lbl and v_lbl != "Background Scenery (Neutral)":
-                    v_col = h_info.get("vitality_color", "#555")
-                    tooltip_html += f"Vitality (Lords): <b style='color: {v_col};'>{v_lbl}</b><br>"
+                if v_lbl != "Background Scenery (Neutral)": 
+                    tooltip_html += f"Vitality (Lords): <b style='color: {h_info.get('vitality_color', '#555')};'>{v_lbl}</b><br>"
                     
+                # 2. Pressure: Indicates external stress or focus on the house from incoming planetary aspects.
                 p_lbl = h_info.get("pressure_label", "Quiet (0 influences)")
-                if p_lbl and p_lbl != "Quiet (0 influences)":
-                    p_col = h_info.get("pressure_color", "#555")
-                    tooltip_html += f"Pressure (Aspects): <b style='color: {p_col};'>{p_lbl}</b><br>"
-                
+                if p_lbl != "Quiet (0 influences)": 
+                    tooltip_html += f"Pressure (Aspects): <b style='color: {h_info.get('pressure_color', '#555')};'>{p_lbl}</b><br>"
+                    
+                # 3. Regime: Indicates the active ruling forces occupying or dominating the house.
                 r_lbls = h_info.get("regime_labels", [])
-                if r_lbls:
-                    r_str = "<br>&nbsp;&nbsp;&nbsp;&bull; ".join([""] + r_lbls)
-                    tooltip_html += f"Regime Forces: {r_str}<br>"
+                if r_lbls: 
+                    tooltip_html += f"Regime Forces: {'<br>&nbsp;&nbsp;&nbsp;&bull; '.join([''] + r_lbls)}<br>"
                 
-                ruler_map = {1: "Mars", 2: "Venus", 3: "Mercury", 4: "Moon", 5: "Sun", 6: "Mercury", 7: "Venus", 8: "Mars", 9: "Jupiter", 10: "Saturn", 11: "Saturn", 12: "Jupiter"}
-                lord_name = ruler_map.get(sign_idx + 1)
-                
-                if lord_name:
-                    lord_p = next((p for p in self.chart_data["planets"] if p["name"] == lord_name), None)
-                    if lord_p:
-                        l_house = ((lord_p["sign_index"] - asc_sign_idx) % 12) + 1
-                        l_status = []
-                        if lord_p.get("retro"): l_status.append("Retrograde")
-                        if lord_p.get("combust"): l_status.append("Combust")
-                        if lord_p.get("exalted"): l_status.append("Exalted")
-                        if lord_p.get("debilitated"): l_status.append("Debilitated")
-                        if lord_p.get("own_sign"): l_status.append("Own Sign")
-                        
-                        status_str = f" <span style='font-size:{fs_12}px; color:#555;'>({', '.join(l_status)})</span>" if l_status else ""
-                        l_color = "#27ae60" if lord_name in benefics else ("#c0392b" if lord_name in malefics else "#000000")
-                        tooltip_html += f"House Lord: <b style='color: {l_color};'>{lord_name}</b> went to <b>{ordinal(l_house)} House</b>{status_str}<br>"
+                # House Lord logic
+                if 'astro_engine' in globals():
+                    lord_name = astro_engine.SIGN_RULERS.get(sign_idx + 1)
+                    if lord_name:
+                        lord_p = next((p for p in self.chart_data["planets"] if p["name"] == lord_name), None)
+                        if lord_p:
+                            l_status = []
+                            if lord_p.get("retro"): l_status.append("Retrograde")
+                            if lord_p.get("combust"): l_status.append("Combust")
+                            if lord_p.get("exalted"): l_status.append("Exalted")
+                            if lord_p.get("debilitated"): l_status.append("Own Sign") # Note: original code explicitly put 'Own Sign' for debilitated here
+                            
+                            if lord_name in {'Moon', 'Mercury', 'Jupiter', 'Venus'}: l_col = '#27ae60'
+                            elif lord_name in {'Sun', 'Mars', 'Saturn', 'Rahu', 'Ketu'}: l_col = '#c0392b'
+                            else: l_col = '#000000'
+                            
+                            house_idx = ordinal(((lord_p['sign_index'] - asc_sign_idx) % 12) + 1)
+                            stat_str = f" <span style='font-size:{fs_12}px; color:#555;'>({', '.join(l_status)})</span>" if l_status else ""
+                            tooltip_html += f"House Lord: <b style='color: {l_col};'>{lord_name}</b> went to <b>{house_idx} House</b>{stat_str}<br>"
 
-                if occ_colored:
+                if occ_colored: 
                     tooltip_html += f"Occupants: {', '.join(occ_colored)}<br>"
 
+                # Aspects logic formatting
                 aspecting_strs = []
-                if self.chart_data.get("aspects"):
-                    for asp in self.chart_data["aspects"]:
-                        if asp["target_house"] == original_h_num:
-                            asp_p = next((p for p in self.chart_data["planets"] if p["name"] == asp["aspecting_planet"]), None)
-                            if asp_p:
-                                p_name = asp["aspecting_planet"]
-                                p_elem_str = zodiac_elements[asp_p["sign_index"]]
-                                p_elem_short = p_elem_str.split()[1] 
-                                
-                                p_color = "#27ae60" if p_name in benefics else ("#c0392b" if p_name in malefics else "#000000")
-                                
-                                visual_asp_lords = sorted([((base_asc_sign_idx + l - 1 - asc_sign_idx) % 12) + 1 for l in asp_p.get("lord_of", [])])
-                                p_lords = [ordinal(l) for l in visual_asp_lords]
-                                l_str = f"{' & '.join(p_lords)} lord" if p_lords else ""
-                                
-                                traits = [f"{p_elem_short} sign"]
-                                if l_str: traits.append(l_str)
-                                if asp_p.get("retro"): traits.append("Retro")
-                                if asp_p.get("exalted"): traits.append("Exalted")
-                                if asp_p.get("debilitated"): traits.append("Debilitated")
-                                
-                                aspecting_strs.append(f"<b style='color: {p_color};'>{p_name}</b> <span style='font-size:{fs_11}px; color:#555;'>({', '.join(traits)})</span>")
+                for asp in self.chart_data.get("aspects", []):
+                    if asp["target_house"] == original_h_num:
+                        asp_p = next((p for p in self.chart_data["planets"] if p["name"] == asp["aspecting_planet"]), None)
+                        if asp_p:
+                            asp_name = asp["aspecting_planet"]
+                            if asp_name in {'Moon', 'Mercury', 'Jupiter', 'Venus'}: a_col = '#27ae60'
+                            elif asp_name in {'Sun', 'Mars', 'Saturn', 'Rahu', 'Ketu'}: a_col = '#c0392b'
+                            else: a_col = '#000000'
+                            
+                            elem_str = zodiac_elements[asp_p['sign_index']].split()[1] + ' sign'
+                            
+                            lord_nums = [ordinal(l) for l in sorted([((base_asc_sign_idx + l - 1 - asc_sign_idx) % 12) + 1 for l in asp_p.get('lord_of', [])])]
+                            lord_str = [f"{' & '.join(lord_nums)} lord"] if lord_nums else []
+                            
+                            stat_flags = []
+                            if asp_p.get('retro'): stat_flags.append('Retro')
+                            if asp_p.get('exalted'): stat_flags.append('Exalted')
+                            if asp_p.get('debilitated'): stat_flags.append('Debilitated')
+                            
+                            meta_parts = [elem_str] + lord_str + stat_flags
+                            meta_str = f" <span style='font-size:{fs_11}px; color:#555;'>({', '.join(meta_parts)})</span>"
+                            aspecting_strs.append(f"<b style='color: {a_col};'>{asp_name}</b>{meta_str}")
                 
                 if aspecting_strs:
                     tooltip_html += f"Aspected by: {'<br>&nbsp;&nbsp;&nbsp;&bull; '.join([''] + aspecting_strs)}"
 
+        # --- Position and Show Tooltip ---
         if tooltip_html:
             self.tooltip_label.setText(tooltip_html)
             self.tooltip_label.adjustSize()
+            
             global_pos = self.mapToGlobal(pos_point.toPoint())
-            offset_x, offset_y = 15, 15
-            new_x = global_pos.x() + offset_x
-            new_y = global_pos.y() + offset_y
-            screen = self.screen()
-            if screen:
+            new_x, new_y = global_pos.x() + 15, global_pos.y() + 15
+            
+            if screen := self.screen():
                 sg = screen.availableGeometry()
-                if new_x + self.tooltip_label.width() > sg.right(): new_x = global_pos.x() - self.tooltip_label.width() - 5
-                if new_y + self.tooltip_label.height() > sg.bottom(): new_y = global_pos.y() - self.tooltip_label.height() - 5
+                if new_x + self.tooltip_label.width() > sg.right(): 
+                    new_x = global_pos.x() - self.tooltip_label.width() - 5
+                if new_y + self.tooltip_label.height() > sg.bottom(): 
+                    new_y = global_pos.y() - self.tooltip_label.height() - 5
+                    
             self.tooltip_label.move(new_x, new_y)
             self.tooltip_label.show()
             self.tooltip_label.raise_()
-        else:
+        else: 
             self.tooltip_label.hide()
 
     def leaveEvent(self, event):
         if hasattr(self, 'tooltip_label') and self.tooltip_label.isVisible(): 
             self.tooltip_label.hide()
         super().leaveEvent(event)
+        
+    def hideEvent(self, event):
+        if hasattr(self, 'tooltip_label') and self.tooltip_label.isVisible(): 
+            self.tooltip_label.hide()
+        super().hideEvent(event)
+
+# ==========================================
+# MAIN APPLICATION LOGIC
+# ==========================================
+
+class DraggableSidebarWidget(QWidget):
+    """
+    A helper container widget that allows vertical drag-and-drop reordering 
+    of its registered child groups (like QGroupBox).
+    """
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAcceptDrops(True)
+        self.main_layout = QVBoxLayout(self)
+        self.main_layout.setContentsMargins(4, 4, 4, 4)
+        self.main_layout.setSpacing(6)
+        
+        self.drag_item = None
+        self.drag_start_pos = None
+        self.draggable_widgets = []
+        
+        self.placeholder = None
+        self.scroll_timer = QTimer(self)
+        self.scroll_timer.timeout.connect(self.do_autoscroll)
+        self.scroll_direction = 0
+        self.scroll_speed = 15
+
+    def add_group(self, widget):
+        self.main_layout.addWidget(widget)
+        widget.installEventFilter(self)
+        self.draggable_widgets.append(widget)
+
+    def add_layout(self, layout):
+        self.main_layout.addLayout(layout)
+        
+    def add_stretch(self):
+        self.main_layout.addStretch()
+
+    def eventFilter(self, obj, event):
+        # Only intercept mouse events if the object is one of our draggable groups
+        if obj in self.draggable_widgets:
+            if event.type() == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
+                self.drag_start_pos = event.pos()
+                self.drag_item = obj
+                
+            elif event.type() == QEvent.Type.MouseMove and self.drag_start_pos is not None:
+                # Initiate drag if moved beyond threshold
+                if (event.pos() - self.drag_start_pos).manhattanLength() > QApplication.startDragDistance():
+                    self.start_drag(obj)
+                    self.drag_start_pos = None
+                    
+            elif event.type() == QEvent.Type.MouseButtonRelease:
+                self.drag_start_pos = None
+                
+        return super().eventFilter(obj, event)
+
+    def start_drag(self, widget):
+        self.drag_item = widget
+        
+        # Create a visual placeholder to indicate where it will drop
+        self.placeholder = QWidget()
+        self.placeholder.setFixedHeight(widget.height())
+        self.placeholder.setStyleSheet("background-color: #E5E7EB; border: 2px dashed #9CA3AF; border-radius: 6px;")
+        
+        # Crucial for preventing flicker: the placeholder shouldn't intercept the drag event raycasts
+        self.placeholder.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        
+        # Swap the widget with the placeholder initially
+        idx = self.main_layout.indexOf(widget)
+        self.main_layout.insertWidget(idx, self.placeholder)
+        widget.hide()
+        
+        drag = QDrag(self)
+        mime_data = QMimeData()
+        drag.setMimeData(mime_data)
+        
+        # Create visual representation of dragged widget
+        pixmap = widget.grab()
+        drag.setPixmap(pixmap)
+        drag.setHotSpot(QPoint(pixmap.width() // 2, 10))
+        
+        # Execute drag (blocking call)
+        action = drag.exec(Qt.DropAction.MoveAction)
+        
+        # Clean up after the drop finishes
+        self.scroll_timer.stop()
+        if self.placeholder:
+            # Safely remove drag_item first so placeholder's index accurately reflects the gap
+            self.main_layout.removeWidget(self.drag_item)
+            final_idx = self.main_layout.indexOf(self.placeholder)
+            
+            self.main_layout.removeWidget(self.placeholder)
+            self.placeholder.deleteLater()
+            self.placeholder = None
+            
+            # Apply the final position
+            if final_idx >= 0:
+                self.main_layout.insertWidget(final_idx, self.drag_item)
+                
+        self.drag_item.show()
+        self.drag_item = None
+
+    def get_scroll_area(self):
+        parent = self.parentWidget()
+        while parent:
+            if hasattr(parent, 'verticalScrollBar') and hasattr(parent, 'viewport'):
+                return parent
+            parent = parent.parentWidget()
+        return None
+
+    def dragEnterEvent(self, event):
+        if event.source() == self:
+            event.acceptProposedAction()
+
+    def dragLeaveEvent(self, event):
+        self.scroll_timer.stop()
+        super().dragLeaveEvent(event)
+
+    def dragMoveEvent(self, event):
+        if event.source() == self and self.drag_item and self.placeholder:
+            pos = event.position().toPoint() if hasattr(event, 'position') else event.pos()
+            drop_y = pos.y()
+            
+            # 1. Determine relative visual order based on the CURRENT layout order
+            visible_widgets = []
+            for i in range(self.main_layout.count()):
+                item = self.main_layout.itemAt(i)
+                w = item.widget()
+                # Only look at registered draggable groups that are visible and aren't the one we are dragging
+                if w and w in self.draggable_widgets and w != self.drag_item and w.isVisible():
+                    visible_widgets.append(w)
+            
+            target_idx = len(visible_widgets)
+            for i, w in enumerate(visible_widgets):
+                center_y = w.y() + (w.height() / 2)
+                if drop_y < center_y:
+                    target_idx = i
+                    break
+                    
+            target_widget = visible_widgets[target_idx] if target_idx < len(visible_widgets) else None
+            
+            # 2. Check current physical layout position
+            current_placeholder_idx = self.main_layout.indexOf(self.placeholder)
+            next_visible = None
+            for i in range(current_placeholder_idx + 1, self.main_layout.count()):
+                item = self.main_layout.itemAt(i)
+                w = item.widget()
+                if w and w in visible_widgets:
+                    next_visible = w
+                    break
+
+            # 3. Only update layout if the placeholder needs to cross a visible widget
+            if next_visible != target_widget:
+                self.main_layout.removeWidget(self.placeholder)
+                if target_widget:
+                    insert_idx = self.main_layout.indexOf(target_widget)
+                else:
+                    # Insert at the end, but safely BEFORE the bottom stretch spacer
+                    if visible_widgets:
+                        insert_idx = self.main_layout.indexOf(visible_widgets[-1]) + 1
+                    else:
+                        insert_idx = 0
+                self.main_layout.insertWidget(insert_idx, self.placeholder)
+
+            event.acceptProposedAction()
+
+            # Autoscrolling logic
+            scroll_area = self.get_scroll_area()
+            if scroll_area:
+                global_pos = self.mapToGlobal(pos)
+                viewport_pos = scroll_area.viewport().mapFromGlobal(global_pos)
+                
+                margin = 80 # Increased threshold so it triggers earlier
+                viewport_height = scroll_area.viewport().height()
+                
+                if viewport_pos.y() < margin:
+                    self.scroll_direction = -1
+                    speed_factor = max(1, int((margin - max(0, viewport_pos.y())) / 10))
+                    self.scroll_speed = speed_factor * 2
+                    if not self.scroll_timer.isActive():
+                        self.scroll_timer.start(16) # ~60 FPS
+                elif viewport_pos.y() > viewport_height - margin:
+                    self.scroll_direction = 1
+                    speed_factor = max(1, int((viewport_pos.y() - (viewport_height - margin)) / 10))
+                    self.scroll_speed = speed_factor * 2
+                    if not self.scroll_timer.isActive():
+                        self.scroll_timer.start(16)
+                else:
+                    self.scroll_timer.stop()
+
+    def do_autoscroll(self):
+        scroll_area = self.get_scroll_area()
+        if scroll_area:
+            bar = scroll_area.verticalScrollBar()
+            bar.setValue(bar.value() + self.scroll_direction * self.scroll_speed)
+
+    def dropEvent(self, event):
+        if event.source() == self:
+            event.acceptProposedAction()
+            # The actual widget placement occurs in `start_drag` cleanup after execution.
 
 class AstroApp(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Vedic Astrology Diamond Chart Pro - Divisional System")
+        self.setWindowTitle("AstroBasics Diamond Chart Pro")
         self.resize(1300, 800)
-
-        icon_path = resource_path("icon.ico")
-        if os.path.exists(icon_path):
-            self.setWindowIcon(QIcon(icon_path))
+        
+        if os.path.exists(resource_path("icon.ico")): 
+            self.setWindowIcon(QIcon(resource_path("icon.ico")))
 
         self.current_file_path = None
         self.last_load_dir = os.path.join(os.getcwd(), "saves")
-        self.update_window_title()
-
+        
         self.ephemeris = astro_engine.EphemerisEngine()
         self.time_ctrl = animation.TimeController()
         
-        self.current_lat, self.current_lon, self.current_tz = 28.6139, 77.2090, "Asia/Kolkata"
-        self.is_updating_ui = False
-        self.is_loading_settings = True 
-        self.is_chart_saved = True
-        self.frozen_planets = {}
+        self.current_lat = 28.6139
+        self.current_lon = 77.2090
+        self.current_tz = "Asia/Kolkata"
         
-        self.active_charts_order = []  # Preserves exact order user checks the boxes
+        self.is_updating_ui = False
+        self.is_loading_settings = True
+        self.is_chart_saved = True
+        
+        self.frozen_planets = {}
+        self.active_charts_order = []
         self.renderers = {}
         self.current_base_chart = None
 
         self.div_titles = {
-            "D1": "D1 (Rashi)", "D2": "D2 (Hora)", "D3": "D3 (Drekkana)", "D4": "D4 (Chaturthamsha)", 
-            "D5": "D5 (Panchamsha)", "D6": "D6 (Shashthamsha)", "D7": "D7 (Saptamsha)",
-            "D8": "D8 (Ashtamsha)", "D9": "D9 (Navamsha)", "D10": "D10 (Dashamsha)", 
-            "D11": "D11 (Rudramsha)", "D12": "D12 (Dwadashamsha)", "D16": "D16 (Shodashamsha)", 
-            "D20": "D20 (Vimshamsha)", "D24": "D24 (Chaturvimshamsha)", "D27": "D27 (Bhamsha)",
-            "D30": "D30 (Trimshamsha)", "D40": "D40 (Khavedamsha)", "D45": "D45 (Akshavedamsha)",
-            "D60": "D60 (Shashtiamsha)"
+            "D1": "D1 (Rashi)", "D2": "D2 (Hora)", "D3": "D3 (Drekkana)", 
+            "D4": "D4 (Chaturthamsha)", "D5": "D5 (Panchamsha)", "D6": "D6 (Shashthamsha)", 
+            "D7": "D7 (Saptamsha)", "D8": "D8 (Ashtamsha)", "D9": "D9 (Navamsha)", 
+            "D10": "D10 (Dashamsha)", "D11": "D11 (Rudramsha)", "D12": "D12 (Dwadashamsha)", 
+            "D16": "D16 (Shodashamsha)", "D20": "D20 (Vimshamsha)", "D24": "D24 (Chaturvimshamsha)", 
+            "D27": "D27 (Bhamsha)", "D30": "D30 (Trimshamsha)", "D40": "D40 (Khavedamsha)", 
+            "D45": "D45 (Akshavedamsha)", "D60": "D60 (Shashtiamsha)"
         }
         
-        if HAS_CUSTOM_VARGAS:
+        if HAS_CUSTOM_VARGAS: 
             self.div_titles.update(custom_vargas.get_all_extra_vargas())
+
+        try:
+            if os.path.exists("custom_vargas.json"):
+                with open("custom_vargas.json", "r") as f:
+                    self.ephemeris.set_custom_vargas(json.load(f))
+        except: 
+            pass
+
+        self.calc_worker = ChartCalcWorker(self.ephemeris)
+        self.calc_worker.calc_finished.connect(self.on_calc_finished)
+        self.calc_worker.start()
+
+        self.jump_worker = None
 
         self._init_ui()
         self._connect_signals()
         self.load_settings()
+        
+        # --- DYNAMIC MODULES INIT ---
+        self.module_reload_timer = QTimer(self)
+        self.module_reload_timer.setSingleShot(True)
+        self.module_reload_timer.setInterval(500) # 500ms debounce
+        self.module_reload_timer.timeout.connect(self._load_dynamic_modules)
+        
+        self.module_watcher = QFileSystemWatcher(self)
+        self._setup_module_watcher()
+        self._load_dynamic_modules()
+        # ----------------------------
+        
         self.is_loading_settings = False
         
         now = datetime.datetime.now()
-        self.time_ctrl.set_time({'year': now.year, 'month': now.month, 'day': now.day, 'hour': now.hour, 'minute': now.minute, 'second': now.second})
+        self.time_ctrl.set_time({
+            'year': now.year, 'month': now.month, 'day': now.day, 
+            'hour': now.hour, 'minute': now.minute, 'second': now.second
+        })
 
         self.autosave_timer = QTimer(self)
         self.autosave_timer.setInterval(60000)
         self.autosave_timer.timeout.connect(self.do_autosave)
         self.autosave_timer.start()
 
+    # --- DYNAMIC MODULE METHODS ---
+    def _setup_module_watcher(self):
+        modules_dir = resource_path("dynamic_settings_modules")
+        os.makedirs(modules_dir, exist_ok=True)
+        if modules_dir not in self.module_watcher.directories():
+            self.module_watcher.addPath(modules_dir)
+        self.module_watcher.directoryChanged.connect(self._trigger_module_reload)
+        self.module_watcher.fileChanged.connect(self._trigger_module_reload)
+
+    def _trigger_module_reload(self, path=None):
+        self.module_reload_timer.start()
+
+    def _load_dynamic_modules(self):
+        # 1. Clear out the old UI elements generated by plugins
+        while self.dynamic_modules_layout.count():
+            item = self.dynamic_modules_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+            elif item.layout():
+                while item.layout().count():
+                    sub = item.layout().takeAt(0)
+                    if sub.widget(): 
+                        sub.widget().deleteLater()
+                item.layout().deleteLater()
+        
+        modules_dir = resource_path("dynamic_settings_modules")
+        os.makedirs(modules_dir, exist_ok=True)
+        
+        # Unwatch old specific files (we'll re-watch what exists now)
+        if self.module_watcher.files():
+            self.module_watcher.removePaths(self.module_watcher.files())
+
+        added_modules = 0
+        for filename in os.listdir(modules_dir):
+            if filename.endswith(".py") and not filename.startswith("__"):
+                module_name = filename[:-3]
+                file_path = os.path.join(modules_dir, filename)
+                
+                # Monitor specifically for content edits
+                self.module_watcher.addPath(file_path) 
+                try:
+                    spec = importlib.util.spec_from_file_location(module_name, file_path)
+                    mod = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(mod)
+                    
+                    # Contract: Target module MUST have `setup_ui(app, layout)`
+                    if hasattr(mod, "setup_ui"):
+                        mod.setup_ui(self, self.dynamic_modules_layout)
+                        added_modules += 1
+                except Exception as e:
+                    print(f"Failed to load dynamic module {filename}: {e}")
+
+        # Hide the box entirely if no modules are valid
+        self.dynamic_modules_group.setVisible(added_modules > 0)
+    # ------------------------------
+
     def load_settings(self):
         settings_file = "astro_settings.json"
         if not os.path.exists(settings_file): 
             self.update_grid_layout()
             return
+            
         try:
-            with open(settings_file, "r") as f: prefs = json.load(f)
+            with open(settings_file, "r") as f: 
+                prefs = json.load(f)
+                
             if "location" in prefs: self.loc_input.setText(prefs["location"])
             if "lat" in prefs: self.current_lat = prefs["lat"]
             if "lon" in prefs: self.current_lon = prefs["lon"]
             if "tz" in prefs: self.current_tz = prefs["tz"]
+            
             self.loc_status.setText(f"Lat: {self.current_lat:.4f}, Lon: {self.current_lon:.4f} | {self.current_tz}")
 
-            if "ayanamsa" in prefs: self.cb_ayanamsa.setCurrentText(prefs["ayanamsa"])
-            if "outline_mode" in prefs: self.cb_outline_mode.setCurrentText(prefs["outline_mode"])
-            if "layout_mode" in prefs: self.cb_layout_mode.setCurrentText(prefs["layout_mode"])
-            if "use_symbols" in prefs: self.chk_symbols.setChecked(prefs["use_symbols"])
-            if "show_rahu_ketu" in prefs: self.chk_rahu.setChecked(prefs["show_rahu_ketu"])
-            if "show_arrows" in prefs: self.chk_arrows.setChecked(prefs["show_arrows"])
-            if "use_tint" in prefs: self.chk_tint.setChecked(prefs["use_tint"])
-            if "show_aspects" in prefs: self.chk_aspects.setChecked(prefs["show_aspects"])
-            if "show_details" in prefs: self.chk_details.setChecked(prefs["show_details"])
-            if "use_circular" in prefs: self.chk_circular.setChecked(prefs["use_circular"])
+            combos = [
+                ("ayanamsa", self.cb_ayanamsa), 
+                ("outline_mode", self.cb_outline_mode), 
+                ("layout_mode", self.cb_layout_mode)
+            ]
+            for k, w in combos:
+                if k in prefs: 
+                    w.setCurrentText(prefs[k])
+                    
+            checkboxes = [
+                ("use_symbols", self.chk_symbols), 
+                ("show_rahu_ketu", self.chk_rahu), 
+                ("show_arrows", self.chk_arrows), 
+                ("use_tint", self.chk_tint), 
+                ("show_aspects", self.chk_aspects), 
+                ("show_details", self.chk_details), 
+                ("use_circular", self.chk_circular)
+            ]
+            for k, w in checkboxes:
+                if k in prefs: 
+                    w.setChecked(prefs[k])
+            
             if "aspect_planets" in prefs:
                 for p, is_checked in prefs["aspect_planets"].items():
-                    if p in self.aspect_cb: self.aspect_cb[p].setChecked(is_checked)
-            
-            if "active_charts_order" in prefs:
+                    if p in self.aspect_cb: 
+                        self.aspect_cb[p].setChecked(is_checked)
+                        
+            if "active_charts_order" in prefs: 
                 self.active_charts_order = prefs["active_charts_order"]
                 
             if "div_charts" in prefs:
@@ -1135,438 +1833,503 @@ class AstroApp(QMainWindow):
                 for k, is_checked in prefs["div_charts"].items():
                     if k in self.div_cbs: 
                         self.div_cbs[k].setChecked(is_checked)
-                        if is_checked and k not in self.active_charts_order:
+                        if is_checked and k not in self.active_charts_order: 
                             self.active_charts_order.append(k)
-                        elif not is_checked and k in self.active_charts_order:
+                        elif not is_checked and k in self.active_charts_order: 
                             self.active_charts_order.remove(k)
                 self.is_updating_ui = False
                 
             self.update_grid_layout()
             self.update_settings()
             self.toggle_details()
-        except Exception as e: print(f"Failed to load settings: {e}")
+            
+        except Exception as e: 
+            print(f"Failed to load settings: {e}")
 
     def save_settings(self):
-        if getattr(self, 'is_loading_settings', True): return
-        prefs = {"location": self.loc_input.text(), "lat": self.current_lat, "lon": self.current_lon, "tz": self.current_tz,
-                 "ayanamsa": self.cb_ayanamsa.currentText(), "outline_mode": self.cb_outline_mode.currentText(),
-                 "layout_mode": self.cb_layout_mode.currentText(),
-                 "use_symbols": self.chk_symbols.isChecked(), "show_rahu_ketu": self.chk_rahu.isChecked(), 
-                 "show_arrows": self.chk_arrows.isChecked(), "use_tint": self.chk_tint.isChecked(), 
-                 "show_aspects": self.chk_aspects.isChecked(), "show_details": self.chk_details.isChecked(), 
-                 "use_circular": self.chk_circular.isChecked(),
-                 "aspect_planets": {p: cb.isChecked() for p, cb in self.aspect_cb.items()},
-                 "div_charts": {k: v.isChecked() for k, v in self.div_cbs.items()} if hasattr(self, 'div_cbs') else {},
-                 "active_charts_order": getattr(self, "active_charts_order", [])}
+        if getattr(self, 'is_loading_settings', True): 
+            return
+            
         try:
-            with open("astro_settings.json", "w") as f: json.dump(prefs, f, indent=4)
-        except Exception as e: print(f"Failed to save settings: {e}")
+            settings_dict = {
+                "location": self.loc_input.text(),
+                "lat": self.current_lat,
+                "lon": self.current_lon,
+                "tz": self.current_tz,
+                "ayanamsa": self.cb_ayanamsa.currentText(),
+                "outline_mode": self.cb_outline_mode.currentText(),
+                "layout_mode": self.cb_layout_mode.currentText(),
+                "use_symbols": self.chk_symbols.isChecked(),
+                "show_rahu_ketu": self.chk_rahu.isChecked(),
+                "show_arrows": self.chk_arrows.isChecked(),
+                "use_tint": self.chk_tint.isChecked(),
+                "show_aspects": self.chk_aspects.isChecked(),
+                "show_details": self.chk_details.isChecked(),
+                "use_circular": self.chk_circular.isChecked(),
+                "aspect_planets": {p: cb.isChecked() for p, cb in self.aspect_cb.items()},
+                "div_charts": {k: v.isChecked() for k, v in self.div_cbs.items()} if hasattr(self, 'div_cbs') else {},
+                "active_charts_order": getattr(self, "active_charts_order", [])
+            }
+            with open("astro_settings.json", "w") as f:
+                json.dump(settings_dict, f, indent=4)
+        except Exception as e: 
+            print(f"Failed to save settings: {e}")
 
     def do_autosave(self):
         if not getattr(self, "is_chart_saved", True):
             current_state = self.get_current_chart_info()
             if not hasattr(self, "last_autosaved_state") or self.last_autosaved_state != current_state:
                 os.makedirs("autosave", exist_ok=True)
-                existing = glob.glob(os.path.join("autosave", "tmp_*_saveon_*.json"))
-                num = len(existing) + 1
-                filename = os.path.join("autosave", f"tmp_{num:03d}_saveon_{datetime.datetime.now().strftime('%d%m%Y_%H%M%S')}.json")
-                save_prefs.save_chart_to_file(filename, current_state)
+                
+                existing_count = len(glob.glob(os.path.join('autosave', 'tmp_*_saveon_*.json')))
+                timestamp = datetime.datetime.now().strftime('%d%m%Y_%H%M%S')
+                filename = f"tmp_{existing_count + 1:03d}_saveon_{timestamp}.json"
+                filepath = os.path.join("autosave", filename)
+                
+                save_prefs.save_chart_to_file(filepath, current_state)
                 self.last_autosaved_state = current_state
 
-    def update_window_title(self):
-        base_title = "Vedic Astrology Diamond Chart Pro - Divisional System"
+    def update_window_title(self): 
         if self.current_file_path:
-            filename = os.path.basename(self.current_file_path)
-            self.setWindowTitle(f"{filename} - {base_title}")
+            base_name = os.path.basename(self.current_file_path)
+            self.setWindowTitle(f"{base_name} - AstroBasics Diamond Chart Pro")
         else:
-            self.setWindowTitle(base_title)
+            self.setWindowTitle("AstroBasics Diamond Chart Pro")
 
     def _init_ui(self):
-            central_widget = QWidget(); self.setCentralWidget(central_widget)
-            
-            style_sheet = """
-                QWidget {
-                    font-family: "Segoe UI", sans-serif;
-                    font-size: 14px;
-                    color: #1A1A1A;
-                }
-                QGroupBox {
-                    background-color: #F3F4F6;
-                    border: 1px solid #D1D5DB;
-                    border-radius: 6px;
-                    margin-top: 12px;
-                    padding-top: 12px;
-                    padding-bottom: 4px;
-                }
-                QGroupBox::title {
-                    subcontrol-origin: margin;
-                    subcontrol-position: top left;
-                    padding: 0 4px;
-                    left: 6px;
-                    color: #374151;
-                    font-weight: bold;
-                }
-                QLineEdit, QTableWidget {
-                    background-color: #FAFAFA;
-                    border: 1px solid #D1D5DB;
-                    border-radius: 4px;
-                    padding: 3px 5px;
-                }
-                QPushButton {
-                    background-color: #FFFFFF;
-                    border: 1px solid #D1D5DB;
-                    border-radius: 4px;
-                    padding: 4px 8px;
-                }
-                QPushButton:hover {
-                    background-color: #F3F4F6;
-                    border-color: #9CA3AF;
-                }
-                QPushButton:pressed {
-                    background-color: #E5E7EB;
-                }
-                QSpinBox, QTimeEdit {
-                    background-color: #FAFAFA;
-                    border: 1px solid #D1D5DB;
-                    border-radius: 4px;
-                    padding: 3px 5px;
-                }
-                QSpinBox:hover, QTimeEdit:hover {
-                    border-color: #9CA3AF;
-                }
-                QSpinBox::up-button, QTimeEdit::up-button, 
-                QSpinBox::down-button, QTimeEdit::down-button {
-                    background-color: #F3F4F6;
-                    border-left: 1px solid #D1D5DB;
-                    width: 16px;
-                }
-                QSpinBox::up-button:hover, QTimeEdit::up-button:hover, 
-                QSpinBox::down-button:hover, QTimeEdit::down-button:hover {
-                    background-color: #E5E7EB;
-                }
-                QSpinBox::up-button, QTimeEdit::up-button {
-                    border-top-right-radius: 3px;
-                }
-                QSpinBox::down-button, QTimeEdit::down-button {
-                    border-bottom-right-radius: 3px;
-                    border-top: 1px solid #D1D5DB;
-                }
-                QComboBox {
-                    background-color: #FAFAFA;
-                    border: 1px solid #D1D5DB;
-                    border-radius: 4px;
-                    padding: 3px 5px;
-                }
-                QComboBox:hover {
-                    border-color: #9CA3AF;
-                }
-                QComboBox::drop-down {
-                    border-left: 1px solid #D1D5DB;
-                    background-color: #F3F4F6;
-                    border-top-right-radius: 3px;
-                    border-bottom-right-radius: 3px;
-                    width: 18px;
-                }
-                QComboBox::drop-down:hover {
-                    background-color: #E5E7EB;
-                }
-                QComboBox QAbstractItemView {
-                    border: 1px solid #D1D5DB;
-                    background-color: #FAFAFA;
-                    selection-background-color: #0078D4;
-                    selection-color: white;
-                }
-                QSplitter::handle {
-                    background: #E5E7EB;
-                }
-                QScrollArea {
-                    border: none;
-                    background-color: transparent;
-                }
-            """
-            central_widget.setStyleSheet(style_sheet)
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        central_widget.setStyleSheet(
+            "QWidget { font-family: 'Segoe UI', sans-serif; font-size: 14px; color: #1A1A1A; } "
+            "QGroupBox { background-color: #F3F4F6; border: 1px solid #D1D5DB; border-radius: 6px; margin-top: 12px; padding-top: 12px; padding-bottom: 4px; } "
+            "QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; padding: 0 4px; left: 6px; color: #374151; font-weight: bold; } "
+            "QLineEdit, QTableWidget { background-color: #FAFAFA; border: 1px solid #D1D5DB; border-radius: 4px; padding: 3px 5px; } "
+            "QPushButton { background-color: #FFFFFF; border: 1px solid #D1D5DB; border-radius: 4px; padding: 4px 8px; } "
+            "QPushButton:hover { background-color: #F3F4F6; border-color: #9CA3AF; } "
+            "QPushButton:pressed { background-color: #E5E7EB; } "
+            "QSpinBox, QTimeEdit { background-color: #FAFAFA; border: 1px solid #D1D5DB; border-radius: 4px; padding: 3px 5px; } "
+            "QSpinBox:hover, QTimeEdit:hover { border-color: #9CA3AF; } "
+            "QSpinBox::up-button, QTimeEdit::up-button, QSpinBox::down-button, QTimeEdit::down-button { background-color: #F3F4F6; border-left: 1px solid #D1D5DB; width: 16px; } "
+            "QSpinBox::up-button:hover, QTimeEdit::up-button:hover, QSpinBox::down-button:hover, QTimeEdit::down-button:hover { background-color: #E5E7EB; } "
+            "QSpinBox::up-button, QTimeEdit::up-button { border-top-right-radius: 3px; } "
+            "QSpinBox::down-button, QTimeEdit::down-button { border-bottom-right-radius: 3px; border-top: 1px solid #D1D5DB; } "
+            "QComboBox { background-color: #FAFAFA; border: 1px solid #D1D5DB; border-radius: 4px; padding: 3px 5px; } "
+            "QComboBox:hover { border-color: #9CA3AF; } "
+            "QComboBox::drop-down { border-left: 1px solid #D1D5DB; background-color: #F3F4F6; border-top-right-radius: 3px; border-bottom-right-radius: 3px; width: 18px; } "
+            "QComboBox::drop-down:hover { background-color: #E5E7EB; } "
+            "QComboBox QAbstractItemView { border: 1px solid #D1D5DB; background-color: #FAFAFA; selection-background-color: #0078D4; selection-color: white; } "
+            "QSplitter::handle { background: #E5E7EB; } "
+            "QScrollArea { border: none; background-color: transparent; }"
+        )
 
-            main_layout = QVBoxLayout(central_widget); main_layout.setContentsMargins(0, 0, 0, 0)
-            main_splitter = QSplitter(Qt.Orientation.Horizontal); main_layout.addWidget(main_splitter)
+        main_layout = QVBoxLayout(central_widget)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        
+        main_splitter = QSplitter(Qt.Orientation.Horizontal)
+        main_layout.addWidget(main_splitter)
 
-            left_scroll = QScrollArea(); left_scroll.setWidgetResizable(True); left_scroll.setMinimumWidth(300)
-            left_panel = QWidget(); left_layout = QVBoxLayout(left_panel)
-            left_layout.setContentsMargins(4, 4, 4, 4); left_layout.setSpacing(6)
+        left_scroll = QScrollArea()
+        left_scroll.setWidgetResizable(True)
+        left_scroll.setMinimumWidth(300)
+        self.left_smooth_scroller = SmoothScroller(left_scroll)
+        
+        # Replace normal QWidget with DraggableSidebarWidget for reorderable groups
+        self.left_panel = DraggableSidebarWidget()
 
-            loc_group = QGroupBox("Location Settings"); loc_layout = QVBoxLayout(); loc_layout.setContentsMargins(4, 4, 4, 4)
-            search_layout = QHBoxLayout(); search_layout.setSpacing(4)
-            self.loc_input, self.loc_btn = QLineEdit("New Delhi"), QPushButton("Search")
-            
-            self.btn_custom_loc = QPushButton("...")
-            self.btn_custom_loc.setFixedSize(30, 25)
-            self.btn_custom_loc.setStyleSheet("border-radius: 4px; font-weight: bold; background-color: #DAA520; color: white; border: none;")
-            self.btn_custom_loc.setToolTip("Enter Custom Coordinates")
-            
-            search_layout.addWidget(self.loc_input)
-            search_layout.addWidget(self.loc_btn)
-            search_layout.addWidget(self.btn_custom_loc)
-            
-            self.loc_status = QLabel("Lat: 28.61, Lon: 77.21 | TZ: Asia/Kolkata")
-            loc_layout.addLayout(search_layout); loc_layout.addWidget(self.loc_status); loc_group.setLayout(loc_layout)
+        # Location Group
+        loc_group = QGroupBox("Location Settings")
+        loc_layout = QVBoxLayout()
+        loc_layout.setContentsMargins(4, 4, 4, 4)
+        
+        search_layout = QHBoxLayout()
+        search_layout.setSpacing(4)
+        self.loc_input = QLineEdit("New Delhi")
+        self.loc_btn = QPushButton("Search")
+        
+        self.btn_custom_loc = QPushButton("...")
+        self.btn_custom_loc.setFixedSize(30, 25)
+        self.btn_custom_loc.setStyleSheet("border-radius: 4px; font-weight: bold; background-color: #DAA520; color: white; border: none;")
+        self.btn_custom_loc.setToolTip("Enter Custom Coordinates")
+        
+        search_layout.addWidget(self.loc_input)
+        search_layout.addWidget(self.loc_btn)
+        search_layout.addWidget(self.btn_custom_loc)
+        
+        self.loc_status = QLabel("Lat: 28.61, Lon: 77.21 | TZ: Asia/Kolkata")
+        loc_layout.addLayout(search_layout)
+        loc_layout.addWidget(self.loc_status)
+        loc_group.setLayout(loc_layout)
 
-            dt_group = QGroupBox("Date Time"); dt_layout = QVBoxLayout(); dt_layout.setContentsMargins(4, 4, 4, 4); dt_layout.setSpacing(6)
-            date_layout = QHBoxLayout(); date_layout.setSpacing(4)
-            self.year_spin, self.month_spin, self.day_spin = QSpinBox(), QSpinBox(), QSpinBox()
-            
-            self.year_spin.setRange(-999999, 999999) 
-            self.month_spin.setRange(1, 12); self.day_spin.setRange(1, 31)
-            
-            date_layout.addWidget(QLabel("D:")); date_layout.addWidget(self.day_spin)
-            date_layout.addWidget(QLabel("M:")); date_layout.addWidget(self.month_spin)
-            date_layout.addWidget(QLabel("Y:")); date_layout.addWidget(self.year_spin)
-            self.btn_panchang = QPushButton("...")
-            self.btn_panchang.setFixedSize(30, 25)
-            self.btn_panchang.setStyleSheet("border-radius: 4px; font-weight: bold; background-color: #DAA520; color: white; border: none;")
-            self.btn_panchang.setToolTip("Show Panchang Info")
-            date_layout.addWidget(self.btn_panchang)
+        # Date Time Group
+        dt_group = QGroupBox("Date Time")
+        dt_layout = QVBoxLayout()
+        dt_layout.setContentsMargins(4, 4, 4, 4)
+        dt_layout.setSpacing(6)
+        
+        date_layout = QHBoxLayout()
+        date_layout.setSpacing(4)
+        self.year_spin = QSpinBox()
+        self.month_spin = QSpinBox()
+        self.day_spin = QSpinBox()
+        self.year_spin.setRange(-999999, 999999)
+        self.month_spin.setRange(1, 12)
+        self.day_spin.setRange(1, 31)
+        
+        date_layout.addWidget(QLabel("D:"))
+        date_layout.addWidget(self.day_spin)
+        date_layout.addWidget(QLabel("M:"))
+        date_layout.addWidget(self.month_spin)
+        date_layout.addWidget(QLabel("Y:"))
+        date_layout.addWidget(self.year_spin)
+        
+        self.btn_panchang = QPushButton("...")
+        self.btn_panchang.setFixedSize(30, 25)
+        self.btn_panchang.setStyleSheet("border-radius: 4px; font-weight: bold; background-color: #DAA520; color: white; border: none;")
+        self.btn_panchang.setToolTip("Show Panchang Info")
+        date_layout.addWidget(self.btn_panchang)
 
-            time_layout = QHBoxLayout(); time_layout.setSpacing(4)
-            self.time_edit = QTimeEdit(); self.time_edit.setDisplayFormat("HH:mm:ss")
-            time_layout.addWidget(QLabel("T:")); time_layout.addWidget(self.time_edit)
-            time_layout.setSpacing(20)
+        time_layout = QHBoxLayout()
+        time_layout.setSpacing(4)
+        self.time_edit = QTimeEdit()
+        self.time_edit.setDisplayFormat("HH:mm:ss")
+        time_layout.addWidget(QLabel("T:"))
+        time_layout.addWidget(self.time_edit)
+        time_layout.setSpacing(20)
+        
+        self.dasha_label = QLabel("Now: -   ")
+        self.dasha_label.setStyleSheet("color: #8B4513; font-weight: bold; font-size: 11px; margin-top: 4px;")
+        
+        dt_layout.addLayout(date_layout)
+        dt_layout.addLayout(time_layout)
+        dt_layout.addWidget(self.dasha_label)
+        dt_group.setLayout(dt_layout)
+        
+        # Divisional Charts Group
+        div_group = QGroupBox("Divisional Charts")
+        div_layout = QGridLayout()
+        div_layout.setContentsMargins(4, 4, 4, 4)
+        div_layout.setSpacing(4)
+        
+        self.div_cbs = {}
+        for i, (d_id, _) in enumerate(self.div_titles.items()):
+            cb = QCheckBox(f"{d_id}")
+            self.div_cbs[d_id] = cb
+            if d_id == "D1": 
+                cb.setChecked(True)
+                if "D1" not in self.active_charts_order: 
+                    self.active_charts_order.append("D1")
             
-            self.dasha_label = QLabel("Now: -   ")
-            self.dasha_label.setStyleSheet("color: #8B4513; font-weight: bold; font-size: 11px; margin-top: 4px;")
-            
-            dt_layout.addLayout(date_layout); dt_layout.addLayout(time_layout)
-            dt_layout.addWidget(self.dasha_label)
-            dt_group.setLayout(dt_layout)
-            
-            div_group = QGroupBox("Divisional Charts")
-            div_layout = QGridLayout(); div_layout.setContentsMargins(4, 4, 4, 4); div_layout.setSpacing(4)
-            self.div_cbs = {}
-            row, col = 0, 0
-            for i, (d_id, d_name) in enumerate(self.div_titles.items()):
-                cb = QCheckBox(f"{d_id}")
-                self.div_cbs[d_id] = cb
-                
-                # FIX: Set initial state BEFORE connecting the signal to prevent premature triggering
-                if d_id == "D1": 
-                    cb.setChecked(True)
-                    if "D1" not in self.active_charts_order:
-                        self.active_charts_order.append("D1")
-                        
-                cb.toggled.connect(lambda checked, did=d_id: self.on_div_toggled(checked, did))
-                
-                div_layout.addWidget(cb, row, col)
-                col += 1
-                if col > 3:
-                    col = 0
-                    row += 1
+            # Using lambda carefully to bind values
+            cb.toggled.connect(lambda checked, did=d_id: self.on_div_toggled(checked, did))
+            div_layout.addWidget(cb, i // 4, i % 4)
 
-            if HAS_CUSTOM_VARGAS:
-                self.btn_add_custom_varga = QPushButton("Manage Custom Vargas")
-                self.btn_add_custom_varga.setStyleSheet("background-color: #2980b9; color: white; font-weight: bold; border-radius: 4px; padding: 4px;")
-                div_layout.addWidget(self.btn_add_custom_varga, row + 1, 0, 1, 4)
+        if HAS_CUSTOM_VARGAS:
+            self.btn_add_custom_varga = QPushButton("Manage Custom Vargas")
+            self.btn_add_custom_varga.setStyleSheet("background-color: #2980b9; color: white; font-weight: bold; border-radius: 4px; padding: 4px;")
+            div_layout.addWidget(self.btn_add_custom_varga, len(self.div_titles) // 4 + 1, 0, 1, 4)
+            
+        div_group.setLayout(div_layout)
 
-            div_group.setLayout(div_layout)
+        # Animation Group
+        nav_group = QGroupBox("Animation")
+        nav_layout = QVBoxLayout()
+        nav_layout.setContentsMargins(4, 4, 4, 4)
+        nav_layout.setSpacing(4)
+        
+        step_layout = QHBoxLayout()
+        step_layout.setSpacing(2)
+        
+        self.btn_sub_d = QPushButton("<<d")
+        self.btn_sub_h = QPushButton("<h")
+        self.btn_sub_m = QPushButton("<m")
+        self.btn_add_m = QPushButton("m>")
+        self.btn_add_h = QPushButton("h>")
+        self.btn_add_d = QPushButton("d>>")
+        
+        for btn in [self.btn_sub_d, self.btn_sub_h, self.btn_sub_m, self.btn_add_m, self.btn_add_h, self.btn_add_d]: 
+            step_layout.addWidget(btn)
+            
+        btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(4)
+        self.btn_play = QPushButton("▶ Play")
+        self.speed_combo = NoScrollComboBox()
+        self.speed_combo.addItems(["1x", "10x", "60x", "120x", "300x", "600x", "1800x", "3600x", "14400x", "86400x", "604800x"])
+        self.speed_combo.setMaxVisibleItems(20)
+        
+        btn_layout.addWidget(self.btn_play)
+        btn_layout.addWidget(self.speed_combo)
+        
+        nav_layout.addLayout(step_layout)
+        nav_layout.addLayout(btn_layout)
+        nav_group.setLayout(nav_layout)
+        
+        # Transit Group
+        transit_group = QGroupBox("Transit Constraints")
+        transit_layout = QGridLayout()
+        transit_layout.setContentsMargins(4, 4, 4, 4)
+        transit_layout.setSpacing(4)
+        
+        transit_layout.addWidget(QLabel("Lagna (Asc.):"), 0, 0)
+        self.btn_prev_lagna = QPushButton("<") 
+        self.btn_next_lagna = QPushButton(">")
+        transit_layout.addWidget(self.btn_prev_lagna, 0, 1)
+        transit_layout.addWidget(self.btn_next_lagna, 0, 2)
+        
+        transit_layout.addWidget(QLabel("Plnt:"), 1, 0)
+        self.cb_transit_planet = NoScrollComboBox()
+        self.cb_transit_planet.addItems(["Sun", "Moon", "Mars", "Mercury", "Jupiter", "Venus", "Saturn", "Rahu", "Ketu"])
+        self.cb_transit_div = NoScrollComboBox()
+        self.cb_transit_div.addItems(list(self.div_titles.keys()))
+        self.cb_transit_planet.setMaxVisibleItems(20)
+        self.cb_transit_div.setMaxVisibleItems(20)
+        
+        p_layout = QHBoxLayout()
+        p_layout.setContentsMargins(0, 0, 0, 0)
+        p_layout.setSpacing(4)
+        p_layout.addWidget(self.cb_transit_planet)
+        p_layout.addWidget(self.cb_transit_div)
+        transit_layout.addLayout(p_layout, 1, 1, 1, 2)
+        
+        transit_layout.addWidget(QLabel("Jump:"), 2, 0)
+        self.btn_prev_rashi = QPushButton("<")
+        self.btn_next_rashi = QPushButton(">")
+        transit_layout.addWidget(self.btn_prev_rashi, 2, 1)
+        transit_layout.addWidget(self.btn_next_rashi, 2, 2)
+        
+        self.btn_stop_transit = QPushButton("⏹ Stop Search")
+        self.btn_stop_transit.setStyleSheet("background-color: #c0392b; color: white; font-weight: bold; border-radius: 4px; padding: 4px;")
+        self.btn_stop_transit.setVisible(False)
+        transit_layout.addWidget(self.btn_stop_transit, 3, 0, 1, 3)
+        
+        transit_group.setLayout(transit_layout)
 
-            nav_group = QGroupBox("Animation"); nav_layout = QVBoxLayout(); nav_layout.setContentsMargins(4, 4, 4, 4); nav_layout.setSpacing(4)
-            step_layout = QHBoxLayout(); step_layout.setSpacing(2)
-            self.btn_sub_d, self.btn_sub_h, self.btn_sub_m = QPushButton("<<d"), QPushButton("<h"), QPushButton("<m")
-            self.btn_add_m, self.btn_add_h, self.btn_add_d = QPushButton("m>"), QPushButton("h>"), QPushButton("d>>")
-            for btn in [self.btn_sub_d, self.btn_sub_h, self.btn_sub_m, self.btn_add_m, self.btn_add_h, self.btn_add_d]: step_layout.addWidget(btn)
-            
-            btn_layout = QHBoxLayout(); btn_layout.setSpacing(4)
-            self.btn_play = QPushButton("▶ Play")
-            
-            self.speed_combo = NoScrollComboBox()
-            self.speed_combo.addItems(["1x", "10x", "60x", "120x", "300x", "600x", "1800x", "3600x", "14400x", "86400x", "604800x"])
-            self.speed_combo.setMaxVisibleItems(20)
-            
-            btn_layout.addWidget(self.btn_play); btn_layout.addWidget(self.speed_combo)
-            nav_layout.addLayout(step_layout); nav_layout.addLayout(btn_layout); nav_group.setLayout(nav_layout)
-            
-            transit_group = QGroupBox("Transit")
-            transit_layout = QGridLayout(); transit_layout.setContentsMargins(4, 4, 4, 4); transit_layout.setSpacing(4)
-            
-            transit_layout.addWidget(QLabel("Lagna:"), 0, 0)
-            self.btn_prev_lagna, self.btn_next_lagna = QPushButton("<"), QPushButton(">")
-            transit_layout.addWidget(self.btn_prev_lagna, 0, 1); transit_layout.addWidget(self.btn_next_lagna, 0, 2)
-            
-            transit_layout.addWidget(QLabel("Plnt:"), 1, 0)
-            self.cb_transit_planet = NoScrollComboBox(); self.cb_transit_planet.addItems(["Sun", "Moon", "Mars", "Mercury", "Jupiter", "Venus", "Saturn", "Rahu", "Ketu"])
-            self.cb_transit_div = NoScrollComboBox()
-            self.cb_transit_div.addItems(list(self.div_titles.keys()))
-            
-            self.cb_transit_planet.setMaxVisibleItems(20); self.cb_transit_div.setMaxVisibleItems(20)
-            
-            p_layout = QHBoxLayout()
-            p_layout.setContentsMargins(0, 0, 0, 0); p_layout.setSpacing(4)
-            p_layout.addWidget(self.cb_transit_planet)
-            p_layout.addWidget(self.cb_transit_div)
-            transit_layout.addLayout(p_layout, 1, 1, 1, 2)
-            
-            transit_layout.addWidget(QLabel("Rshi:"), 2, 0)
-            self.cb_transit_rashi = NoScrollComboBox()
-            self.cb_transit_rashi.addItems(["Any", "Aries", "Taurus", "Gemini", "Cancer", "Leo", "Virgo", "Libra", "Scorpio", "Sagittarius", "Capricorn", "Aquarius", "Pisces"])
-            self.cb_transit_rashi.setMaxVisibleItems(20)
-            transit_layout.addWidget(self.cb_transit_rashi, 2, 1, 1, 2)
+        # Settings Group
+        set_group = QGroupBox("Settings")
+        set_layout = QVBoxLayout()
+        set_layout.setContentsMargins(4, 4, 4, 4)
+        set_layout.setSpacing(4)
+        
+        self.cb_ayanamsa = NoScrollComboBox()
+        self.cb_ayanamsa.addItems(["Lahiri", "Raman", "Fagan/Bradley"])
+        
+        self.cb_outline_mode = NoScrollComboBox()
+        self.cb_outline_mode.addItems(["Vitality (Lords)", "Pressure (Aspects)", "Regime (Forces)", "None"])
+        
+        self.cb_layout_mode = NoScrollComboBox()
+        self.cb_layout_mode.addItems(["3 Columns", "2 Columns", "1 Left, 2 Right (Stacked)"])
+        self.cb_layout_mode.currentIndexChanged.connect(self.update_grid_layout)
+        
+        self.cb_ayanamsa.setMaxVisibleItems(20)
+        self.cb_outline_mode.setMaxVisibleItems(20)
+        self.cb_layout_mode.setMaxVisibleItems(20)
+        
+        self.chk_symbols = QCheckBox("Symb")
+        self.chk_rahu = QCheckBox("Ra/Ke")
+        self.chk_arrows = QCheckBox("Arrows")
+        self.chk_tint = QCheckBox("Tints")
+        self.chk_details = QCheckBox("Table")
+        self.chk_circular = QCheckBox("Circ UI")
+        
+        self.chk_rahu.setChecked(True)
+        self.chk_arrows.setChecked(True)
+        self.chk_tint.setChecked(True)
+        self.chk_details.setChecked(True)
+        self.chk_circular.setChecked(False)
+        
+        self.chk_aspects = QCheckBox("Aspects")
+        
+        self.btn_save_chart = QPushButton("Save")
+        self.btn_load_chart = QPushButton("Load")
+        self.btn_export_png = QPushButton("PNG")
+        self.btn_export_json = QPushButton("Export Detailed")
 
-            transit_layout.addWidget(QLabel("Jump:"), 3, 0)
-            self.btn_prev_rashi, self.btn_next_rashi = QPushButton("<"), QPushButton(">")
-            transit_layout.addWidget(self.btn_prev_rashi, 3, 1); transit_layout.addWidget(self.btn_next_rashi, 3, 2)
+        chk_grid = QGridLayout()
+        chk_grid.setSpacing(4)
+        chk_grid.addWidget(QLabel("Ayanamsa:"), 0, 0)
+        chk_grid.addWidget(self.cb_ayanamsa, 0, 1)
+        chk_grid.addWidget(QLabel("Outlines:"), 1, 0)
+        chk_grid.addWidget(self.cb_outline_mode, 1, 1)
+        chk_grid.addWidget(QLabel("Layout:"), 2, 0)
+        chk_grid.addWidget(self.cb_layout_mode, 2, 1)
+        chk_grid.addWidget(self.chk_symbols, 3, 0)
+        chk_grid.addWidget(self.chk_rahu, 3, 1)
+        chk_grid.addWidget(self.chk_aspects, 4, 0)
+        chk_grid.addWidget(self.chk_arrows, 4, 1)
+        chk_grid.addWidget(self.chk_tint, 5, 0)
+        chk_grid.addWidget(self.chk_circular, 5, 1)
+        chk_grid.addWidget(self.chk_details, 6, 0, 1, 2)
+        set_layout.addLayout(chk_grid)
+        
+        file_btns = QHBoxLayout()
+        exp_btns = QHBoxLayout()
+        file_btns.setSpacing(4)
+        exp_btns.setSpacing(4)
+        
+        file_btns.addWidget(self.btn_save_chart)
+        file_btns.addWidget(self.btn_load_chart)
+        exp_btns.addWidget(self.btn_export_png)
+        exp_btns.addWidget(self.btn_export_json)
+        
+        set_layout.addLayout(file_btns)
+        set_layout.addLayout(exp_btns)
+        set_group.setLayout(set_layout)
 
-            self.btn_stop_transit = QPushButton("Stop")
-            self.btn_stop_transit.setStyleSheet("color: #D32F2F; font-weight: bold; background-color: #FFEBEE; border: 1px solid #EF9A9A;")
-            self.btn_stop_transit.hide()
-            transit_layout.addWidget(self.btn_stop_transit, 4, 0, 1, 3); transit_group.setLayout(transit_layout)
+        # Aspects Group
+        self.aspects_group = QGroupBox("Aspects From:")
+        aspects_layout = QGridLayout()
+        aspects_layout.setContentsMargins(4, 4, 4, 4)
+        self.aspect_cb = {}
+        
+        aspect_planets = [
+            ("Sun", "#FF8C00"), ("Moon", "#00BCD4"), ("Mars", "#FF0000"), 
+            ("Mercury", "#00C853"), ("Jupiter", "#FFD700"), ("Venus", "#FF1493"), 
+            ("Saturn", "#0000CD"), ("Rahu", "#708090"), ("Ketu", "#8B4513")
+        ]
+        
+        for i, (p, color) in enumerate(aspect_planets):
+            cb = QCheckBox(p[:3])
+            cb.setStyleSheet(f"color: {color}; font-weight: bold;")
+            cb.setChecked(True)
+            cb.stateChanged.connect(self.update_settings)
+            self.aspect_cb[p] = cb
+            aspects_layout.addWidget(cb, i // 3, i % 3)
+            
+        self.aspects_group.setLayout(aspects_layout)
+        self.aspects_group.setVisible(False)
 
-            set_group = QGroupBox("Settings"); set_layout = QVBoxLayout(); set_layout.setContentsMargins(4, 4, 4, 4); set_layout.setSpacing(4)
-            
-            self.cb_ayanamsa = NoScrollComboBox(); self.cb_ayanamsa.addItems(["Lahiri", "Raman", "Fagan/Bradley"])
-            self.cb_outline_mode = NoScrollComboBox(); self.cb_outline_mode.addItems(["Vitality (Lords)", "Pressure (Aspects)", "Regime (Forces)", "None"])
-            self.cb_layout_mode = NoScrollComboBox(); self.cb_layout_mode.addItems(["3 Columns", "2 Columns", "1 Left, 2 Right (Stacked)"])
-            self.cb_layout_mode.currentIndexChanged.connect(self.update_grid_layout)
-            
-            self.cb_ayanamsa.setMaxVisibleItems(20); self.cb_outline_mode.setMaxVisibleItems(20); self.cb_layout_mode.setMaxVisibleItems(20)
-            
-            self.chk_symbols, self.chk_rahu, self.chk_arrows = QCheckBox("Symb"), QCheckBox("Ra/Ke"), QCheckBox("Arrows")
-            self.chk_tint, self.chk_details, self.chk_circular = QCheckBox("Tints"), QCheckBox("Table"), QCheckBox("Circ UI")
-            self.chk_rahu.setChecked(True); self.chk_arrows.setChecked(True); self.chk_tint.setChecked(True); self.chk_details.setChecked(True); self.chk_circular.setChecked(False)
-            self.chk_aspects = QCheckBox("Aspects")
-            self.btn_save_chart, self.btn_load_chart = QPushButton("Save"), QPushButton("Load")
-            self.btn_export_png, self.btn_export_json = QPushButton("PNG"), QPushButton("JSON")
-            
-            self.btn_load_json_rectify = QPushButton("Load JSON (Rectify Time)")
-            self.btn_load_json_rectify.setStyleSheet("font-weight: bold; color: #8E44AD; border: 1px solid #D2B4DE; background-color: #F5EEF8;")
-            
-            self.btn_build_chart_rectify = QPushButton("Build Target Chart...")
-            self.btn_build_chart_rectify.setStyleSheet("font-weight: bold; color: #2980B9; border: 1px solid #AED6F1; background-color: #EAF2F8;")
+        # Extensions and Plugins Group
+        self.dynamic_modules_group = QGroupBox("Extensions and Plugins")
+        self.dynamic_modules_layout = QVBoxLayout()
+        self.dynamic_modules_layout.setContentsMargins(4, 4, 4, 4)
+        self.dynamic_modules_layout.setSpacing(4)
+        self.dynamic_modules_group.setLayout(self.dynamic_modules_layout)
+        self.dynamic_modules_group.setVisible(False)
 
-            chk_grid = QGridLayout(); chk_grid.setSpacing(4)
-            chk_grid.addWidget(QLabel("Ayanamsa:"), 0, 0); chk_grid.addWidget(self.cb_ayanamsa, 0, 1)
-            chk_grid.addWidget(QLabel("Outlines:"), 1, 0); chk_grid.addWidget(self.cb_outline_mode, 1, 1)
-            chk_grid.addWidget(QLabel("Layout:"), 2, 0); chk_grid.addWidget(self.cb_layout_mode, 2, 1)
+        # Add all groups to the draggable panel
+        draggable_groups = [
+            loc_group, dt_group, div_group, nav_group, 
+            transit_group, set_group, self.aspects_group, 
+            self.dynamic_modules_group
+        ]
+        
+        for g in draggable_groups: 
+            self.left_panel.add_group(g)
             
-            chk_grid.addWidget(self.chk_symbols, 3, 0); chk_grid.addWidget(self.chk_rahu, 3, 1)
-            chk_grid.addWidget(self.chk_aspects, 4, 0); chk_grid.addWidget(self.chk_arrows, 4, 1)
-            chk_grid.addWidget(self.chk_tint, 5, 0); chk_grid.addWidget(self.chk_circular, 5, 1)
-            chk_grid.addWidget(self.chk_details, 6, 0, 1, 2)
-            set_layout.addLayout(chk_grid)
-            
-            file_btns = QHBoxLayout(); file_btns.setSpacing(4); file_btns.addWidget(self.btn_save_chart); file_btns.addWidget(self.btn_load_chart)
-            exp_btns = QHBoxLayout(); exp_btns.setSpacing(4); exp_btns.addWidget(self.btn_export_png); exp_btns.addWidget(self.btn_export_json)
-            rect_btns = QHBoxLayout(); rect_btns.setSpacing(4); rect_btns.addWidget(self.btn_load_json_rectify); rect_btns.addWidget(self.btn_build_chart_rectify)
-            
-            set_layout.addLayout(file_btns); set_layout.addLayout(exp_btns)
-            set_layout.addLayout(rect_btns)
-            set_group.setLayout(set_layout)
+        self.left_panel.add_stretch()
 
-            self.aspects_group = QGroupBox("Aspects From:")
-            aspects_layout = QGridLayout(); aspects_layout.setContentsMargins(4, 4, 4, 4); self.aspect_cb = {}
-            planets_data = [("Sun", "#FF8C00"), ("Moon", "#00BCD4"), ("Mars", "#FF0000"), ("Mercury", "#00C853"), ("Jupiter", "#FFD700"), ("Venus", "#FF1493"), ("Saturn", "#0000CD"), ("Rahu", "#708090"), ("Ketu", "#8B4513")]
-            for i, (p, color) in enumerate(planets_data):
-                cb = QCheckBox(p[:3]); cb.setStyleSheet(f"color: {color}; font-weight: bold;"); cb.setChecked(True); cb.stateChanged.connect(self.update_settings)
-                self.aspect_cb[p] = cb; aspects_layout.addWidget(cb, i // 3, i % 3)
-            self.aspects_group.setLayout(aspects_layout); self.aspects_group.setVisible(False)
+        # Visual Guide Button (Not draggable, added to layout bottom)
+        self.btn_visual_guide = QPushButton("Guide Legend and Credits")
+        self.btn_visual_guide.setStyleSheet("font-size: 11px; font-weight: bold; color: #1E8449; background-color: #E8F8F5; border: 1px solid #A2D9CE; border-radius: 4px;")
+        self.btn_visual_guide.setFixedSize(200, 24)
+        
+        guide_lay = QHBoxLayout()
+        guide_lay.addStretch()
+        guide_lay.addWidget(self.btn_visual_guide)
+        self.left_panel.add_layout(guide_lay)
+        
+        left_scroll.setWidget(self.left_panel)
 
-            for g in [loc_group, dt_group, div_group, nav_group, transit_group, set_group, self.aspects_group]: left_layout.addWidget(g)
-            left_layout.addStretch()
-
-            self.btn_visual_guide = QPushButton("Guide & Legend")
-            self.btn_visual_guide.setStyleSheet("font-size: 11px; font-weight: bold; color: #1E8449; background-color: #E8F8F5; border: 1px solid #A2D9CE; border-radius: 4px;")
-            self.btn_visual_guide.setFixedSize(110, 24)
-            guide_lay = QHBoxLayout()
-            guide_lay.addStretch()
-            guide_lay.addWidget(self.btn_visual_guide)
-            left_layout.addLayout(guide_lay)
+        # Right Splitter setup
+        right_splitter = QSplitter(Qt.Orientation.Vertical)
+        
+        self.charts_scroll = QScrollArea()
+        self.charts_scroll.setWidgetResizable(True)
+        self.charts_container = QWidget()
+        
+        self.chart_layout = QGridLayout(self.charts_container)
+        self.chart_layout.setContentsMargins(0, 0, 0, 0)
+        self.chart_layout.setSpacing(10)
+        self.charts_scroll.setWidget(self.charts_container)
+        self.charts_smooth_scroller = SmoothScroller(self.charts_scroll)
+        
+        right_splitter.addWidget(self.charts_scroll)
+        
+        # Table container setup
+        table_container = QWidget()
+        tc_layout = QVBoxLayout(table_container)
+        tc_layout.setContentsMargins(4, 4, 4, 4)
+        
+        tc_top = QHBoxLayout()
+        tc_top.addWidget(QLabel("Explore Details For:"))
+        
+        self.table_view_cb = NoScrollComboBox()
+        for d_id, d_name in self.div_titles.items(): 
+            self.table_view_cb.addItem(d_name, d_id)
             
-            left_scroll.setWidget(left_panel)
-
-            right_splitter = QSplitter(Qt.Orientation.Vertical)
+        self.table_view_cb.setMaxVisibleItems(25)
+        self.table_view_cb.currentIndexChanged.connect(self.populate_table)
+        
+        tc_top.addWidget(self.table_view_cb)
+        tc_top.addStretch()
+        tc_layout.addLayout(tc_top)
+        
+        self.table = QTableWidget()
+        self.table.setColumnCount(6)
+        self.table.setHorizontalHeaderLabels(["Planet", "Sign", "Degree", "House", "Retrograde", "Freeze Rashi"])
+        self.table_smooth_scroller = SmoothScroller(self.table)
+        
+        if self.table.horizontalHeader() is not None: 
+            self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
             
-            self.charts_scroll = QScrollArea()
-            self.charts_scroll.setWidgetResizable(True)
-            self.charts_container = QWidget()
-            self.chart_layout = QGridLayout(self.charts_container)
-            self.chart_layout.setContentsMargins(0, 0, 0, 0)
-            self.chart_layout.setSpacing(10)
-            self.charts_scroll.setWidget(self.charts_container)
-            right_splitter.addWidget(self.charts_scroll)
-            
-            table_container = QWidget()
-            tc_layout = QVBoxLayout(table_container); tc_layout.setContentsMargins(4, 4, 4, 4)
-            tc_top = QHBoxLayout()
-            tc_top.addWidget(QLabel("Explore Details For:"))
-            self.table_view_cb = NoScrollComboBox()
-            for d_id, d_name in self.div_titles.items():
-                self.table_view_cb.addItem(d_name, d_id)
-            self.table_view_cb.setMaxVisibleItems(25)
-            self.table_view_cb.currentIndexChanged.connect(self.recalculate)
-            tc_top.addWidget(self.table_view_cb)
-            tc_top.addStretch()
-            tc_layout.addLayout(tc_top)
-            
-            self.table = QTableWidget(); self.table.setColumnCount(6); self.table.setHorizontalHeaderLabels(["Planet", "Sign", "Degree", "House", "Retrograde", "Freeze Rashi"])
-            if self.table.horizontalHeader() is not None: self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-            tc_layout.addWidget(self.table)
-            
-            self.table_container = table_container
-            right_splitter.addWidget(self.table_container)
-            right_splitter.setSizes([750, 200])
-            self.table_container.setVisible(self.chk_details.isChecked())
-
-            main_splitter.addWidget(left_scroll); main_splitter.addWidget(right_splitter); main_splitter.setSizes([370, 930])
+        tc_layout.addWidget(self.table)
+        self.table_container = table_container
+        
+        right_splitter.addWidget(self.table_container)
+        right_splitter.setSizes([750, 200])
+        self.table_container.setVisible(self.chk_details.isChecked())
+        
+        main_splitter.addWidget(left_scroll)
+        main_splitter.addWidget(right_splitter)
+        main_splitter.setSizes([370, 930])
     
     def on_div_toggled(self, checked, d_id):
-        if getattr(self, "is_updating_ui", False): return
-        if checked:
-            if d_id not in self.active_charts_order:
-                self.active_charts_order.append(d_id)
-        else:
-            if d_id in self.active_charts_order:
-                self.active_charts_order.remove(d_id)
-                
-        # FIX: Ensure layout exists before attempting to update it
-        if hasattr(self, "chart_layout"):
+        if getattr(self, "is_updating_ui", False): 
+            return
+            
+        if checked and d_id not in self.active_charts_order: 
+            self.active_charts_order.append(d_id)
+        elif not checked and d_id in self.active_charts_order: 
+            self.active_charts_order.remove(d_id)
+            
+        if hasattr(self, "chart_layout"): 
             self.update_grid_layout()
 
     def update_grid_layout(self):
-        if getattr(self, "is_updating_ui", False): return
+        if getattr(self, "is_updating_ui", False) or not hasattr(self, "chart_layout"): 
+            return
         
-        # FIX: Failsafe to prevent AttributeError during initialization
-        if not hasattr(self, "chart_layout"): return
-        
+        v_scroll = self.charts_scroll.verticalScrollBar().value() if hasattr(self, 'charts_scroll') else 0
+        h_scroll = self.charts_scroll.horizontalScrollBar().value() if hasattr(self, 'charts_scroll') else 0
+
         active_divs = self.active_charts_order.copy()
         if not active_divs:
             self.is_updating_ui = True
-            if "D1" in self.div_cbs: self.div_cbs["D1"].setChecked(True)
+            if "D1" in self.div_cbs: 
+                self.div_cbs["D1"].setChecked(True)
             self.is_updating_ui = False
             self.active_charts_order = ["D1"]
             active_divs = ["D1"]
             
         for i in reversed(range(self.chart_layout.count())):
-            item = self.chart_layout.itemAt(i)
-            if item.widget(): item.widget().setParent(None)
+            if item := self.chart_layout.itemAt(i):
+                if item.widget(): 
+                    item.widget().setParent(None)
                 
-        layout_mode = getattr(self, "cb_layout_mode", None)
-        mode_str = layout_mode.currentText() if layout_mode else "3 Columns"
-        
-        # Enforce max 3 vertical charts visually by locking their min heights based on viewport height
-        viewport_h = self.charts_scroll.viewport().height()
-        if viewport_h < 100: viewport_h = 600 # Fallback when initializing
-        
-        if mode_str == "1 Left, 2 Right (Stacked)":
-            min_h = max(200, (viewport_h // 2) - 15)
-        else:
-            min_h = max(200, (viewport_h // 3) - 15)
+        mode_str = self.cb_layout_mode.currentText() if getattr(self, "cb_layout_mode", None) else "3 Columns"
+        viewport_h = max(100, self.charts_scroll.viewport().height())
+        min_h = max(200, (viewport_h // 2 if mode_str == "1 Left, 2 Right (Stacked)" else viewport_h // 3) - 15)
         
         for i, div in enumerate(active_divs):
-            if div not in self.renderers:
-                r = ChartRenderer()
-                r.title = self.div_titles[div]
-                self.renderers[div] = r
+            if div not in self.renderers: 
+                self.renderers[div] = ChartRenderer()
+                self.renderers[div].title = self.div_titles[div]
+                self.renderers[div].setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+                self.renderers[div].customContextMenuRequested.connect(lambda pos, d=div: self.show_chart_context_menu(pos, d))
                 
             renderer = self.renderers[div]
             renderer.setMinimumHeight(min_h)
             
-            if mode_str == "1 Left, 2 Right (Stacked)":
+            if mode_str == "1 Left, 2 Right (Stacked)": 
                 if i == 0:
                     self.chart_layout.addWidget(renderer, 0, 0, 2, 1)
                 elif i == 1:
@@ -1574,249 +2337,281 @@ class AstroApp(QMainWindow):
                 elif i == 2:
                     self.chart_layout.addWidget(renderer, 1, 1, 1, 1)
                 else:
-                    r_idx = 2 + (i - 3) // 2
-                    c_idx = (i - 3) % 2
-                    self.chart_layout.addWidget(renderer, r_idx, c_idx, 1, 1)
-            elif mode_str == "2 Columns":
+                    self.chart_layout.addWidget(renderer, 2 + (i - 3) // 2, (i - 3) % 2, 1, 1)
+            elif mode_str == "2 Columns": 
                 self.chart_layout.addWidget(renderer, i // 2, i % 2)
             else: 
                 self.chart_layout.addWidget(renderer, i // 3, i % 3)
-                
+            
         self.update_settings()
+        
+        if hasattr(self, 'charts_scroll'):
+            QTimer.singleShot(0, lambda: self.charts_scroll.verticalScrollBar().setValue(v_scroll))
+            QTimer.singleShot(0, lambda: self.charts_scroll.horizontalScrollBar().setValue(h_scroll))
+
+    def show_chart_context_menu(self, pos, old_div):
+        menu = QMenu(self)
+        menu.setStyleSheet("QMenu { background-color: #FAFAFA; border: 1px solid #D1D5DB; border-radius: 4px; } "
+                           "QMenu::item { padding: 6px 24px 6px 24px; color: #1A1A1A; } "
+                           "QMenu::item:selected { background-color: #0078D4; color: white; }")
+        
+        title_action = menu.addAction(f"--- Swap {old_div} With ---")
+        title_action.setEnabled(False)
+        menu.addSeparator()
+        
+        for d_id, d_name in self.div_titles.items():
+            if d_id != old_div:
+                action = menu.addAction(f"{d_name}")
+                action.triggered.connect(lambda checked, new_d=d_id: self.swap_charts(old_div, new_d))
+        
+        renderer = self.renderers[old_div]
+        menu.exec(renderer.mapToGlobal(pos))
+
+    def swap_charts(self, old_div, new_div):
+        self.is_updating_ui = True
+        
+        if old_div in self.active_charts_order:
+            old_idx = self.active_charts_order.index(old_div)
+            if new_div in self.active_charts_order:
+                # Swap positions if both are already visible
+                new_idx = self.active_charts_order.index(new_div)
+                self.active_charts_order[old_idx], self.active_charts_order[new_idx] = self.active_charts_order[new_idx], self.active_charts_order[old_idx]
+            else:
+                # Replace old_div with new_div completely
+                self.active_charts_order[old_idx] = new_div
+                if old_div in self.div_cbs: 
+                    self.div_cbs[old_div].setChecked(False)
+                if new_div in self.div_cbs: 
+                    self.div_cbs[new_div].setChecked(True)
+        
+        self.is_updating_ui = False
+        self.update_grid_layout()
+        self.recalculate()
 
     def resizeEvent(self, event):
-        """Allows charts to adjust their minimum scroll limit if the user maximizes/resizes the app dynamically"""
         super().resizeEvent(event)
-        if not hasattr(self, 'charts_scroll'): return
-        viewport_h = self.charts_scroll.viewport().height()
-        if viewport_h < 100: return
         
-        layout_mode = getattr(self, "cb_layout_mode", None)
-        mode_str = layout_mode.currentText() if layout_mode else "3 Columns"
-        
-        if mode_str == "1 Left, 2 Right (Stacked)":
-            min_h = max(200, (viewport_h // 2) - 15)
-        else:
-            min_h = max(200, (viewport_h // 3) - 15)
+        if not hasattr(self, 'charts_scroll') or (viewport_h := self.charts_scroll.viewport().height()) < 100: 
+            return
             
+        mode_str = self.cb_layout_mode.currentText() if getattr(self, "cb_layout_mode", None) else "3 Columns"
+        min_h = max(200, (viewport_h // 2 if mode_str == "1 Left, 2 Right (Stacked)" else viewport_h // 3) - 15)
+        
         for div in getattr(self, 'active_charts_order', []):
-            if div in self.renderers:
+            if div in self.renderers: 
                 self.renderers[div].setMinimumHeight(min_h)
 
-    def set_transit_buttons_enabled(self, enabled):
-        for btn in [self.btn_prev_lagna, self.btn_next_lagna, self.btn_prev_rashi, self.btn_next_rashi]: btn.setEnabled(enabled)
-        self.cb_transit_planet.setEnabled(enabled); self.cb_transit_rashi.setEnabled(enabled)
-        if enabled: self.btn_stop_transit.hide()
-        else: self.btn_stop_transit.setText("Stop..."); self.btn_stop_transit.show()
-
     def _connect_signals(self):
-        self.loc_btn.clicked.connect(self.search_location); self.loc_input.returnPressed.connect(self.search_location)
+        self.loc_btn.clicked.connect(self.search_location)
+        self.loc_input.returnPressed.connect(self.search_location)
         self.time_ctrl.time_changed.connect(self.on_time_changed)
         
         self.btn_custom_loc.clicked.connect(self.show_custom_loc_dialog)
         self.btn_panchang.clicked.connect(self.show_panchang)
-
-        self.year_spin.valueChanged.connect(self.on_ui_datetime_changed)
-        self.month_spin.valueChanged.connect(self.on_ui_datetime_changed)
-        self.day_spin.valueChanged.connect(self.on_ui_datetime_changed)
-        self.time_edit.timeChanged.connect(self.on_ui_datetime_changed)
         
-        self.btn_play.clicked.connect(self.toggle_play); self.speed_combo.currentIndexChanged.connect(self.change_speed)
+        for w in [self.year_spin, self.month_spin, self.day_spin]: 
+            w.valueChanged.connect(self.on_ui_datetime_changed)
+            
+        self.time_edit.timeChanged.connect(self.on_ui_datetime_changed)
+        self.btn_play.clicked.connect(self.toggle_play)
+        self.speed_combo.currentIndexChanged.connect(self.change_speed)
         
         self.btn_add_m.clicked.connect(lambda: self.time_ctrl.step(60))
         self.btn_add_h.clicked.connect(lambda: self.time_ctrl.step(3600))
         self.btn_add_d.clicked.connect(lambda: self.time_ctrl.step(86400))
+        
         self.btn_sub_m.clicked.connect(lambda: self.time_ctrl.step(-60))
         self.btn_sub_h.clicked.connect(lambda: self.time_ctrl.step(-3600))
         self.btn_sub_d.clicked.connect(lambda: self.time_ctrl.step(-86400))
         
-        self.btn_prev_lagna.clicked.connect(lambda: self.jump_to_transit("Ascendant", -1))
-        self.btn_next_lagna.clicked.connect(lambda: self.jump_to_transit("Ascendant", 1))
-        self.btn_prev_rashi.clicked.connect(lambda: self.jump_to_transit(self.cb_transit_planet.currentText(), -1))
         self.btn_next_rashi.clicked.connect(lambda: self.jump_to_transit(self.cb_transit_planet.currentText(), 1))
-        self.btn_stop_transit.clicked.connect(self.stop_transit_search)
-        
         self.cb_transit_planet.currentIndexChanged.connect(self.recalculate)
         self.cb_transit_div.currentIndexChanged.connect(self.recalculate)
         
         self.cb_ayanamsa.currentTextChanged.connect(self.update_settings)
         self.cb_outline_mode.currentIndexChanged.connect(self.update_settings)
-        for chk in [self.chk_symbols, self.chk_rahu, self.chk_arrows, self.chk_tint, self.chk_circular]: chk.stateChanged.connect(self.update_settings)
-        self.chk_aspects.stateChanged.connect(self.toggle_aspects); self.chk_details.stateChanged.connect(self.toggle_details)
-        self.btn_save_chart.clicked.connect(self.save_chart_dialog); self.btn_load_chart.clicked.connect(self.load_chart_dialog)
+        
+        for chk in [self.chk_symbols, self.chk_rahu, self.chk_arrows, self.chk_tint, self.chk_circular]: 
+            chk.stateChanged.connect(self.update_settings)
+            
+        self.chk_aspects.stateChanged.connect(self.toggle_aspects)
+        self.chk_details.stateChanged.connect(self.toggle_details)
+        
+        self.btn_save_chart.clicked.connect(self.save_chart_dialog)
+        self.btn_load_chart.clicked.connect(self.load_chart_dialog)
         self.btn_export_png.clicked.connect(self.export_chart_png)
         self.btn_export_json.clicked.connect(self.export_analysis_json)
-        self.btn_load_json_rectify.clicked.connect(self.load_json_rectify_dialog)
-        self.btn_build_chart_rectify.clicked.connect(self.open_chart_builder_dialog)
-        
         self.btn_visual_guide.clicked.connect(self.show_visual_guide)
         
-        if HAS_CUSTOM_VARGAS and hasattr(self, 'btn_add_custom_varga'):
+        if HAS_CUSTOM_VARGAS and hasattr(self, 'btn_add_custom_varga'): 
             self.btn_add_custom_varga.clicked.connect(self.open_custom_varga_dialog)
+            
+        self.btn_stop_transit.clicked.connect(self.stop_transit_worker)
 
     def open_custom_varga_dialog(self):
-        if not HAS_CUSTOM_VARGAS: return
-        dlg = custom_vargas.CustomVargaDialog(self)
-        if dlg.exec():
+        if not HAS_CUSTOM_VARGAS: 
+            return
+            
+        if custom_vargas.CustomVargaDialog(self).exec(): 
             QMessageBox.information(self, "Restart Required", "Custom Vargas saved successfully!\nPlease restart the application to enable/remove them.")
 
+
+
+# ... [inside your class] ...
+
     def show_panchang(self):
-        if not getattr(self, "current_base_chart", None) or "panchang" not in self.current_base_chart:
+        if not getattr(self, "current_base_chart", None) or "panchang" not in self.current_base_chart: 
             QMessageBox.warning(self, "Not Ready", "Please wait for chart calculation.")
             return
-        
+            
         p = self.current_base_chart["panchang"]
-        msg = f"<h2>Daily Panchang Details</h2>"
-        msg += f"<p><b>Nakshatra:</b> {p['nakshatra']} (Swami: {p['nakshatra_lord']}), Pada {p['nakshatra_pada']}</p>"
-        msg += f"<p><b>Tithi:</b> {p['paksha']} Paksha {p['tithi']}</p>"
-        msg += f"<p><b>Sunrise:</b> {p['sunrise_str']}</p>"
-        msg += f"<p><b>Sunset:</b> {p['sunset_str']}</p>"
         
+        # --- NEW LOCATION-BASED CALCULATION ---
+        try:
+            # Note: Replace datetime.now() with your chart's target date if you have one (e.g., self.chart_date)
+            target_date = datetime.datetime.now().date() 
+            
+            # Create a location object using your class's current coordinates
+            loc = LocationInfo(timezone=self.current_tz, latitude=self.current_lat, longitude=self.current_lon)
+            
+            # Calculate sun events
+            s = sun(loc.observer, date=target_date, tzinfo=pytz.timezone(self.current_tz))
+            
+            # Format to a readable string (e.g., "06:15 AM")
+            real_sunrise = s['sunrise'].strftime('%I:%M %p')
+            real_sunset = s['sunset'].strftime('%I:%M %p')
+        except Exception as e:
+            # Fallback to the chart's original data if something goes wrong
+            print(f"Sunrise/Sunset calculation failed: {e}")
+            real_sunrise = p.get('sunrise_str', 'Unknown')
+            real_sunset = p.get('sunset_str', 'Unknown')
+        # --------------------------------------
+
         dlg = QDialog(self)
-        dlg.setWindowTitle("Panchang Info")
+        dlg.setWindowTitle("Panchang")
         dlg.setMinimumWidth(350)
+        
         lay = QVBoxLayout(dlg)
         lbl = QTextBrowser()
-        lbl.setHtml(msg)
+        
+        # Update the HTML to use the new real_sunrise and real_sunset variables
+        lbl.setHtml(
+            f"<h3>Panchang Details</h3>"
+            f"<p><b>Nakshatra:</b> {p['nakshatra']} (Swami: {p['nakshatra_lord']}), Pada {p['nakshatra_pada']}</p>"
+            f"<p><b>Tithi:</b> {p['paksha']} Paksha {p['tithi']}</p>"
+            f"<p><b>Sunrise:</b> {real_sunrise}</p>"
+            f"<p><b>Sunset:</b> {real_sunset}</p>"
+        )
         lay.addWidget(lbl)
+        
+        # Assuming SmoothScroller is a custom class you've imported
+        dlg.panchang_scroller = SmoothScroller(lbl) 
+        
         btn = QPushButton("Close")
         btn.clicked.connect(dlg.accept)
         lay.addWidget(btn)
         dlg.exec()
 
+
     def show_custom_loc_dialog(self):
         dlg = CustomLocationDialog(self.current_lat, self.current_lon, self)
         if dlg.exec():
             lat, lon = dlg.get_coordinates()
-            tz_name = TimezoneFinder().timezone_at(lng=lon, lat=lat) or "UTC"
-            self.current_lat, self.current_lon, self.current_tz = lat, lon, tz_name
+            self.current_lat = lat
+            self.current_lon = lon
+            self.current_tz = TimezoneFinder().timezone_at(lng=lon, lat=lat) or "UTC"
+            
             self.loc_input.setText(f"{lat:.4f}, {lon:.4f}")
-            self.loc_status.setText(f"Lat: {lat:.4f}, Lon: {lon:.4f} | TZ: {tz_name}")
+            self.loc_status.setText(f"Lat: {lat:.4f}, Lon: {lon:.4f} | TZ: {self.current_tz}")
+            
             self.save_settings()
             self.recalculate()
 
-    def search_location(self):
-        self.loc_btn.setEnabled(False); self.loc_btn.setText("Search...")
+    def search_location(self): 
+        self.loc_btn.setEnabled(False)
+        self.loc_btn.setText("Search...")
+        
         self.loc_worker = LocationWorker(self.loc_input.text())
         self.loc_worker.result_ready.connect(self.on_location_found)
         self.loc_worker.error_occurred.connect(self.on_location_error)
         self.loc_worker.start()
-
-    def on_location_found(self, lat, lon, tz_name, name):
-        self.current_lat, self.current_lon, self.current_tz = lat, lon, tz_name
+        
+    def on_location_found(self, lat, lon, tz_name, name): 
+        self.current_lat = lat
+        self.current_lon = lon
+        self.current_tz = tz_name
+        
         self.loc_status.setText(f"Lat: {lat:.4f}, Lon: {lon:.4f} | TZ: {tz_name}")
-        self.loc_btn.setEnabled(True); self.loc_btn.setText("Search")
-        self.save_settings(); self.recalculate()
-
-    def on_location_error(self, err_msg):
+        self.loc_btn.setEnabled(True)
+        self.loc_btn.setText("Search")
+        
+        self.save_settings()
+        self.recalculate()
+        
+    def on_location_error(self, err_msg): 
         QMessageBox.warning(self, "Location Error", err_msg)
-        self.loc_btn.setEnabled(True); self.loc_btn.setText("Search")
-
-    def get_days_in_month(self, year, month):
-        if month in {4, 6, 9, 11}: return 30
+        self.loc_btn.setEnabled(True)
+        self.loc_btn.setText("Search")
+        
+    def get_days_in_month(self, year, month): 
+        if month in {4, 6, 9, 11}:
+            return 30
         if month == 2:
-            if year > 1582: return 29 if (year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)) else 28
-            else: return 29 if (year % 4 == 0) else 28
+            if year > 1582:
+                if year % 4 == 0 and (year % 100 != 0 or year % 400 == 0):
+                    return 29
+                return 28
+            else:
+                if year % 4 == 0:
+                    return 29
+                return 28
         return 31
 
     def on_time_changed(self, dt):
         self.is_updating_ui = True
-        
-        max_days = self.get_days_in_month(dt['year'], dt['month'])
-        self.day_spin.setMaximum(max_days)
-        
+        self.day_spin.setMaximum(self.get_days_in_month(dt['year'], dt['month']))
         self.year_spin.setValue(dt['year'])
         self.month_spin.setValue(dt['month'])
         self.day_spin.setValue(dt['day'])
         self.time_edit.setTime(QTime(dt['hour'], dt['minute'], int(dt['second'])))
-        self.is_updating_ui = False; self.recalculate()
+        self.is_updating_ui = False
+        
+        self.recalculate()
 
     def on_ui_datetime_changed(self):
-        if self.is_updating_ui: return
-        
+        if self.is_updating_ui: 
+            return
+            
         max_days = self.get_days_in_month(self.year_spin.value(), self.month_spin.value())
-        if self.day_spin.maximum() != max_days:
+        if self.day_spin.maximum() != max_days: 
             self.is_updating_ui = True
             self.day_spin.setMaximum(max_days)
             self.is_updating_ui = False
             
         t = self.time_edit.time()
         self.time_ctrl.set_time({
-            'year': self.year_spin.value(), 'month': self.month_spin.value(), 'day': self.day_spin.value(), 
-            'hour': t.hour(), 'minute': t.minute(), 'second': t.second()
+            'year': self.year_spin.value(), 
+            'month': self.month_spin.value(), 
+            'day': self.day_spin.value(), 
+            'hour': t.hour(), 
+            'minute': t.minute(), 
+            'second': t.second()
         })
 
-    def stop_transit_search(self):
-        if hasattr(self, 'transit_worker') and self.transit_worker.isRunning(): self.transit_worker.stop()
-
-    def jump_to_transit(self, body_name, direction):
-        if hasattr(self, 'transit_worker') and self.transit_worker.isRunning():
-            self.transit_worker.stop(); self.transit_worker.wait()
-            
-        zodiac_names = ["Aries", "Taurus", "Gemini", "Cancer", "Leo", "Virgo", "Libra", "Scorpio", "Sagittarius", "Capricorn", "Aquarius", "Pisces"]
-        if self.time_ctrl.is_playing: self.toggle_play()
-        target_sign = self.cb_transit_rashi.currentText()
-        if target_sign == "Any": target_sign = "Any Rashi"
+    def toggle_play(self): 
+        self.btn_play.setText("⏸ Pause" if self.time_ctrl.toggle_animation() else "▶ Play")
         
-        div_type = getattr(self, 'cb_transit_div', None) and self.cb_transit_div.currentText() or "D1"
-        
-        if body_name in self.frozen_planets:
-            f_info = self.frozen_planets[body_name]
-            frozen_sign_name = zodiac_names[f_info["sign_idx"]]
-            if target_sign == "Any Rashi" or target_sign != frozen_sign_name or div_type != f_info["div"]:
-                ans = QMessageBox.question(self, "Unfreeze Required", f"'{body_name}' is currently frozen in {frozen_sign_name} ({f_info['div']}).\nTo search for its next transit, it must be automatically unfrozen.\n\nUnfreeze {body_name} to proceed?", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-                if ans == QMessageBox.StandardButton.Yes: 
-                    del self.frozen_planets[body_name]
-                    self.recalculate() 
-                else: 
-                    return
-
-        self.set_transit_buttons_enabled(False)
-        params = {
-            'dt': self.time_ctrl.current_time, 
-            'lat': self.current_lat, 'lon': self.current_lon, 'tz_name': self.current_tz, 
-            'body_name': body_name, 'direction': direction, 
-            'target_sign_name': target_sign, 'frozen_planets': self.frozen_planets.copy(), 
-            'ayanamsa': self.cb_ayanamsa.currentText(),
-            'div_type': div_type
-        }
-
-        self.transit_worker = TransitWorkerThread(params)
-        self.transit_worker.finished.connect(lambda jd, d=direction: self.on_transit_finished(jd, d))
-        self.transit_worker.error.connect(self.on_transit_error)
-        self.transit_worker.stopped.connect(self.on_transit_stopped)
-        self.transit_worker.progress.connect(self.on_transit_progress)
-        self.transit_worker.start()
-
-    def on_transit_progress(self, date_str): self.btn_stop_transit.setText(f"Stop (~{date_str})")
-
-    def on_transit_finished(self, next_jd_utc, direction):
-        self.set_transit_buttons_enabled(True)
-        if next_jd_utc is None:
-            QMessageBox.warning(self, "Transit Blocked", "Could not find transit without breaking freeze constraints.")
-            return
-            
-        offset_sec = 1 if direction == 1 else -1
-        local_dict = astro_engine.utc_jd_to_dt_dict(next_jd_utc + (offset_sec / 86400.0), self.current_tz)
-        self.time_ctrl.set_time(local_dict)
-
-    def on_transit_error(self, err_msg):
-        self.set_transit_buttons_enabled(True)
-        if hasattr(self, 'transit_worker') and self.transit_worker.isRunning(): self.transit_worker.stop()
-        QMessageBox.warning(self, "Transit Error", f"Search Limit Reached: {err_msg}")
-
-    def on_transit_stopped(self): self.set_transit_buttons_enabled(True)
-
-    def toggle_play(self): self.btn_play.setText("⏸ Pause" if self.time_ctrl.toggle_animation() else "▶ Play")
-
     def change_speed(self): 
         speeds = [1.0, 10.0, 60.0, 120.0, 300.0, 600.0, 1800.0, 3600.0, 14400.0, 86400.0, 604800.0]
         self.time_ctrl.set_speed(speeds[self.speed_combo.currentIndex()])
-
+        
     def update_settings(self):
-        if self.is_updating_ui: return
+        if self.is_updating_ui: 
+            return
+            
         self.ephemeris.set_ayanamsa(self.cb_ayanamsa.currentText())
-        for r in self.renderers.values():
+        
+        for r in self.renderers.values(): 
             r.outline_mode = self.cb_outline_mode.currentText()
             r.use_symbols = self.chk_symbols.isChecked()
             r.show_rahu_ketu = self.chk_rahu.isChecked()
@@ -1825,21 +2620,37 @@ class AstroApp(QMainWindow):
             r.use_tint = self.chk_tint.isChecked()
             r.use_circular = self.chk_circular.isChecked()
             r.visible_aspect_planets = {p for p, cb in self.aspect_cb.items() if cb.isChecked()}
-        self.save_settings(); self.recalculate()
-
-    def toggle_aspects(self):
-        self.aspects_group.setVisible(self.chk_aspects.isChecked()); self.chk_arrows.setVisible(self.chk_aspects.isChecked())
-        self.chk_tint.setVisible(self.chk_aspects.isChecked()); self.update_settings()
-
-    def toggle_details(self): self.table_container.setVisible(self.chk_details.isChecked()); self.save_settings()
-
-    def get_current_chart_info(self): return {"location": self.loc_input.text(), "lat": self.current_lat, "lon": self.current_lon, "tz": self.current_tz, "datetime_dict": self.time_ctrl.current_time}
+            
+        self.save_settings()
+        self.recalculate()
+        
+    def toggle_aspects(self): 
+        self.aspects_group.setVisible(self.chk_aspects.isChecked())
+        self.chk_arrows.setVisible(self.chk_aspects.isChecked())
+        self.chk_tint.setVisible(self.chk_aspects.isChecked())
+        self.update_settings()
+    
+    def toggle_details(self): 
+        self.table_container.setVisible(self.chk_details.isChecked())
+        if self.chk_details.isChecked(): 
+            self.populate_table()
+        self.save_settings()
+        
+    def get_current_chart_info(self): 
+        return {
+            "location": self.loc_input.text(), 
+            "lat": self.current_lat, 
+            "lon": self.current_lon, 
+            "tz": self.current_tz, 
+            "datetime_dict": self.time_ctrl.current_time
+        }
 
     def save_chart_dialog(self):
         os.makedirs("saves", exist_ok=True)
         default_dir = self.current_file_path if self.current_file_path else os.path.join("saves", "")
         path, _ = QFileDialog.getSaveFileName(self, "Save Chart", default_dir, "JSON Files (*.json);;All Files (*)")
-        if path and save_prefs.save_chart_to_file(path, self.get_current_chart_info()):
+        
+        if path and save_prefs.save_chart_to_file(path, self.get_current_chart_info()): 
             self.is_chart_saved = True
             self.current_file_path = path
             self.update_window_title()
@@ -1848,586 +2659,478 @@ class AstroApp(QMainWindow):
     def load_chart_dialog(self):
         os.makedirs("saves", exist_ok=True)
         path, _ = QFileDialog.getOpenFileName(self, "Load Chart", self.last_load_dir, "JSON Files (*.json);;All Files (*)")
+        
         if path:
             self.last_load_dir = os.path.dirname(path)
             data = save_prefs.load_chart_from_file(path)
+            
             if data:
                 self.current_file_path = path
                 self.update_window_title()
                 
-                self.is_updating_ui = True; self.frozen_planets.clear()
+                self.is_updating_ui = True
+                self.frozen_planets = {}
                 
                 if "metadata" in data:
                     meta = data["metadata"]
                     data = {
-                        "location": meta.get("location", "Imported Analysis"),
-                        "lat": meta.get("latitude", 28.6139),
-                        "lon": meta.get("longitude", 77.2090),
+                        "location": meta.get("location", "Imported Analysis"), 
+                        "lat": meta.get("latitude", 28.6139), 
+                        "lon": meta.get("longitude", 77.2090), 
                         "datetime_dict": meta.get("datetime")
                     }
-                    if "ayanamsa" in meta:
+                    if "ayanamsa" in meta: 
                         self.cb_ayanamsa.setCurrentText(meta["ayanamsa"])
                         
-                    tz = TimezoneFinder().timezone_at(lng=data["lon"], lat=data["lat"])
-                    data["tz"] = tz or "UTC"
-
+                    data["tz"] = TimezoneFinder().timezone_at(lng=data["lon"], lat=data["lat"]) or "UTC"
+                    
                 self.loc_input.setText(data.get("location", "New Delhi, India"))
-                self.current_lat, self.current_lon, self.current_tz = data.get("lat", 28.6139), data.get("lon", 77.2090), data.get("tz", "Asia/Kolkata")
+                self.current_lat = data.get("lat", 28.6139)
+                self.current_lon = data.get("lon", 77.2090)
+                self.current_tz = data.get("tz", "Asia/Kolkata")
+                
                 self.loc_status.setText(f"Lat: {self.current_lat:.4f}, Lon: {self.current_lon:.4f}\nTZ: {self.current_tz}")
                 
                 if "datetime_dict" in data and isinstance(data["datetime_dict"], dict): 
                     self.time_ctrl.set_time(data["datetime_dict"])
                 elif "datetime" in data:
-                    try:
-                        if isinstance(data["datetime"], dict):
-                            self.time_ctrl.set_time(data["datetime"])
+                    try: 
+                        dt_val = data["datetime"]
+                        if isinstance(dt_val, dict):
+                            self.time_ctrl.set_time(dt_val)
                         else:
-                            dt = datetime.datetime.fromisoformat(data["datetime"])
-                            self.time_ctrl.set_time({'year': dt.year, 'month': dt.month, 'day': dt.day, 'hour': dt.hour, 'minute': dt.minute, 'second': dt.second})
-                    except Exception as e: print(f"Error parsing date from file: {e}")
+                            parsed = datetime.datetime.fromisoformat(dt_val)
+                            self.time_ctrl.set_time({
+                                'year': parsed.year, 'month': parsed.month, 'day': parsed.day, 
+                                'hour': parsed.hour, 'minute': parsed.minute, 'second': parsed.second
+                            })
+                    except Exception as e: 
+                        print(f"Error parsing date from file: {e}")
+                        
+                self.is_updating_ui = False
+                self.is_chart_saved = True
                 
-                self.is_updating_ui = False; self.save_settings(); self.recalculate(); self.is_chart_saved = True
-            else: QMessageBox.warning(self, "Error", "Failed to load chart data.")
-
-    def compute_varga_helper(self, chart_data, div_id):
-        native_vargas = ["D1", "D2", "D4", "D7", "D9", "D10", "D12", "D16", "D20", "D24", "D30", "D60"]
-        if div_id == "D1":
-            return chart_data
-        elif div_id in native_vargas:
-            return self.ephemeris.compute_divisional_chart(chart_data, div_id)
-        elif HAS_CUSTOM_VARGAS:
-            return custom_vargas.compute_divisional_chart(chart_data, div_id)
-        return chart_data
-
-    def open_chart_builder_dialog(self):
-        dlg = ChartBuilderDialog(list(self.div_titles.keys()), self)
-        if dlg.exec():
-            target_div, target_asc, target_planets = dlg.get_chart_data()
-            if not target_planets and target_asc is None:
-                QMessageBox.warning(self, "Empty Chart", "Please specify at least one planetary position or Ascendant.")
-                return
-                
-            try:
-                os.makedirs("created chart exports", exist_ok=True)
-                default_path = os.path.join("created chart exports", f"tmp_created_{target_div}_chart.json")
-                export_data = {
-                    "divisional_charts": {
-                        target_div: {
-                            "ascendant": {"sign_index": target_asc} if target_asc is not None else {},
-                            "planets": [{"name": p, "sign_index": s} for p, s in target_planets.items()]
-                        }
-                    }
-                }
-                with open(default_path, 'w') as f:
-                    json.dump(export_data, f, indent=4)
-            except Exception as e:
-                print(f"Failed to auto-save built chart: {e}")
-                
-            self.initiate_rectification_flow(target_div, target_asc, target_planets, metadata=None, auto_start=True)
-
-    def load_json_rectify_dialog(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Load JSON for Rectification", self.last_load_dir, "JSON Files (*.json);;All Files (*)")
-        if not path: return
-        
-        try:
-            with open(path, 'r') as f:
-                data = json.load(f)
-                
-            target_div = None
-            chart_node = None
-            
-            if "divisional_charts" in data: charts = data["divisional_charts"]
-            else: charts = data
-                
-            for div in list(self.div_titles.keys()):
-                if div in charts:
-                    target_div = div; chart_node = charts[div]; break
-
-            if not target_div or not chart_node:
-                QMessageBox.warning(self, "Invalid JSON", "Could not find a valid divisional chart block (e.g. 'D60') in JSON.")
-                return
-                
-            target_asc = chart_node.get("ascendant", {}).get("sign_index")
-            target_planets = {p["name"]: p["sign_index"] for p in chart_node.get("planets", []) if "name" in p and "sign_index" in p}
-            
-            meta = data.get("metadata", {})
-            self.initiate_rectification_flow(target_div, target_asc, target_planets, metadata=meta, auto_start=False)
-            
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
-            QMessageBox.critical(self, "Load Error", f"Failed to parse JSON:\n{str(e)}")
-
-    def initiate_rectification_flow(self, target_div, target_asc, target_planets, metadata=None, auto_start=False):
-        rectify_lat = self.current_lat
-        rectify_lon = self.current_lon
-        rectify_tz = self.current_tz
-        rectify_ayanamsa = self.cb_ayanamsa.currentText()
-
-        if metadata:
-            rectify_lat = metadata.get("latitude", self.current_lat)
-            rectify_lon = metadata.get("longitude", self.current_lon)
-            if "ayanamsa" in metadata:
-                rectify_ayanamsa = metadata["ayanamsa"]
-                self.cb_ayanamsa.setCurrentText(rectify_ayanamsa) 
-            rectify_tz = TimezoneFinder().timezone_at(lng=rectify_lon, lat=rectify_lat) or "UTC"
-
-        synthetic_chart = {
-            "ascendant": {
-                "sign_index": target_asc if target_asc is not None else 0,
-                "sign_num": (target_asc if target_asc is not None else 0) + 1,
-                "degree": (target_asc if target_asc is not None else 0) * 30 + 15.0,
-                "div_lon": (target_asc if target_asc is not None else 0) * 30 + 15.0,
-                "vargottama": False
-            },
-            "planets": [],
-            "aspects": []
-        }
-        
-        exaltation_rules = {"Sun": 1, "Moon": 2, "Mars": 10, "Mercury": 6, "Jupiter": 4, "Venus": 12, "Saturn": 7, "Rahu": 2, "Ketu": 8}
-        debilitation_rules = {"Sun": 7, "Moon": 8, "Mars": 4, "Mercury": 12, "Jupiter": 10, "Venus": 6, "Saturn": 1, "Rahu": 8, "Ketu": 2}
-        sign_rulers = {1: "Mars", 2: "Venus", 3: "Mercury", 4: "Moon", 5: "Sun", 6: "Mercury", 7: "Venus", 8: "Mars", 9: "Jupiter", 10: "Saturn", 11: "Saturn", 12: "Jupiter"}
-
-        for p_name, s_idx in target_planets.items():
-            sign_num = s_idx + 1
-            
-            is_exalted = False
-            is_own = (sign_rulers.get(sign_num) == p_name)
-            is_debilitated = (sign_num == debilitation_rules.get(p_name))
-            
-            if p_name == "Moon" and sign_num == 2:
-                is_exalted = False; is_own = True
-            elif p_name == "Mercury" and sign_num == 6:
-                is_exalted = True; is_own = False
-            else:
-                is_exalted = (sign_num == exaltation_rules.get(p_name))
-                
-            if p_name == "Moon" and sign_num == 8:
-                is_debilitated = False 
-            elif p_name == "Mercury" and sign_num == 12:
-                is_debilitated = True 
-
-            synthetic_chart["planets"].append({
-                "name": p_name,
-                "sym": p_name[:2],
-                "lon": s_idx * 30 + 15.0,
-                "div_lon": s_idx * 30 + 15.0,
-                "sign_index": s_idx,
-                "sign_num": sign_num,
-                "deg_in_sign": 15.0, 
-                "house": ((s_idx - (target_asc if target_asc is not None else 0)) % 12) + 1,
-                "retro": False,
-                "exalted": is_exalted,
-                "debilitated": is_debilitated,
-                "combust": False,
-                "own_sign": is_own,
-                "vargottama": False,
-                "is_ak": False
-            })
-
-        base_year = self.year_spin.value()
-        
-        params = {
-            "div_type": target_div, "target_asc": target_asc, "target_planets": target_planets,
-            "base_year": base_year, "lat": rectify_lat, "lon": rectify_lon,
-            "tz": rectify_tz, "ayanamsa": rectify_ayanamsa,
-            "search_mode": "speed"
-        }
-        
-        self.rectify_dialog = QDialog(self)
-        self.rectify_dialog.setWindowTitle(f"Verify & Rectify Target ({target_div})")
-        self.rectify_dialog.resize(500, 600)
-        
-        layout = QVBoxLayout()
-        
-        info_lbl = QLabel(f"Please verify the hypothetical {target_div} chart.\nClick 'Search Birth Time' to find the exact timestamp.")
-        if auto_start:
-            info_lbl.setText(f"Searching for hypothetical {target_div} chart.\nPlease wait...")
-            
-        info_lbl.setWordWrap(True)
-        info_lbl.setStyleSheet("font-weight: bold; color: #2c3e50;")
-        info_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(info_lbl)
-        
-        renderer = ChartRenderer()
-        renderer.title = f"Hypothetical Target {target_div}"
-        renderer.setMinimumSize(400, 400)
-        
-        renderer.use_symbols = self.chk_symbols.isChecked()
-        renderer.show_rahu_ketu = self.chk_rahu.isChecked()
-        renderer.show_aspects = self.chk_aspects.isChecked()
-        renderer.show_arrows = self.chk_arrows.isChecked()
-        renderer.use_tint = self.chk_tint.isChecked()
-        renderer.use_circular = self.chk_circular.isChecked()
-        
-        renderer.update_chart(synthetic_chart)
-        layout.addWidget(renderer)
-        
-        self.rectify_lbl = QLabel("Ready to search.")
-        if auto_start:
-            self.rectify_lbl.setText("Starting search...")
-            
-        self.rectify_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.rectify_lbl.setStyleSheet("color: #555; font-style: italic;")
-        layout.addWidget(self.rectify_lbl)
-        
-        btn_layout = QHBoxLayout()
-        self.rectify_btn_search = QPushButton("Search Birth Time")
-        self.rectify_btn_search.setStyleSheet("background-color: #27ae60; color: white; font-weight: bold; padding: 8px;")
-        
-        export_btn = QPushButton("Export JSON")
-        export_btn.setStyleSheet("font-weight: bold; color: #8e44ad; padding: 8px;")
-        
-        cancel_btn = QPushButton("Cancel")
-        cancel_btn.setStyleSheet("padding: 8px;")
-        
-        self.rectify_worker = RectificationWorkerThread(params)
-        
-        def start_search():
-            self.rectify_btn_search.setEnabled(False)
-            self.rectify_btn_search.setText("Searching... Please wait.")
-            self.rectify_worker.start()
-            
-        def export_target_chart():
-            os.makedirs("created chart exports", exist_ok=True)
-            default_path = os.path.join("created chart exports", f"tmp_created_{target_div}_chart.json")
-            path, _ = QFileDialog.getSaveFileName(self.rectify_dialog, "Export Target Chart JSON", default_path, "JSON Files (*.json);;All Files (*)")
-            if not path: return
-            
-            export_data = {
-                "divisional_charts": {
-                    target_div: {
-                        "ascendant": {"sign_index": target_asc} if target_asc is not None else {},
-                        "planets": [{"name": p, "sign_index": s} for p, s in target_planets.items()]
-                    }
-                }
-            }
-            if metadata:
-                export_data["metadata"] = metadata
-                
-            try:
-                with open(path, 'w') as f:
-                    json.dump(export_data, f, indent=4)
-                QMessageBox.information(self.rectify_dialog, "Export Successful", f"Chart saved successfully to:\n{path}")
-            except Exception as e:
-                QMessageBox.critical(self.rectify_dialog, "Export Error", f"Failed to save JSON:\n{str(e)}")
-            
-        def cancel_rect():
-            if self.rectify_worker.isRunning(): self.rectify_worker.stop()
-            self.rectify_dialog.reject()
-            
-        self.rectify_btn_search.clicked.connect(start_search)
-        export_btn.clicked.connect(export_target_chart)
-        cancel_btn.clicked.connect(cancel_rect)
-        
-        btn_layout.addWidget(self.rectify_btn_search)
-        btn_layout.addWidget(export_btn)
-        btn_layout.addWidget(cancel_btn)
-        layout.addLayout(btn_layout)
-        
-        self.rectify_dialog.setLayout(layout)
-        
-        self.rectify_worker.progress.connect(lambda msg: self.rectify_lbl.setText(msg))
-        self.rectify_worker.error.connect(lambda err: QMessageBox.warning(self, "Error", err))
-        self.rectify_worker.finished.connect(self.on_rectify_finished)
-        
-        if auto_start:
-            self.rectify_btn_search.hide()
-            export_btn.hide()
-            QTimer.singleShot(100, start_search)
-            
-        self.rectify_dialog.exec()
-
-    def on_rectify_finished(self, res):
-        if res["status"] == "success":
-            self.rectify_dialog.accept() 
-            blocks = res["blocks"]
-            year = res["year"]
-            
-            msg = f"Found {len(blocks)} precise match window(s) in {year}:\n\n"
-            months_found = set()
-            
-            for i, b in enumerate(blocks):
-                s_dt, e_dt = b["start"], b["end"]
-                m_name = datetime.date(2000, s_dt['month'], 1).strftime('%B')
-                months_found.add(m_name)
-                msg += f"{i+1}. {s_dt['day']} {m_name} {year}, {s_dt['hour']:02d}:{s_dt['minute']:02d} to {e_dt['hour']:02d}:{e_dt['minute']:02d}\n"
-                
-            msg += f"\nMatches found in months: {', '.join(sorted(list(months_found)))}\n"
-            msg += "\nAutomatically applied the chronologically closest match to the timeline."
-            
-            QMessageBox.information(self, "Rectification Success", msg)
-            
-            target_dt = astro_engine.utc_jd_to_dt_dict(blocks[0]["mid_jd"], self.current_tz)
-            self.time_ctrl.set_time(target_dt)
-            
-        elif res["status"] == "phase1_failed":
-            msg_box = QMessageBox(self.rectify_dialog)
-            msg_box.setWindowTitle("Speed Search Missed")
-            msg_box.setText("Cascading lock-pick search completely swept standard limits but found no matches.\n\nChoose your fallback search method:")
-            
-            btn_10k = msg_box.addButton("Search +/- 10,000 Years", QMessageBox.ButtonRole.AcceptRole)
-            btn_brute = msg_box.addButton("Deep Brute-Force", QMessageBox.ButtonRole.AcceptRole)
-            btn_cancel = msg_box.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
-            
-            msg_box.exec()
-            
-            if msg_box.clickedButton() == btn_10k:
-                self.rectify_btn_search.setEnabled(False)
-                self.rectify_btn_search.setText("Searching 10k Years... Please wait.")
-                params = self.rectify_worker.params.copy()
-                params["search_range"] = 10000 
-                
-                self.rectify_worker = RectificationWorkerThread(params)
-                self.rectify_worker.progress.connect(lambda msg: self.rectify_lbl.setText(msg))
-                self.rectify_worker.error.connect(lambda err: QMessageBox.warning(self, "Error", err))
-                self.rectify_worker.finished.connect(self.on_rectify_finished)
-                self.rectify_worker.start()
-                
-            elif msg_box.clickedButton() == btn_brute:
-                self.rectify_btn_search.setEnabled(False)
-                self.rectify_btn_search.setText("Brute-Forcing... Please wait.")
-                params = self.rectify_worker.params.copy()
-                params["search_mode"] = "brute"
-                
-                self.rectify_worker = RectificationWorkerThread(params)
-                self.rectify_worker.progress.connect(lambda msg: self.rectify_lbl.setText(msg))
-                self.rectify_worker.error.connect(lambda err: QMessageBox.warning(self, "Error", err))
-                self.rectify_worker.finished.connect(self.on_rectify_finished)
-                self.rectify_worker.start()
-            else:
-                self.rectify_dialog.accept()
-
-        elif res["status"] == "not_found":
-            self.rectify_dialog.accept()
-            QMessageBox.warning(self, "Not Found", res["message"])
+                self.save_settings()
+                self.recalculate()
+            else: 
+                QMessageBox.warning(self, "Error", "Failed to load chart data.")
 
     def export_chart_png(self):
         path, _ = QFileDialog.getSaveFileName(self, "Save Chart PNG", "", "PNG Files (*.png);;All Files (*)")
-        if path: self.charts_container.grab().save(path, "PNG")
+        if path: 
+            self.charts_container.grab().save(path, "PNG")
 
     def export_analysis_json(self):
         os.makedirs("analysis_export", exist_ok=True)
         
-        default_name = "Vedic_Analysis.json"
+        default_file = "Final_Analysis.json"
         if getattr(self, "current_file_path", None):
-            base_name = os.path.splitext(os.path.basename(self.current_file_path))[0]
-            default_name = f"{base_name}_analysis.json"
+            default_file = f"{os.path.splitext(os.path.basename(self.current_file_path))[0]}_analysis.json"
             
-        default_path = os.path.join("analysis_export", default_name)
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export Analysis JSON", 
+            os.path.join("analysis_export", default_file), 
+            "JSON Files (*.json);;All Files (*)"
+        )
         
-        path, _ = QFileDialog.getSaveFileName(self, "Export Analysis JSON", default_path, "JSON Files (*.json);;All Files (*)")
-        if not path: return
-        
+        if not path: 
+            return
+            
         try:
             chart_data = self.ephemeris.calculate_chart(self.time_ctrl.current_time, self.current_lat, self.current_lon, self.current_tz)
             
             export_data = {
                 "metadata": {
-                    "location": self.loc_input.text(),
-                    "latitude": self.current_lat,
-                    "longitude": self.current_lon,
-                    "datetime": self.time_ctrl.current_time,
-                    "ayanamsa": self.cb_ayanamsa.currentText(),
-                },
+                    "location": self.loc_input.text(), 
+                    "latitude": self.current_lat, 
+                    "longitude": self.current_lon, 
+                    "datetime": self.time_ctrl.current_time, 
+                    "ayanamsa": self.cb_ayanamsa.currentText()
+                }, 
                 "divisional_charts": {}
             }
             
-            if "panchang" in chart_data:
+            if "panchang" in chart_data: 
                 export_data["metadata"]["panchang"] = {
-                    "nakshatra": chart_data["panchang"]["nakshatra"],
-                    "nakshatra_lord": chart_data["panchang"]["nakshatra_lord"],
-                    "nakshatra_pada": chart_data["panchang"]["nakshatra_pada"],
-                    "tithi": f"{chart_data['panchang']['paksha']} {chart_data['panchang']['tithi']}",
-                    "sunrise": chart_data["panchang"]["sunrise_str"],
+                    "nakshatra": chart_data["panchang"]["nakshatra"], 
+                    "nakshatra_lord": chart_data["panchang"]["nakshatra_lord"], 
+                    "nakshatra_pada": chart_data["panchang"]["nakshatra_pada"], 
+                    "tithi": f"{chart_data['panchang']['paksha']} {chart_data['panchang']['tithi']}", 
+                    "sunrise": chart_data["panchang"]["sunrise_str"], 
                     "sunset": chart_data["panchang"]["sunset_str"]
                 }
-            
+                
             moon_p = next((p for p in chart_data["planets"] if p["name"] == "Moon"), None)
-            if moon_p:
-                birth_jd = astro_engine.dt_dict_to_utc_jd(self.time_ctrl.current_time, self.current_tz)
-                export_data["vimshottari_dasha_timeline"] = self.ephemeris.get_dasha_export_list(birth_jd, moon_p["lon"])
+            if moon_p: 
+                jd_utc = astro_engine.dt_dict_to_utc_jd(self.time_ctrl.current_time, self.current_tz)
+                export_data["vimshottari_dasha_timeline"] = self.ephemeris.get_dasha_export_list(jd_utc, moon_p["lon"])
             
-            ordinal = lambda n: str(n) + ('th' if 11 <= (n % 100) <= 13 else {1: 'st', 2: 'nd', 3: 'rd'}.get(n % 10, 'th'))
-            preferred_houses = {1, 2, 4, 5, 7, 9, 10, 11}
+            def get_ordinal(n):
+                if 11 <= (n % 100) <= 13: return f"{n}th"
+                return f"{n}" + {1: 'st', 2: 'nd', 3: 'rd'}.get(n % 10, 'th')
             
             for div in self.div_titles.keys():
-                div_data = self.compute_varga_helper(chart_data, div)
-                
-                analysis_items = []
-                for p in div_data["planets"]:
-                    if not p.get("lord_of"): continue
-                    for ruled_house in p["lord_of"]:
-                        if ruled_house in preferred_houses and p["house"] in preferred_houses:
-                            dignity = "Exalted" if p.get("exalted") else "Debilitated" if p.get("debilitated") else "Own Sign" if p.get("own_sign") else "Neutral"
-                            analysis_items.append(f"{ordinal(ruled_house)} lord ({p['name']}) is in {ordinal(p['house'])} house ({dignity})")
+                div_data = self.ephemeris.compute_divisional_chart(chart_data, div) if div != "D1" else chart_data
                 
                 planets_list = []
                 for p in div_data["planets"]:
                     planets_list.append({
-                        "name": p["name"],
-                        "sign_index": p["sign_index"],
-                        "house": p["house"],
-                        "degree_in_sign": p["deg_in_sign"],
-                        "is_retrograde": p["retro"],
-                        "is_brightest_ak": p.get("is_ak", False),
-                        "nakshatra": p.get("nakshatra"),
-                        "nakshatra_lord": p.get("nakshatra_lord"),
+                        "name": p["name"], 
+                        "sign_index": p["sign_index"], 
+                        "house": p["house"], 
+                        "degree_in_sign": p["deg_in_sign"], 
+                        "is_retrograde": p["retro"], 
+                        "is_brightest_ak": p.get("is_ak", False), 
+                        "nakshatra": p.get("nakshatra"), 
+                        "nakshatra_lord": p.get("nakshatra_lord"), 
                         "nakshatra_pada": p.get("nakshatra_pada")
                     })
+                
+                auspicious_analysis = []
+                auspicious_houses = {1, 2, 4, 5, 7, 9, 10, 11}
+                for p in div_data["planets"]:
+                    if not p.get("lord_of"): continue
+                    
+                    for ruled_house in p["lord_of"]:
+                        if ruled_house in auspicious_houses and p["house"] in auspicious_houses:
+                            status = "Neutral"
+                            if p.get("exalted"): status = "Exalted"
+                            elif p.get("debilitated"): status = "Debilitated"
+                            elif p.get("own_sign"): status = "Own Sign"
+                            
+                            analysis_str = f"{get_ordinal(ruled_house)} lord ({p['name']}) is in {get_ordinal(p['house'])} house ({status})"
+                            auspicious_analysis.append(analysis_str)
+                
                 export_data["divisional_charts"][div] = {
                     "ascendant": {
-                        "sign_index": div_data["ascendant"]["sign_index"],
-                        "degree_in_sign": div_data["ascendant"]["degree"] % 30,
-                        "nakshatra": div_data["ascendant"].get("nakshatra"),
-                        "nakshatra_lord": div_data["ascendant"].get("nakshatra_lord"),
+                        "sign_index": div_data["ascendant"]["sign_index"], 
+                        "degree_in_sign": div_data["ascendant"]["degree"] % 30, 
+                        "nakshatra": div_data["ascendant"].get("nakshatra"), 
+                        "nakshatra_lord": div_data["ascendant"].get("nakshatra_lord"), 
                         "nakshatra_pada": div_data["ascendant"].get("nakshatra_pada")
-                    },
+                    }, 
                     "planets": planets_list, 
-                    "auspicious_analysis": analysis_items
+                    "auspicious_analysis": auspicious_analysis
                 }
                 
-            with open(path, 'w') as f: json.dump(export_data, f, indent=4)
+            with open(path, 'w') as f: 
+                json.dump(export_data, f, indent=4)
+                
             QMessageBox.information(self, "Export Successful", "Extensive Analysis JSON exported successfully!")
-        except Exception as e: QMessageBox.critical(self, "Export Error", f"Failed to export JSON:\n{str(e)}")
+        except Exception as e: 
+            QMessageBox.critical(self, "Export Error", f"Failed to export JSON:\n{str(e)}")
 
-    def show_visual_guide(self):
-        dlg = VisualGuideDialog(self)
-        dlg.exec()
+    def show_visual_guide(self): 
+        VisualGuideDialog(self).exec()
 
-    def closeEvent(self, event):
+    def closeEvent(self, event): 
         self.do_autosave()
+        if hasattr(self, 'calc_worker'):
+            self.calc_worker.stop()
+        if self.jump_worker and self.jump_worker.isRunning():
+            self.jump_worker.stop_flag = True
+            self.jump_worker.wait()
         super().closeEvent(event)
 
+    def stop_transit_worker(self):
+        if hasattr(self, 'btn_worker') and self.btn_worker.isRunning():
+            self.btn_worker.stop_flag = True
+        if self.jump_worker and self.jump_worker.isRunning():
+            self.jump_worker.stop_flag = True
+            
+        self.btn_stop_transit.setVisible(False)
+        self.cached_btn_jds = {'asc_prev': None, 'asc_next': None, 'p_prev': None, 'p_next': None}
+        self.update_btn_labels()
+
+    def check_and_launch_btn_worker(self, jd_utc, selected_div, selected_planet):
+        if len(self.frozen_planets) > 4:
+            if hasattr(self, 'btn_worker') and self.btn_worker.isRunning():
+                self.btn_worker.stop_flag = True
+            self.btn_stop_transit.setVisible(False)
+            self.cached_btn_jds = {'asc_prev': None, 'asc_next': None, 'p_prev': None, 'p_next': None}
+            self.last_worker_state = "OVER_LIMIT_RESET"
+            self.update_btn_labels()
+            return
+
+        sorted_frozen = sorted([(k, v['sign_idx'], v['div']) for k, v in self.frozen_planets.items()])
+        state_hash = f"{sorted_frozen}_{selected_div}_{selected_planet}_{self.cb_ayanamsa.currentText()}"
+        
+        if not hasattr(self, 'last_worker_state') or self.last_worker_state != state_hash:
+            self.last_worker_state = state_hash
+            self.launch_btn_worker(jd_utc, selected_div, selected_planet)
+            return
+
+        if hasattr(self, 'cached_btn_jds') and self.cached_btn_jds:
+            if self.cached_btn_jds.get('asc_next') and jd_utc > self.cached_btn_jds['asc_next']:
+                self.launch_btn_worker(jd_utc, selected_div, selected_planet)
+            elif self.cached_btn_jds.get('asc_prev') and jd_utc < self.cached_btn_jds['asc_prev']:
+                self.launch_btn_worker(jd_utc, selected_div, selected_planet)
+            elif self.cached_btn_jds.get('p_next') and jd_utc > self.cached_btn_jds['p_next']:
+                self.launch_btn_worker(jd_utc, selected_div, selected_planet)
+            elif self.cached_btn_jds.get('p_prev') and jd_utc < self.cached_btn_jds['p_prev']:
+                self.launch_btn_worker(jd_utc, selected_div, selected_planet)
+
+    def launch_btn_worker(self, jd_utc, selected_div, selected_planet):
+        if hasattr(self, 'btn_worker') and self.btn_worker.isRunning():
+            self.btn_worker.stop_flag = True
+            try: 
+                self.btn_worker.results_ready.disconnect()
+            except: 
+                pass
+            try: 
+                self.btn_worker.partial_result.disconnect()
+            except: 
+                pass
+            
+        self.cached_btn_jds = {'asc_prev': None, 'asc_next': None, 'p_prev': None, 'p_next': None} 
+        
+        self.btn_worker = ButtonTimeWorker(
+            jd_utc, self.current_lat, self.current_lon, 
+            copy.deepcopy(self.frozen_planets), selected_div, selected_planet, 
+            self.cb_ayanamsa.currentText(), self.ephemeris.custom_vargas
+        )
+        self.btn_worker.partial_result.connect(self.on_btn_partial_ready)
+        self.btn_worker.results_ready.connect(self.on_btn_times_ready)
+        self.btn_worker.start()
+        self.btn_stop_transit.setVisible(True)
+
+    def on_btn_partial_ready(self, key, val):
+        if hasattr(self, 'cached_btn_jds'):
+            self.cached_btn_jds[key] = val
+            self.update_btn_labels()
+
+    def on_btn_times_ready(self, res):
+        self.cached_btn_jds = res
+        self.update_btn_labels()
+        if not (self.jump_worker and self.jump_worker.isRunning()):
+            self.btn_stop_transit.setVisible(False)
+
+    def update_btn_labels(self):
+        if len(self.frozen_planets) > 4:
+            if hasattr(self, 'btn_prev_lagna'):
+                self.btn_prev_lagna.setText("< ...")
+                self.btn_next_lagna.setText("... >")
+                self.btn_prev_rashi.setText("< ...")
+                self.btn_next_rashi.setText("... >")
+            return
+
+        jd_utc = astro_engine.dt_dict_to_utc_jd(self.time_ctrl.current_time, self.current_tz)
+        if not hasattr(self, 'cached_btn_jds'): 
+            return
+        
+        def format_btn_time(jd, is_prev=True):
+            if not jd: return "< Calc..." if is_prev else "Calc... >"
+            delta = abs(jd - jd_utc)
+                
+            y = int(delta // 365.25)
+            rem = delta % 365.25
+            mo = int(rem // 30.436875)
+            d = int(rem % 30.436875)
+            h = int((delta * 24) % 24)
+            mi = int((delta * 1440) % 60)
+            
+            time_str = ""
+            if y > 0: time_str += f"{y}y "
+            if mo > 0: time_str += f"{mo}m "
+            if d > 0: time_str += f"{d}d "
+            if y == 0 and mo == 0 and h > 0: time_str += f"{h}h "
+            if not time_str: time_str = f"{mi}m"
+            
+            return f"< {time_str.strip()}" if is_prev else f"{time_str.strip()} >"
+
+        if hasattr(self, 'btn_prev_lagna'):
+            self.btn_prev_lagna.setText(format_btn_time(self.cached_btn_jds.get('asc_prev'), True))
+            self.btn_next_lagna.setText(format_btn_time(self.cached_btn_jds.get('asc_next'), False))
+            self.btn_prev_rashi.setText(format_btn_time(self.cached_btn_jds.get('p_prev'), True))
+            self.btn_next_rashi.setText(format_btn_time(self.cached_btn_jds.get('p_next'), False))
+
+    def jump_to_transit(self, body_name, direction):
+        if self.time_ctrl.is_playing: 
+            self.toggle_play()
+        
+        jd_utc = astro_engine.dt_dict_to_utc_jd(self.time_ctrl.current_time, self.current_tz)
+        jd_target = None
+        
+        if hasattr(self, 'cached_btn_jds') and self.cached_btn_jds:
+            if body_name == "Ascendant":
+                jd_target = self.cached_btn_jds.get('asc_next' if direction == 1 else 'asc_prev')
+            else:
+                jd_target = self.cached_btn_jds.get('p_next' if direction == 1 else 'p_prev')
+                
+        if jd_target:
+            target_dt = astro_engine.utc_jd_to_dt_dict(jd_target + ((1 if direction == 1 else -1) / 86400.0), self.current_tz)
+            self.time_ctrl.set_time(target_dt)
+        else:
+            if self.jump_worker and self.jump_worker.isRunning():
+                return
+            
+            self.btn_prev_lagna.setText("< Wait...")
+            self.btn_next_lagna.setText("Wait... >")
+            self.btn_prev_rashi.setText("< Wait...")
+            self.btn_next_rashi.setText("Wait... >")
+            
+            transit_div = getattr(self, 'cb_transit_div', None) and self.cb_transit_div.currentText() or "D1"
+            
+            engine = astro_engine.EphemerisEngine()
+            engine.set_ayanamsa(self.cb_ayanamsa.currentText())
+            engine.set_custom_vargas(self.ephemeris.custom_vargas)
+            
+            zodiacs = ["Aries", "Taurus", "Gemini", "Cancer", "Leo", "Virgo", "Libra", "Scorpio", "Sagittarius", "Capricorn", "Aquarius", "Pisces"]
+            tgt_sign = "Any Rashi"
+            actual_body_name = "Ascendant" if body_name == "Ascendant" else body_name
+            
+            if actual_body_name in self.frozen_planets and self.frozen_planets[actual_body_name]["div"] == transit_div:
+                tgt_sign = zodiacs[self.frozen_planets[actual_body_name]["sign_idx"]]
+
+            self.jump_worker = JumpSearchWorker(
+                engine, jd_utc, self.current_lat, self.current_lon, 
+                actual_body_name, direction, transit_div, self.frozen_planets, tgt_sign
+            )
+            self.jump_worker.finished.connect(lambda jd: self.on_jump_search_finished(jd, direction))
+            self.jump_worker.start()
+            self.btn_stop_transit.setVisible(True)
+
+    def on_jump_search_finished(self, jd_target, direction):
+        if not (self.btn_worker and self.btn_worker.isRunning()):
+            self.btn_stop_transit.setVisible(False)
+            
+        if jd_target:
+            target_dt = astro_engine.utc_jd_to_dt_dict(jd_target + ((1 if direction == 1 else -1) / 86400.0), self.current_tz)
+            self.time_ctrl.set_time(target_dt)
+        else:
+            QMessageBox.warning(self, "Not Found", "Could not find a valid transit match.")
+            
+        self.update_btn_labels()
+
     def recalculate(self):
+        if getattr(self, 'is_loading_settings', False): 
+            return
+            
         try:
             real_now = datetime.datetime.now(datetime.timezone.utc)
             real_now_jd = swe.julday(real_now.year, real_now.month, real_now.day, real_now.hour + real_now.minute/60.0 + real_now.second/3600.0)
             
-            transit_div = getattr(self, 'cb_transit_div', None) and self.cb_transit_div.currentText() or "D1"
-            transit_planet = getattr(self, 'cb_transit_planet', None) and self.cb_transit_planet.currentText() or "Sun"
+            selected_div = getattr(self, 'cb_transit_div', None) and self.cb_transit_div.currentText() or "D1"
+            selected_planet = getattr(self, 'cb_transit_planet', None) and self.cb_transit_planet.currentText() or "Sun"
+            active_divs = getattr(self, 'active_charts_order', []).copy()
             
-            chart_data = self.ephemeris.calculate_chart(self.time_ctrl.current_time, self.current_lat, self.current_lon, self.current_tz, real_now_jd, transit_div, transit_planet)
-            self.current_base_chart = chart_data
-            
-            violation, violating_planet, violating_div = False, None, None
-            for p in chart_data["planets"]:
-                if p["name"] in self.frozen_planets:
-                    f_info = self.frozen_planets[p["name"]]
-                    p_div_data = self.compute_varga_helper(chart_data, f_info["div"])
-                    p_div_p = next(x for x in p_div_data["planets"] if x["name"] == p["name"])
-                    if p_div_p["sign_index"] != f_info["sign_idx"]:
-                        violation = True; violating_planet = p["name"]; violating_div = f_info["div"]; break
-            
-            if not violation and "Ascendant" in self.frozen_planets:
-                f_info = self.frozen_planets["Ascendant"]
-                p_div_data = self.compute_varga_helper(chart_data, f_info["div"])
-                if p_div_data["ascendant"]["sign_index"] != f_info["sign_idx"]:
-                    violation = True; violating_planet = "Ascendant"; violating_div = f_info["div"]
-            
-            if violation:
-                zodiac_names = ["Aries", "Taurus", "Gemini", "Cancer", "Leo", "Virgo", "Libra", "Scorpio", "Sagittarius", "Capricorn", "Aquarius", "Pisces"]
-                if hasattr(self, 'last_good_time'):
-                    self.time_ctrl.set_time(dict(self.last_good_time))
-                    if self.time_ctrl.is_playing: self.toggle_play()
-                    if not getattr(self, "freeze_msg_shown", False):
-                        self.freeze_msg_shown = True
-                        f_info = self.frozen_planets[violating_planet]
-                        QMessageBox.warning(self, "Freeze Boundary Reached", f"{violating_planet} is frozen in {zodiac_names[f_info['sign_idx']]} ({violating_div}). Cannot step further.")
-                        QTimer.singleShot(1500, lambda: setattr(self, "freeze_msg_shown", False))
-                    return
-                    
-            self.last_good_time = dict(self.time_ctrl.current_time)
+            self.calc_worker.request_calc(
+                self.time_ctrl.current_time.copy(), 
+                self.current_lat, 
+                self.current_lon, 
+                self.current_tz, 
+                real_now_jd, 
+                selected_div, 
+                selected_planet, 
+                active_divs, 
+                copy.deepcopy(self.frozen_planets)
+            )
+        except Exception as e: 
+            print(f"Recalculation dispatch error: {e}")
 
-            if "current_jd" in chart_data and "next_asc_jd" in chart_data and "prev_asc_jd" in chart_data:
-                curr_jd = chart_data["current_jd"]
-                next_asc_jd, prev_asc_jd = chart_data["next_asc_jd"], chart_data["prev_asc_jd"]
+    def on_calc_finished(self, chart_data, div_charts, violation, violating_planet, violating_div):
+        self.current_base_chart = chart_data
+        
+        if violation:
+            for p_name, f_info in self.frozen_planets.items():
+                d = f_info["div"]
+                c = div_charts.get(d) or (self.ephemeris.compute_divisional_chart(chart_data, d) if d != "D1" else chart_data)
                 
-                diff_next_asc = max(0, int((next_asc_jd - curr_jd) * 1440))
-                diff_prev_asc = max(0, int((curr_jd - prev_asc_jd) * 1440))
-                
-                def fmt_time(m): 
-                    if m < 60: return f"{m}m"
-                    elif m < 1440: return f"{m//60}h {m%60}m"
-                    elif m < 10080: return f"{m//1440}d {(m%1440)//60}h"
-                    elif m < 43200: return f"{m//1440}d"
-                    elif m < 525600: return f"{m//43200}mo {(m%43200)//1440}d"
-                    else: return f"{m//525600}y {(m%525600)//43200}mo"
+                if p_name == "Ascendant":
+                    f_info["sign_idx"] = c["ascendant"]["sign_index"]
+                else:
+                    if p_in_c := next((x for x in c["planets"] if x["name"] == p_name), None):
+                        f_info["sign_idx"] = p_in_c["sign_index"]
+
+            if getattr(self.time_ctrl, 'is_playing', False):
+                self.time_ctrl.timer.stop()
+                self.btn_play.setText("▶ Play")
+                self.time_ctrl.is_playing = False
+                QMessageBox.information(self, "Animation Paused", f"{violating_planet} entered a new sign in {violating_div}.")
+
+        jd_utc = chart_data.get("current_jd")
+        selected_planet = getattr(self, 'cb_transit_planet', None) and self.cb_transit_planet.currentText() or "Sun"
+        selected_div = getattr(self, 'cb_transit_div', None) and self.cb_transit_div.currentText() or "D1"
+
+        if jd_utc is not None:
+            self.check_and_launch_btn_worker(jd_utc, selected_div, selected_planet)
+        
+        self.update_btn_labels()
+
+        for div in getattr(self, 'active_charts_order', []):
+            if div in self.renderers and div in div_charts:
+                self.renderers[div].update_chart(div_charts[div], chart_data if div != "D1" else None)
+        
+        self.populate_table()
+        
+        if dasha := chart_data.get("dasha_sequence"):
+            self.dasha_label.setText("Now: " + " -> ".join([f"<b style='color:#8B4513;'>{p}</b>" for p in dasha]))
+
+    def populate_table(self):
+        if not getattr(self, 'table_container', None) or not self.table_container.isVisible() or not getattr(self, 'current_base_chart', None): 
+            return
+            
+        div_view = self.table_view_cb.currentData() or "D1"
+        chart = self.ephemeris.compute_divisional_chart(self.current_base_chart, div_view) if div_view != "D1" else self.current_base_chart
+        
+        v_scroll = self.table.verticalScrollBar().value()
+        zodiacs = ["Aries", "Taurus", "Gemini", "Cancer", "Leo", "Virgo", "Libra", "Scorpio", "Sagittarius", "Capricorn", "Aquarius", "Pisces"]
+        
+        bodies = [("Lagna (Asc.)", chart["ascendant"])] + [(p["name"], p) for p in chart["planets"]]
+        
+        if self.table.rowCount() != len(bodies):
+            self.table.setRowCount(len(bodies))
+
+        for row, (b_name, b_data) in enumerate(bodies):
+            s_idx = b_data["sign_index"]
+            is_asc = (b_name == "Lagna (Asc.)")
+            actual_name = "Ascendant" if is_asc else b_name
+            deg = b_data.get("degree", 0.0) % 30.0 if is_asc else b_data['deg_in_sign']
+            house = "1" if is_asc else str(b_data["house"])
+            retro = "No" if is_asc else ("Yes" if b_data.get("retro") else "No")
+            
+            deg_str = f"{int(deg)}° {int((deg % 1) * 60):02d}'"
+            columns_data = [b_name, zodiacs[s_idx], deg_str, house, retro]
+            
+            for col, text in enumerate(columns_data):
+                item = self.table.item(row, col)
+                if not item:
+                    self.table.setItem(row, col, QTableWidgetItem(text))
+                else:
+                    item.setText(text)
                     
-                self.btn_next_lagna.setText(f">\n({fmt_time(diff_next_asc)})")
-                self.btn_prev_lagna.setText(f"<\n({fmt_time(diff_prev_asc)})")
-
-                if "next_p_jd" in chart_data and "prev_p_jd" in chart_data:
-                    next_p_jd, prev_p_jd = chart_data["next_p_jd"], chart_data["prev_p_jd"]
-                    diff_next_p = max(0, int((next_p_jd - curr_jd) * 1440))
-                    diff_prev_p = max(0, int((curr_jd - prev_p_jd) * 1440))
-                    self.btn_next_rashi.setText(f">\n({fmt_time(diff_next_p)})")
-                    self.btn_prev_rashi.setText(f"<\n({fmt_time(diff_prev_p)})")
-
-            if "dasha_sequence" in chart_data and chart_data["dasha_sequence"]:
-                short = {"Sun": "Su", "Moon": "Mo", "Mars": "Ma", "Mercury": "Me", "Jupiter": "Ju", "Venus": "Ve", "Saturn": "Sa", "Rahu": "Ra", "Ketu": "Ke"}
-                seq = " → ".join([short.get(d, d) for d in chart_data["dasha_sequence"]])
-                self.dasha_label.setText(f"Now: {seq}")
-            else:
-                self.dasha_label.setText("Now: Out of Bounds")
-
-            table_div = self.table_view_cb.currentData()
-            table_data = self.compute_varga_helper(chart_data, table_div)
-            self.update_table(table_data)
-
-            for div, renderer in self.renderers.items():
-                if renderer.parent() is not None:
-                    div_data = self.compute_varga_helper(chart_data, div)
-                    renderer.update_chart(div_data, chart_data)
-                        
-            if not self.is_loading_settings: self.is_chart_saved = False
-        except Exception as e: print(f"Calculation Error: {e}")
-
-    def toggle_freeze(self, name, sign_idx, checked, div_type):
-        if checked: self.frozen_planets[name] = {"sign_idx": sign_idx, "div": div_type}
-        elif name in self.frozen_planets: del self.frozen_planets[name]
-
-    def update_table(self, chart_data):
-        self.table.setRowCount(0)
-        current_div = self.table_view_cb.currentData()
-        is_d1 = (current_div == "D1")
-        
-        self.table.setColumnCount(6)
-        headers = ["Planet", "Sign", "Degree", "House", "Retrograde", f"Freeze {current_div} Rashi"]
-        self.table.setHorizontalHeaderLabels(headers)
-        
-        zodiac_names = ["Aries", "Taurus", "Gemini", "Cancer", "Leo", "Virgo", "Libra", "Scorpio", "Sagittarius", "Capricorn", "Aquarius", "Pisces"]
-        asc = chart_data["ascendant"]
-        
-        def add_freeze_cb(row, name, sign_idx):
-            cb = QCheckBox(f"Freeze in {zodiac_names[sign_idx][:3]}")
-            is_frozen = name in self.frozen_planets and self.frozen_planets[name]["div"] == current_div
+            is_frozen = actual_name in self.frozen_planets and self.frozen_planets[actual_name]["div"] == div_view
+            
+            w = self.table.cellWidget(row, 5)
+            if not w:
+                cb = QCheckBox("Freeze")
+                cb.setProperty("p_name", actual_name)
+                
+                def on_toggle(checked, cb_ref=cb):
+                    pn = cb_ref.property("p_name")
+                    si = cb_ref.property("s_idx")
+                    if checked: 
+                        self.frozen_planets[pn] = {"sign_idx": si, "div": div_view}
+                    else: 
+                        self.frozen_planets.pop(pn, None)
+                    self.recalculate()
+                    
+                cb.toggled.connect(on_toggle)
+                
+                w = QWidget()
+                l = QHBoxLayout(w)
+                l.setContentsMargins(0,0,0,0)
+                l.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                l.addWidget(cb)
+                self.table.setCellWidget(row, 5, w)
+            
+            cb = self.table.cellWidget(row, 5).findChild(QCheckBox)
+            cb.blockSignals(True)
+            cb.setProperty("s_idx", s_idx)
             cb.setChecked(is_frozen)
-            cb.toggled.connect(lambda checked, n=name, s=sign_idx, d=current_div: self.toggle_freeze(n, s, checked, d))
-            w = QWidget(); l = QHBoxLayout(w); l.addWidget(cb); l.setAlignment(Qt.AlignmentFlag.AlignCenter); l.setContentsMargins(0,0,0,0)
-            self.table.setCellWidget(row, 5, w)
+            cb.blockSignals(False)
 
-        def make_name(name_str, is_vargottama, is_ak):
-            base = f"{name_str} *" if is_vargottama and not is_d1 else name_str
-            return f"AK: {base}" if is_ak else base
-            
-        self.table.insertRow(0)
-        self.table.setItem(0, 0, QTableWidgetItem(make_name("Ascendant", asc.get("vargottama", False), False)))
-        self.table.setItem(0, 1, QTableWidgetItem(zodiac_names[asc["sign_index"]]))
-        self.table.setItem(0, 2, QTableWidgetItem(f"{asc['degree'] % 30:.2f}°" if is_d1 else f"{asc.get('div_lon', asc['degree']) % 30:.2f}°"))
-        self.table.setItem(0, 3, QTableWidgetItem("1")); self.table.setItem(0, 4, QTableWidgetItem("-"))
-        add_freeze_cb(0, "Ascendant", asc["sign_index"])
-
-        for i, p in enumerate(chart_data["planets"]):
-            row = i + 1
-            if p["name"] in ["Rahu", "Ketu"] and not self.chk_rahu.isChecked(): continue
-            self.table.insertRow(row)
-            self.table.setItem(row, 0, QTableWidgetItem(make_name(p["name"], p.get("vargottama", False), p.get("is_ak", False))))
-            self.table.setItem(row, 1, QTableWidgetItem(zodiac_names[p["sign_index"]]))
-            self.table.setItem(row, 2, QTableWidgetItem(f"{p['deg_in_sign']:.2f}°" if is_d1 else f"{p.get('div_lon', p['deg_in_sign']) % 30:.2f}°"))
-            self.table.setItem(row, 3, QTableWidgetItem(str(p["house"])))
-            self.table.setItem(row, 4, QTableWidgetItem("Yes" if p["retro"] else "No"))
-            add_freeze_cb(row, p["name"], p["sign_index"])
+        self.table.verticalScrollBar().setValue(v_scroll)
 
 GLOBAL_FONT_FAMILY, GLOBAL_FONT_SCALE, GLOBAL_PRIMARY_COLOR = "Segoe UI", 11, "#4A90E2" 
 
@@ -2445,14 +3148,6 @@ if __name__ == "__main__":
     app.setStyleSheet(f"QGroupBox::title {{ color: {GLOBAL_PRIMARY_COLOR}; font-weight: bold; }} "
                       f"QPushButton {{ padding: 4px 8px; }} "
                       f"QPushButton:checked {{ background-color: {GLOBAL_PRIMARY_COLOR}; color: white; }}")
-    
-    window = AstroApp()
-    window.showMaximized() 
-    sys.exit(app.exec())
-    multiprocessing.freeze_support()
-    app = QApplication(sys.argv)
-    app.setFont(QFont(GLOBAL_FONT_FAMILY, GLOBAL_FONT_SCALE)); app.setStyle("Fusion")
-    app.setStyleSheet(f"QGroupBox::title {{ color: {GLOBAL_PRIMARY_COLOR}; font-weight: bold; }} QPushButton {{ padding: 4px 8px; }} QPushButton:checked {{ background-color: {GLOBAL_PRIMARY_COLOR}; color: white; }}")
     
     window = AstroApp()
     window.showMaximized() 

@@ -1,11 +1,11 @@
 ## Install Requirements
 
-python -m pip install geopy timezonefinder pytz pyswisseph PyQt6
+python -m pip install geopy timezonefinder pytz pyswisseph PyQt6 astral
 
 
 ## Build
 
-pyinstaller --name "Astro Basics" --windowed --icon "icon.ico" --add-data "icon.ico;." --collect-data timezonefinder main.py --noconfirm
+pyinstaller --noconfirm --name "Astro Basics" --windowed --icon "icon.ico" --add-data "icon.ico;." --add-data "ephe;ephe" --add-data "dynamic_settings_modules;dynamic_settings_modules" --collect-data timezonefinder main.py
 
 *(Note for Mac/Linux users: change the separator in `--add-data` from a semicolon `;` to a colon `:`)*
 

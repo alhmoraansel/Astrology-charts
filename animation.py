@@ -1,8 +1,6 @@
 # animation.py
-import math
+import math,datetime,astro_engine,time
 from PyQt6.QtCore import QObject, pyqtSignal, QTimer
-import datetime
-import astro_engine
 
 class TimeController(QObject):
     time_changed = pyqtSignal(object)
@@ -10,16 +8,15 @@ class TimeController(QObject):
     def __init__(self):
         super().__init__()
         now = datetime.datetime.now()
-        # Maintain an internal dictionary map suitable for BCE calculations
         self.current_time = {'year': now.year, 'month': now.month, 'day': now.day, 'hour': now.hour, 'minute': now.minute, 'second': now.second}
         
-        # Animation timer
         self.timer = QTimer(self)
-        self.timer.setInterval(300) # 30 FPS
+        self.timer.setInterval(250) # 4 calculations a second (Light CPU load)
         self.timer.timeout.connect(self._on_tick)
         
         self.is_playing = False
-        self.speed_multiplier = 3.11 # 1 real sec = x virtual secs
+        self.speed_multiplier = 1.0 
+        self.last_tick_time = 0.0
 
     def set_time(self, dt):
         if isinstance(dt, datetime.datetime):
@@ -29,7 +26,6 @@ class TimeController(QObject):
         self.time_changed.emit(self.current_time)
 
     def step(self, delta_seconds: float):
-        # By translating to Julian Day mathematically, we completely bypass Python's datetime BCE limits
         jd = astro_engine.ymdhms_to_jd(self.current_time['year'], self.current_time['month'], self.current_time['day'], 
                                        self.current_time['hour'], self.current_time['minute'], self.current_time['second'])
         jd += delta_seconds / 86400.0
@@ -39,19 +35,21 @@ class TimeController(QObject):
     def toggle_animation(self):
         self.is_playing = not self.is_playing
         if self.is_playing:
+            self.last_tick_time = time.time()
             self.timer.start()
         else:
             self.timer.stop()
         return self.is_playing
 
     def set_speed(self, multiplier: float):
-        """Multiplier indicates how many virtual seconds pass per real second."""
         self.speed_multiplier = multiplier
 
     def _on_tick(self):
-        # 100ms tick = 0.1 real seconds
-        # virtual seconds to add = 0.1 * multiplier
-        delta_seconds = 0.1 * self.speed_multiplier
+        current_time = time.time()
+        actual_delta_seconds = current_time - self.last_tick_time
+        self.last_tick_time = current_time
+        
+        delta_seconds = actual_delta_seconds * self.speed_multiplier
         self.step(delta_seconds)
 
 def get_circular_coords(lon, asc_deg, lane_index, w, h):
