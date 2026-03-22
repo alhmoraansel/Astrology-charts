@@ -42,7 +42,7 @@ class UpdateWorker(QThread):
             
             # 1. Fetch remote manifest
             manifest_url = UPDATE_SERVER_URL + MANIFEST_FILENAME
-            req = urllib.request.Request(manifest_url, headers={'User-Agent': 'AstroUpdater/1.1', 'Cache-Control': 'no-cache'})
+            req = urllib.request.Request(manifest_url, headers={'User-Agent': 'AstroUpdater/1.2', 'Cache-Control': 'no-cache'})
             with urllib.request.urlopen(req, timeout=10) as response:
                 remote_manifest = json.loads(response.read().decode('utf-8'))
                 
@@ -102,14 +102,12 @@ class UpdateWorker(QThread):
                         size = stat.st_size
                         
                         cached_data = local_hash_cache.get(rel_path)
-                        # Use cached hash if file size and modified time are unchanged
                         if cached_data and cached_data.get('mtime') == mtime and cached_data.get('size') == size:
                             local_hash = cached_data.get('hash')
                         else:
                             local_hash = get_file_hash(local_path)
                             local_hash_cache[rel_path] = {'mtime': mtime, 'size': size, 'hash': local_hash}
                     except OSError:
-                        # Fallback if os.stat fails
                         local_hash = get_file_hash(local_path)
                 
                 if local_hash != remote_hash:
@@ -133,56 +131,59 @@ class UpdateWorker(QThread):
                 self.finished.emit(True, {}, [], f"No Updates Found! (V{remote_version})")
                 return
 
-            # 3. Download differing files
-            self.progress.emit(60, f"Downloading {len(files_to_update)} updated file(s)...")
             update_cache_dir = os.path.join(base_dir, "update_cache")
             os.makedirs(update_cache_dir, exist_ok=True)
             
-            dl_count = 0
+            # Determine exactly what needs to be downloaded over the network
+            files_to_download = {}
             for rel_path, remote_hash in files_to_update.items():
-                url_rel_path = rel_path.replace("\\", "/").replace(" ", "%20")
-                file_url = UPDATE_SERVER_URL + url_rel_path
-                
                 os_rel_path = os.path.normpath(rel_path)
                 target_path = os.path.join(update_cache_dir, os_rel_path)
-                part_path = target_path + ".part" # Temporary download path
-                
-                # Check if the FULL file already exists in cache and matches hash
-                if os.path.exists(target_path) and get_file_hash(target_path) == remote_hash:
-                    dl_count += 1
-                    self.progress.emit(60 + int((dl_count / len(files_to_update)) * 35), f"Verified {dl_count}/{len(files_to_update)}...")
-                    continue
+                # If it's already in the cache with the correct hash, skip download
+                if not (os.path.exists(target_path) and get_file_hash(target_path) == remote_hash):
+                    files_to_download[rel_path] = remote_hash
 
-                os.makedirs(os.path.dirname(target_path), exist_ok=True)
-                
-                # Download with retry logic
-                retries = 3
-                for attempt in range(retries):
-                    try:
-                        req = urllib.request.Request(file_url, headers={'User-Agent': 'AstroUpdater/1.1', 'Cache-Control': 'no-cache'})
-                        with urllib.request.urlopen(req, timeout=15) as response, open(part_path, 'wb') as out_file:
-                            out_file.write(response.read())
-                        
-                        if os.path.exists(target_path):
-                            os.remove(target_path) # Clean up old version if it existed
-                        os.rename(part_path, target_path)
-                        break # Success
-                    except Exception as e:
-                        if os.path.exists(part_path):
-                            os.remove(part_path)
-                        if attempt == retries - 1:
-                            raise e 
-                        time.sleep(1) # Wait before retry
-                
-                dl_count += 1
-                self.progress.emit(60 + int((dl_count / len(files_to_update)) * 35), f"Downloaded {dl_count}/{len(files_to_update)}...")
+            if files_to_download:
+                self.progress.emit(60, f"Downloading {len(files_to_download)} required file(s)...")
+                dl_count = 0
+                for rel_path, remote_hash in files_to_download.items():
+                    url_rel_path = rel_path.replace("\\", "/").replace(" ", "%20")
+                    file_url = UPDATE_SERVER_URL + url_rel_path
+                    
+                    os_rel_path = os.path.normpath(rel_path)
+                    target_path = os.path.join(update_cache_dir, os_rel_path)
+                    part_path = target_path + ".part"
+                    
+                    os.makedirs(os.path.dirname(target_path), exist_ok=True)
+                    
+                    # Download with retry logic
+                    retries = 3
+                    for attempt in range(retries):
+                        try:
+                            req = urllib.request.Request(file_url, headers={'User-Agent': 'AstroUpdater/1.2', 'Cache-Control': 'no-cache'})
+                            with urllib.request.urlopen(req, timeout=15) as response, open(part_path, 'wb') as out_file:
+                                out_file.write(response.read())
+                            
+                            if os.path.exists(target_path):
+                                os.remove(target_path)
+                            os.rename(part_path, target_path)
+                            break
+                        except Exception as e:
+                            if os.path.exists(part_path):
+                                os.remove(part_path)
+                            if attempt == retries - 1:
+                                raise e 
+                            time.sleep(1)
+                    
+                    dl_count += 1
+                    self.progress.emit(60 + int((dl_count / len(files_to_download)) * 35), f"Downloaded {dl_count}/{len(files_to_download)}...")
             
-            # 4. CRITICAL: Save the new manifest to the cache so it replaces the old one
+            # CRITICAL: Save the new manifest to the cache so it replaces the old one
             manifest_cache_path = os.path.join(update_cache_dir, MANIFEST_FILENAME)
             with open(manifest_cache_path, 'w') as f:
                 json.dump(remote_manifest, f, indent=4)
                 
-            self.progress.emit(100, "Download complete.")
+            self.progress.emit(100, "Update processing complete.")
             self.finished.emit(True, files_to_update, files_to_delete, f"Ready to install v{remote_version}.")
             
         except URLError as e:
@@ -219,41 +220,61 @@ def setup_ui(app, layout):
     
     app.updater_worker = None
     
+    def on_progress(val, msg):
+        try:
+            progress_bar.setValue(val)
+            status_label.setText(msg)
+        except RuntimeError:
+            pass # UI was destroyed, ignore updates
+
     def on_check_clicked():
-        btn_check.setEnabled(False)
-        progress_bar.setVisible(True)
-        progress_bar.setValue(0)
+        try:
+            btn_check.setEnabled(False)
+            progress_bar.setVisible(True)
+            progress_bar.setValue(0)
+        except RuntimeError:
+            return
         
         app.updater_worker = UpdateWorker()
-        app.updater_worker.progress.connect(
-            lambda val, msg: (progress_bar.setValue(val), status_label.setText(msg))
-        )
+        app.updater_worker.progress.connect(on_progress)
         app.updater_worker.finished.connect(on_update_finished)
         app.updater_worker.start()
 
     def on_update_finished(success, files_to_update, files_to_delete, msg):
-        btn_check.setEnabled(True)
-        progress_bar.setVisible(False)
-        status_label.setText(msg)
+        try:
+            btn_check.setEnabled(True)
+            progress_bar.setVisible(False)
+            status_label.setText(msg)
+        except RuntimeError:
+            return # UI has been deleted (app closed or reloaded), abort dialog logic
         
         if success and (files_to_update or files_to_delete):
-            msg_text = f"Downloaded {len(files_to_update)} updated file(s)."
+            msg_text = ""
+            if files_to_update:
+                msg_text += f"Found {len(files_to_update)} file(s) changed/added.\n"
             if files_to_delete:
-                msg_text += f"\nFlagged {len(files_to_delete)} file(s) for deletion."
-            msg_text += "\n\nThe application needs to restart to apply changes.\n\nRestart now?"
+                msg_text += f"Found {len(files_to_delete)} obsolete file(s) to remove.\n"
+                
+            msg_text += "\nThe application needs to restart to apply changes.\n\nRestart now?"
             
-            reply = QMessageBox.question(
-                app, "Update Ready", 
-                msg_text,
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-            )
+            try:
+                reply = QMessageBox.question(
+                    app, "Update Ready", 
+                    msg_text,
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                )
+            except RuntimeError:
+                return # App window was deleted while waiting to show the dialog
             
             if reply == QMessageBox.StandardButton.Yes:
                 app.pending_update_files_to_delete = None
                 apply_update_and_restart(files_to_delete, relaunch=True)
             else:
                 app.pending_update_files_to_delete = files_to_delete
-                status_label.setText("Update will be applied automatically on exit.")
+                try:
+                    status_label.setText("Update will be applied automatically on exit.")
+                except RuntimeError:
+                    pass
 
     def apply_update_and_restart(files_to_delete, relaunch=True):
         base_dir = get_base_dir()
@@ -264,10 +285,11 @@ def setup_ui(app, layout):
         
         deletion_commands_bat = ""
         deletion_commands_sh = ""
-        for f in files_to_delete:
-            abs_path = os.path.join(base_dir, f)
-            deletion_commands_bat += f'del /f /q "{abs_path}"\n'
-            deletion_commands_sh += f'rm -f "{abs_path}"\n'
+        if files_to_delete:
+            for f in files_to_delete:
+                abs_path = os.path.join(base_dir, f)
+                deletion_commands_bat += f'del /f /q "{abs_path}" 2>nul\n'
+                deletion_commands_sh += f'rm -f "{abs_path}"\n'
         
         if sys.platform == "win32":
             bat_path = os.path.join(base_dir, "apply_update.bat")
