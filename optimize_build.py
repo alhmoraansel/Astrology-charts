@@ -29,10 +29,7 @@ def build_app():
         "--add-data", "icon.ico;.",
         "--add-data", "ephe;ephe",
         "--add-data", "dynamic_settings_modules;dynamic_settings_modules",
-        "--collect-data", "timezonefinder", "--onedir",
-        "--hidden-import", "pyjhora",
-        "--collect-all", "pyjhora",
-        "--collect-all", "jhora"
+        "--collect-data", "timezonefinder", "--onedir"
     ]
     
 #"--collect-all" , "jhora"

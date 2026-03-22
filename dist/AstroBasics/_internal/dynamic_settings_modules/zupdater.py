@@ -34,7 +34,7 @@ def get_file_hash(filepath):
 
 class UpdateWorker(QThread):
     progress = pyqtSignal(int, str)
-    finished = pyqtSignal(bool, dict, str) # success, files_to_update, message
+    finished = pyqtSignal(bool, dict, list, str) # success, files_to_update, files_to_delete, message
     
     def run(self):
         try:
@@ -64,13 +64,31 @@ class UpdateWorker(QThread):
                 except json.JSONDecodeError:
                     pass
             
-            # 2. Compare hashes (Deep Check)
+            # 2. Compare hashes (Deep Check) & Find Deleted Files
             files_to_update = {}
+            files_to_delete = []
             total_files = len(remote_files)
             
             if total_files == 0:
-                self.finished.emit(True, {}, f"No files in remote update. (V{remote_version})")
+                self.finished.emit(True, {}, [], f"No files in remote update. (V{remote_version})")
                 return
+
+            # Scan local directory for files that no longer exist on remote
+            exclude_dirs = {'update_cache', 'autosave', 'analysis_export', 'saves', '__pycache__'}
+            exclude_files = {'manifest.json', 'astro_settings.json', 'apply_update.bat', 'apply_update.sh', '.hash_cache.json'}
+            
+            for root, dirs, files in os.walk(base_dir):
+                dirs[:] = [d for d in dirs if d not in exclude_dirs]
+                for file in files:
+                    if file in exclude_files or file.endswith(".pyc"):
+                        continue
+                        
+                    filepath = os.path.join(root, file)
+                    rel_path = os.path.relpath(filepath, base_dir)
+                    rel_path_unix = rel_path.replace("\\", "/")
+                    
+                    if rel_path_unix not in remote_files:
+                        files_to_delete.append(rel_path)
                 
             for i, (rel_path, remote_hash) in enumerate(remote_files.items()):
                 os_rel_path = os.path.normpath(rel_path)
@@ -107,12 +125,12 @@ class UpdateWorker(QThread):
             except Exception:
                 pass
 
-            if not files_to_update:
+            if not files_to_update and not files_to_delete:
                 # Edge Case: Files match but version differs. Update local manifest silently.
                 with open(local_manifest_path, 'w') as f:
                     json.dump(remote_manifest, f, indent=4)
                 self.progress.emit(100, "Up to date.")
-                self.finished.emit(True, {}, f"No Updates Found! (V{remote_version})")
+                self.finished.emit(True, {}, [], f"No Updates Found! (V{remote_version})")
                 return
 
             # 3. Download differing files
@@ -165,12 +183,12 @@ class UpdateWorker(QThread):
                 json.dump(remote_manifest, f, indent=4)
                 
             self.progress.emit(100, "Download complete.")
-            self.finished.emit(True, files_to_update, f"Ready to install v{remote_version}.")
+            self.finished.emit(True, files_to_update, files_to_delete, f"Ready to install v{remote_version}.")
             
         except URLError as e:
-            self.finished.emit(False, {}, f"Network error: {str(e)}")
+            self.finished.emit(False, {}, [], f"Network error: {str(e)}")
         except Exception as e:
-            self.finished.emit(False, {}, f"Update failed: {str(e)}")
+            self.finished.emit(False, {}, [], f"Update failed: {str(e)}")
 
 def setup_ui(app, layout):
     """Contract method for dynamic module loader"""
@@ -211,27 +229,39 @@ def setup_ui(app, layout):
         app.updater_worker.finished.connect(on_update_finished)
         app.updater_worker.start()
 
-    def on_update_finished(success, files_to_update, msg):
+    def on_update_finished(success, files_to_update, files_to_delete, msg):
         btn_check.setEnabled(True)
         progress_bar.setVisible(False)
         status_label.setText(msg)
         
-        if success and files_to_update:
+        if success and (files_to_update or files_to_delete):
+            msg_text = f"Downloaded {len(files_to_update)} updated file(s)."
+            if files_to_delete:
+                msg_text += f"\nFlagged {len(files_to_delete)} file(s) for deletion."
+            msg_text += "\n\nThe application needs to restart to apply changes.\n\nRestart now?"
+            
             reply = QMessageBox.question(
                 app, "Update Ready", 
-                f"Downloaded {len(files_to_update)} updated file(s).\nThe application needs to restart to apply them.\n\nRestart now?",
+                msg_text,
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
             )
             
             if reply == QMessageBox.StandardButton.Yes:
-                apply_update_and_restart()
+                apply_update_and_restart(files_to_delete)
 
-    def apply_update_and_restart():
+    def apply_update_and_restart(files_to_delete):
         base_dir = get_base_dir()
         cache_dir = os.path.join(base_dir, "update_cache")
         
         is_frozen = getattr(sys, 'frozen', False)
         exe_name = os.path.basename(sys.executable) if is_frozen else "main.py"
+        
+        deletion_commands_bat = ""
+        deletion_commands_sh = ""
+        for f in files_to_delete:
+            abs_path = os.path.join(base_dir, f)
+            deletion_commands_bat += f'del /f /q "{abs_path}"\n'
+            deletion_commands_sh += f'rm -f "{abs_path}"\n'
         
         if sys.platform == "win32":
             bat_path = os.path.join(base_dir, "apply_update.bat")
@@ -240,7 +270,7 @@ def setup_ui(app, layout):
             # timeout /t 2 ensures the python app completely releases locks on Windows before xcopy triggers
             bat_content = f"""@echo off
 timeout /t 2 /nobreak > NUL
-xcopy /s /y /q "{cache_dir}\\*" "{base_dir}\\"
+{deletion_commands_bat}xcopy /s /y /q "{cache_dir}\\*" "{base_dir}\\"
 rmdir /s /q "{cache_dir}"
 {launch_cmd}
 del "%~f0"
@@ -258,7 +288,7 @@ del "%~f0"
             
             sh_content = f"""#!/bin/bash
 sleep 2
-cp -R "{cache_dir}/"* "{base_dir}/"
+{deletion_commands_sh}cp -R "{cache_dir}/"* "{base_dir}/"
 rm -rf "{cache_dir}"
 {launch_cmd} &
 rm -- "$0"
