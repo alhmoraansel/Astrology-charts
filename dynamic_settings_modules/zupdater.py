@@ -26,15 +26,31 @@ def get_base_dir():
     return os.path.abspath(".")
 
 def get_file_hash(filepath):
-    """Calculate SHA256 hash of a file."""
+    """Calculate SHA256 hash of a file, normalizing line endings for text files."""
     if not os.path.exists(filepath):
         return None
     hasher = hashlib.sha256()
-    with open(filepath, 'rb') as f:
-        buf = f.read(65536)
-        while len(buf) > 0:
-            hasher.update(buf)
-            buf = f.read(65536)
+    
+    # Extensions that are susceptible to Git CRLF <-> LF modification
+    text_extensions = {'.py', '.json', '.txt', '.md', '.bat', '.sh', '.csv'}
+    _, ext = os.path.splitext(filepath)
+    
+    try:
+        with open(filepath, 'rb') as f:
+            if ext.lower() in text_extensions:
+                # Strip carriage returns so \r\n and \n both become purely \n before hashing
+                content = f.read()
+                content = content.replace(b'\r\n', b'\n').replace(b'\r', b'\n')
+                hasher.update(content)
+            else:
+                # Binary files (.exe, .png) are hashed exactly as they are
+                buf = f.read(65536)
+                while len(buf) > 0:
+                    hasher.update(buf)
+                    buf = f.read(65536)
+    except Exception:
+        return None
+        
     return hasher.hexdigest()
 
 class UpdateWorker(QThread):
