@@ -15,6 +15,7 @@ from timezonefinder import TimezoneFinder
 
 #own file dependencies, need not to be changed
 import save_prefs,animation,astro_engine
+import help_content
 try:
     import custom_vargas
     HAS_CUSTOM_VARGAS = True
@@ -140,7 +141,7 @@ class SmoothScroller(QObject):
 class VisualGuideDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Chart Visual Guide Legend and credits")
+        self.setWindowTitle("Chart Visual Guide, Legend, credits and Privacy Policy")
         self.resize(850, 700)
         
         # Dynamically fetch the default system font
@@ -167,105 +168,59 @@ class VisualGuideDialog(QDialog):
         tabs = QTabWidget()
         tabs.setStyleSheet(f"""
             QTabWidget::pane {{
-                border: 1px solid #e2e8f0;
-                background-color: #ffffff;
-                border-bottom-left-radius: 8px;
-                border-bottom-right-radius: 8px;
-                border-top-right-radius: 8px;
+                border: 1px solid #e2e8f0;background-color: #ffffff;border-bottom-left-radius: 8px;
+                border-bottom-right-radius: 8px;border-top-right-radius: 8px;
                 top: -1px; /* Overlaps with the tab bar to hide the bottom border of the selected tab */
             }}
             QTabBar::tab {{
-                font-family: "{sys_font}", system-ui, sans-serif;
-                font-size: {int(13 * GLOBAL_FONT_SCALE_MULTIPLIER)}px;
-                background-color: #f7fafc;
-                color: #718096;
-                padding: 10px 24px;
-                border: 1px solid #e2e8f0;
-                border-bottom: none;
-                border-top-left-radius: 8px;
-                border-top-right-radius: 8px;
-                margin-right: 4px;
+                font-family: "{sys_font}", sans-serif;font-size: {int(13 * GLOBAL_FONT_SCALE_MULTIPLIER)}px;
+                background-color: #f7fafc;color: #718096;padding: 10px 24px;
+                border: 1px solid #e2e8f0;border-bottom: none;border-top-left-radius: 8px;
+                border-top-right-radius: 8px;margin-right: 4px;
             }}
             QTabBar::tab:selected {{
-                background-color: #ffffff;
-                color: #2b6cb0;
-                font-weight: bold;
+                background-color: #ffffff;color: #2b6cb0;font-weight: bold;
                 border-bottom: 1px solid #ffffff; /* Creates a seamless merge with the pane below */
             }}
             QTabBar::tab:hover:!selected {{
-                background-color: #edf2f7;
-                color: #2d3748;
+                background-color: #edf2f7;color: #2d3748;
             }}
         """)
-        
-        # --- Tab 1: Vitality (Lords) ---
+        # --- Tab 1: Core Basics ---
         t1 = QTextBrowser()
-        help_html = """<h2>Help</h2><p>Double click on a house to view from that house</p>"""
-        t1.setHtml(help_html)
-        
-        self.t1_scroller = SmoothScroller(t1) # Attach smooth scrolling
-        tabs.addTab(t1, "Help and Guide")
-        
-        # --- Tab 2: Credits & Info ---
+        t1.setHtml(help_content.tab1_basics_html)
+        self.t1_scroller = SmoothScroller(t1)
+        tabs.addTab(t1, "Basics and Setup")
+
+        # --- Tab 2: Visuals ---
         t2 = QTextBrowser()
-        credits_html = """
-        <div>
-            <p>This application is an independent effort built with the intent 
-            to explore and implement classical Vedic astrological computations and 
-            visualizations in a modern software environment.</p>
+        t2.setHtml(help_content.tab2_visuals_html)
+        self.t2_scroller = SmoothScroller(t2)
+        tabs.addTab(t2, "Visuals")
 
-            <h3 style="color: #2980b9; margin-top: 20px;">Core Technologies Used</h3>
-            <ul>
-                <li><b>PyQt6</b> — for the graphical user interface and application framework</li>
-                <li><b>Swiss Ephemeris (swisseph)</b> — for astronomical and planetary calculations</li>
-                <li><b>Custom rendering logic</b> (using QPainter) for diamond-style chart visualization</li>
-            </ul>
+        # --- Tab 3: Animation ---
+        t3 = QTextBrowser()
+        t3.setHtml(help_content.tab3_animation_html)
+        self.t3_scroller = SmoothScroller(t3)
+        tabs.addTab(t3, "Animation")
 
-            <h3 style="color: #2980b9; margin-top: 20px;">Credits and References</h3>
-            <p>The design philosophy, workflow clarity, and certain interpretative structures 
-            were inspired by Jagannatha Hora software without which this work would not have been be possible.</p>
-            <p>Classical Vedic astrology principles, including Shadbala, Vargas, and planetary strengths, 
-            are based on traditional texts and standard computational doctrines.</p>
-
-            <h3 style="color: #c0392b; margin-top: 25px;">Important Clarification on Accuracy and Responsibility</h3>
-            <p>This application is a personal implementation of complex astrological systems.<br>
-            While significant effort has been made to align calculations with traditional methods 
-            and known software references, this is <b>NOT</b> an authoritative or certified 
-            implementation.</p>
-            
-            <p>Any discrepancies, inaccuracies, computational deviations, or interpretational 
-            inconsistencies within this application are:</p>
-            <ul style="list-style-type: square;">
-                <li><b>SOLELY</b> the responsibility of the developer of this application</li>
-                <li><b>Not</b> attributable to Swiss Ephemeris, Jagannatha Hora, or 
-                <b>any</b> classical sources referenced.</li>
-                <li>Should be brought into attention (so corrections could be made) to the developer.</li>
-            </ul>
-
-            <div style="background-color: #fdf2f2; border-left: 5px solid #e74c3c; padding: 12px; 
-            margin-top: 20px; border-radius: 3px;">
-                <p style="margin-top: 0;"><b>In other words:</b></p>
-                <p>If something is wrong, unclear, inconsistent, or behaves unexpectedly — 
-                the fault lies in <b>IMPLEMENTATION</b> of complex vedic mathematics and 
-                computations and <b>NOT</b> the sources themselves.</p>
-                <p style="margin-bottom: 0;">This software is provided as-is, without guarantees of 
-                accuracy, completeness, or fitness for any specific purpose. 
-                It is intended for educational, exploratory, and personal use <b>ONLY</b>.</p>
-            </div>
-
-            <h3 style="color: #2c3e50; margin-top: 25px;">Final Note</h3>
-            <p><i>Astrology itself is a deeply interpretative discipline. 
-            This application represents one attempt at structuring, computing and visualizing its 
-            principles - <b>NO CLAIMS ARE MADE REGARDING CORRECTNESS OF RESULTS 
-            DERIVED FORM THIS APP.</b></i></p>
-
-            <p style="text-align: right; font-weight: bold; margin-top: 30px;">—-- Developer</p>
-        </div>
-        """
+        # --- Tab 4: Plugins ---
+        t4 = QTextBrowser()
+        t4.setHtml(help_content.tab4_plugins_html)
+        self.t4_scroller = SmoothScroller(t4)
+        tabs.addTab(t4, "Plugins")
         
-        t2.setHtml(credits_html)
-        self.t2_scroller = SmoothScroller(t2) # Attach smooth scrolling
-        tabs.addTab(t2, "Credits")
+        # --- Tab 5: Credits & Info  ---
+        t5 = QTextBrowser()
+        t5.setHtml(help_content.credits_html)
+        self.t5_scroller = SmoothScroller(t5) 
+        tabs.addTab(t5, "Credits")
+
+        # --- Tab 6: Privacy ---
+        t6 = QTextBrowser()
+        t6.setHtml(help_content.privacy_html)
+        self.t6_scroller = SmoothScroller(t6) 
+        tabs.addTab(t6, "Privacy")
         
         layout.addWidget(tabs)
         
@@ -277,13 +232,9 @@ class VisualGuideDialog(QDialog):
         close_btn = QPushButton("Close Guide")
         close_btn.setStyleSheet(f"""
             QPushButton {{
-                font-family: "{sys_font}", system-ui, sans-serif;
-                background-color: #e2e8f0;
-                border: none;
-                padding: 8px 16px;
-                border-radius: 4px;
-                font-weight: bold;
-                color: #4a5568;
+                font-family: "{sys_font}", sans-serif;background-color: #e2e8f0;
+                border: none;padding: 5px 10px;border-radius: 10px;
+                font-weight: bold;color: #4a5568;
             }}
             QPushButton:hover {{
                 background-color: #cbd5e0;
@@ -2216,9 +2167,9 @@ class AstroApp(QMainWindow):
         self.left_panel.add_stretch()
 
         # Visual Guide Button (Not draggable, added to layout bottom)
-        self.btn_visual_guide = QPushButton("Guide Legend and Credits")
+        self.btn_visual_guide = QPushButton("Guide, Legend, Credits and Privacy")
         self.btn_visual_guide.setStyleSheet("font-size: 11px; font-weight: bold; color: #1E8449; background-color: #E8F8F5; border: 1px solid #A2D9CE; border-radius: 4px;")
-        self.btn_visual_guide.setFixedSize(200, 24)
+        self.btn_visual_guide.setFixedSize(260, 24)
         
         guide_lay = QHBoxLayout()
         guide_lay.addStretch()

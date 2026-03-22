@@ -26,7 +26,7 @@ UninstallDisplayIcon={app}\icon.ico
 ; --- Output Settings ---
 ; Where the installer .exe will be saved
 OutputDir=.\
-OutputBaseFilename=Astro_Basics_Setup_v1.0
+OutputBaseFilename={#MyAppName}_{#MyAppVersion}.exe
 ; The icon for the installer .exe itself
 SetupIconFile=icon.ico
 
@@ -54,3 +54,15 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilen
 [Run]
 ; Checkbox option to launch the application when the installer finishes
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: nowait postinstall skipifsilent
+
+[UninstallDelete]
+; Remove all files in the update cache
+Type: filesandordirs; Name: "{app}\update_cache"
+
+; Remove Python cache files generated during runtime
+Type: filesandordirs; Name: "{app}\__pycache__"
+Type: filesandordirs; Name: "{app}\dynamic_settings_modules\__pycache__"
+
+; Remove the updater's tracking files
+Type: files; Name: "{app}\manifest.json"
+Type: files; Name: "{app}\.hash_cache.json"
