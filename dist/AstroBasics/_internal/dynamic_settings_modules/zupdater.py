@@ -8,7 +8,7 @@ import time
 from urllib.error import URLError
 
 from PyQt6.QtWidgets import QGroupBox, QVBoxLayout, QPushButton, QLabel, QHBoxLayout, QMessageBox, QProgressBar, QApplication
-from PyQt6.QtCore import QThread, pyqtSignal, Qt
+from PyQt6.QtCore import QThread, pyqtSignal, Qt, QTimer
 
 # --- CONFIGURATION ---
 UPDATE_SERVER_URL = "https://raw.githubusercontent.com/alhmoraansel/Astrology-charts/main/dist/AstroBasics/"
@@ -16,8 +16,8 @@ MANIFEST_FILENAME = "manifest.json"
 
 # --- PROTECTED PATHS ---
 # These files and directories will NEVER be deleted or overwritten by remote files.
-PROTECTED_DIRS = {'autosave','ephe','analysis_export', 'saves','created chart exports'}
-PROTECTED_FILES = {'manifest.json', 'astro_settings.json', 'custom_vargas.json', '.hash_cache.json'}
+PROTECTED_DIRS = {'update_cache', 'autosave', 'analysis_export', 'saves', '__pycache__'}
+PROTECTED_FILES = {'manifest.json', 'astro_settings.json', 'custom_vargas.json', 'apply_update.bat', 'apply_update.sh', '.hash_cache.json'}
 
 def get_base_dir():
     """Get the root directory of the application."""
@@ -43,7 +43,7 @@ def get_file_hash(filepath):
                 content = content.replace(b'\r\n', b'\n').replace(b'\r', b'\n')
                 hasher.update(content)
             else:
-                # Binary files (.exe, .png) are hashed exactly as they are
+                # Binary files are hashed exactly as they are
                 buf = f.read(65536)
                 while len(buf) > 0:
                     hasher.update(buf)
@@ -68,7 +68,7 @@ class UpdateWorker(QThread):
             
             # 1. Fetch remote manifest
             manifest_url = UPDATE_SERVER_URL + MANIFEST_FILENAME
-            req = urllib.request.Request(manifest_url, headers={'User-Agent': 'AstroUpdater/1.2', 'Cache-Control': 'no-cache'})
+            req = urllib.request.Request(manifest_url, headers={'User-Agent': 'AstroUpdater/1.4', 'Cache-Control': 'no-cache'})
             with urllib.request.urlopen(req, timeout=10) as response:
                 remote_manifest = json.loads(response.read().decode('utf-8'))
                 
@@ -199,7 +199,7 @@ class UpdateWorker(QThread):
                     retries = 3
                     for attempt in range(retries):
                         try:
-                            req = urllib.request.Request(file_url, headers={'User-Agent': 'AstroUpdater/1.2', 'Cache-Control': 'no-cache'})
+                            req = urllib.request.Request(file_url, headers={'User-Agent': 'AstroUpdater/1.4', 'Cache-Control': 'no-cache'})
                             with urllib.request.urlopen(req, timeout=15) as response, open(part_path, 'wb') as out_file:
                                 out_file.write(response.read())
                             
@@ -227,9 +227,11 @@ class UpdateWorker(QThread):
             self.finished.emit(True, files_to_update, files_to_delete, f"Ready to install v{remote_version}.")
             
         except URLError as e:
-            self.finished.emit(False, {}, [], f"Network error: {str(e)}")
+            # Safely capture specific urllib socket/network errors
+            err_msg = str(e.reason) if hasattr(e, 'reason') else str(e)
+            self.finished.emit(False, {}, [], f"Network error: {err_msg}")
         except Exception as e:
-            self.finished.emit(False, {}, [], f"Update failed: {str(e)}")
+            self.finished.emit(False, {}, [], f"Update check failed: {str(e)}")
 
 def setup_ui(app, layout):
     """Contract method for dynamic module loader"""
@@ -276,7 +278,7 @@ def setup_ui(app, layout):
         except RuntimeError:
             pass # UI was destroyed, ignore updates
 
-    def on_check_clicked(is_full=False):
+    def on_check_clicked(is_full=False, is_auto=False):
         if is_full:
             reply = QMessageBox.question(
                 app, "Full Update Warning", 
@@ -291,6 +293,8 @@ def setup_ui(app, layout):
             btn_full.setEnabled(False)
             progress_bar.setVisible(True)
             progress_bar.setValue(0)
+            if is_auto:
+                status_label.setText("Checking for updates in background...")
         except RuntimeError:
             return
         
@@ -308,6 +312,7 @@ def setup_ui(app, layout):
         except RuntimeError:
             return # UI has been deleted (app closed or reloaded), abort dialog logic
         
+        # This will securely prompt if files need updating, but quietly update the label if there are no updates or a failure
         if success and (files_to_update or files_to_delete):
             msg_text = ""
             if files_to_update:
@@ -401,3 +406,10 @@ rm -rf "{cache_dir}"
 
     btn_check.clicked.connect(lambda: on_check_clicked(is_full=False))
     btn_full.clicked.connect(lambda: on_check_clicked(is_full=True))
+
+    # === AUTO-CHECK ON APP START ===
+    # Using `app` flag ensures it only automatically runs once per application lifecycle
+    if not getattr(app, '_has_auto_checked_updates', False):
+        app._has_auto_checked_updates = True
+        # Use QTimer to delay the auto-check slightly (1 second), letting the UI fully load/paint first
+        QTimer.singleShot(1000, lambda: on_check_clicked(is_full=False, is_auto=True))
