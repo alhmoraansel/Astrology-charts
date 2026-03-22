@@ -17,7 +17,7 @@ MANIFEST_FILENAME = "manifest.json"
 # --- PROTECTED PATHS ---
 # These files and directories will NEVER be deleted or overwritten by remote files.
 PROTECTED_DIRS = {'update_cache', 'autosave', 'analysis_export', 'saves', '__pycache__'}
-PROTECTED_FILES = {'manifest.json', 'astro_settings.json', 'custom_vargas.json', 'apply_update.bat', 'apply_update.sh', '.hash_cache.json'}
+PROTECTED_FILES = {'manifest.json', 'astro_settings.json', 'custom_vargas.json', 'apply_update.bat', 'apply_update.sh', '.hash_cache.json','unins000.exe','unins000.dat',}
 
 def get_base_dir():
     """Get the root directory of the application."""

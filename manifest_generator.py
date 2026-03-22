@@ -15,7 +15,7 @@ OUTPUT_FILE = os.path.join(BUILD_DIR, "manifest.json")
 
 # Files and folders to EXCLUDE from the update checks
 EXCLUDE_DIRS = ['update_cache', 'autosave', 'analysis_export', 'created chart exports','saves', '__pycache__']
-EXCLUDE_FILES = ['manifest.json', 'astro_settings.json', 'custom_vargas.json', 'apply_update.bat', 'apply_update.sh', '.hash_cache.json']
+EXCLUDE_FILES = ['manifest.json', 'astro_settings.json', 'custom_vargas.json', 'apply_update.bat', 'apply_update.sh', '.hash_cache.json','unins000.exe','unins000.dat',]
 
 def get_file_hash(filepath):
     """Calculate SHA256 hash of a file, normalizing line endings for text files."""
