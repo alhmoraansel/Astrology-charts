@@ -1,23 +1,16 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_data_files
-from PyInstaller.utils.hooks import collect_all
 
 datas = [('icon.ico', '.'), ('ephe', 'ephe'), ('dynamic_settings_modules', 'dynamic_settings_modules')]
-binaries = []
-hiddenimports = ['pyjhora']
 datas += collect_data_files('timezonefinder')
-tmp_ret = collect_all('pyjhora')
-datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
-tmp_ret = collect_all('jhora')
-datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
 
 a = Analysis(
     ['main.py'],
     pathex=[],
-    binaries=binaries,
+    binaries=[],
     datas=datas,
-    hiddenimports=hiddenimports,
+    hiddenimports=['logging', 'time', 'PyQt6.QtGui', 'queue', 'json', 'warnings', 'urllib.request', 'os', 'PyQt6.QtWidgets', 'datetime', 'swisseph', 'threading', 'hashlib', 'timezonefinder', 'traceback', 'sys', 'main', 'astro_engine', 'PyQt6.QtCore', 'urllib.error', 'dateutil.relativedelta', 'math', 'subprocess'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

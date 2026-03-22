@@ -1,5 +1,7 @@
 import subprocess
 import sys
+import os
+import ast
 
 # The absolute bare minimum excludes to strip out PyQt6 bloat and unused standard libraries
 EXCLUDES = [
@@ -19,6 +21,43 @@ EXCLUDES = [
     "IPython", "notebook", "jupyter"
 ]
 
+# Base list of explicit hidden imports just in case
+BASE_HIDDEN_IMPORTS = [
+    "urllib.request",
+    "urllib.error",
+    "subprocess",
+    "hashlib"
+]
+
+def get_dynamic_imports(directory="dynamic_settings_modules"):
+    """Scans the dynamic modules directory for imported libraries."""
+    found_imports = set()
+    if not os.path.exists(directory):
+        print(f"Directory '{directory}' not found. Skipping dynamic import scan.")
+        return []
+
+    print(f"🔍 Scanning '{directory}' for dynamic imports...")
+    for filename in os.listdir(directory):
+        if filename.endswith(".py") and not filename.startswith("__"):
+            filepath = os.path.join(directory, filename)
+            try:
+                with open(filepath, "r", encoding="utf-8") as f:
+                    tree = ast.parse(f.read(), filename=filepath)
+                    
+                for node in ast.walk(tree):
+                    # Catch 'import x'
+                    if isinstance(node, ast.Import):
+                        for alias in node.names:
+                            found_imports.add(alias.name)
+                    # Catch 'from x import y'
+                    elif isinstance(node, ast.ImportFrom):
+                        if node.module:
+                            found_imports.add(node.module)
+            except Exception as e:
+                print(f"⚠️ Warning: Failed to parse {filename} for imports: {e}")
+    
+    return list(found_imports)
+
 def build_app():
     command = [
         "pyinstaller",
@@ -32,7 +71,19 @@ def build_app():
         "--collect-data", "timezonefinder", "--onedir"
     ]
     
-#"--collect-all" , "jhora"
+    # Combine baseline hidden imports with dynamically discovered ones
+    dynamic_imports = get_dynamic_imports()
+    all_hidden_imports = set(BASE_HIDDEN_IMPORTS + dynamic_imports)
+    
+    if dynamic_imports:
+        print(f"📦 Discovered plugin dependencies: {', '.join(dynamic_imports)}")
+
+    # Add hidden imports so dynamic modules don't crash from missing dependencies
+    for hi in all_hidden_imports:
+        # Safety check: Don't import something we explicitly excluded
+        if hi not in EXCLUDES:
+            command.extend(["--hidden-import", hi])
+
     # Append all our exclusions to the command
     for exc in EXCLUDES:
         command.extend(["--exclude-module", exc])
@@ -40,7 +91,7 @@ def build_app():
     # Target script
     command.append("main.py")
 
-    print("🚀 Running highly optimized PyInstaller build...\n")
+    print("\n🚀 Running highly optimized PyInstaller build...\n")
     print("Command executing:\n" + " ".join(command) + "\n")
     
     # Run the build

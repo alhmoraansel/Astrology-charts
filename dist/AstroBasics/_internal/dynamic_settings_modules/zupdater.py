@@ -7,7 +7,7 @@ import urllib.request
 import time
 from urllib.error import URLError
 
-from PyQt6.QtWidgets import QGroupBox, QVBoxLayout, QPushButton, QLabel, QHBoxLayout, QMessageBox, QProgressBar
+from PyQt6.QtWidgets import QGroupBox, QVBoxLayout, QPushButton, QLabel, QHBoxLayout, QMessageBox, QProgressBar, QApplication
 from PyQt6.QtCore import QThread, pyqtSignal, Qt
 
 # --- CONFIGURATION ---
@@ -192,6 +192,8 @@ class UpdateWorker(QThread):
 
 def setup_ui(app, layout):
     """Contract method for dynamic module loader"""
+    app.pending_update_files_to_delete = None
+    
     group = QGroupBox("Updater")
     v_layout = QVBoxLayout()
     v_layout.setContentsMargins(8, 8, 8, 8)
@@ -247,9 +249,13 @@ def setup_ui(app, layout):
             )
             
             if reply == QMessageBox.StandardButton.Yes:
-                apply_update_and_restart(files_to_delete)
+                app.pending_update_files_to_delete = None
+                apply_update_and_restart(files_to_delete, relaunch=True)
+            else:
+                app.pending_update_files_to_delete = files_to_delete
+                status_label.setText("Update will be applied automatically on exit.")
 
-    def apply_update_and_restart(files_to_delete):
+    def apply_update_and_restart(files_to_delete, relaunch=True):
         base_dir = get_base_dir()
         cache_dir = os.path.join(base_dir, "update_cache")
         
@@ -266,14 +272,14 @@ def setup_ui(app, layout):
         if sys.platform == "win32":
             bat_path = os.path.join(base_dir, "apply_update.bat")
             launch_cmd = f'start "" "{exe_name}"' if is_frozen else f'python "{exe_name}"'
+            launch_str = f"{launch_cmd}\n" if relaunch else ""
             
             # timeout /t 2 ensures the python app completely releases locks on Windows before xcopy triggers
             bat_content = f"""@echo off
 timeout /t 2 /nobreak > NUL
 {deletion_commands_bat}xcopy /s /y /q "{cache_dir}\\*" "{base_dir}\\"
 rmdir /s /q "{cache_dir}"
-{launch_cmd}
-del "%~f0"
+{launch_str}del "%~f0"
 """
             with open(bat_path, "w") as f:
                 f.write(bat_content)
@@ -285,13 +291,13 @@ del "%~f0"
             # POSIX compliance for Mac/Linux
             sh_path = os.path.join(base_dir, "apply_update.sh")
             launch_cmd = f'"{sys.executable}" "{exe_name}"' if not is_frozen else f'./"{exe_name}"'
+            launch_str = f"{launch_cmd} &\n" if relaunch else ""
             
             sh_content = f"""#!/bin/bash
 sleep 2
 {deletion_commands_sh}cp -R "{cache_dir}/"* "{base_dir}/"
 rm -rf "{cache_dir}"
-{launch_cmd} &
-rm -- "$0"
+{launch_str}rm -- "$0"
 """
             with open(sh_path, "w") as f:
                 f.write(sh_content)
@@ -299,4 +305,16 @@ rm -- "$0"
             subprocess.Popen([sh_path], start_new_session=True)
             sys.exit(0)
             
+    # Safely attach the restart function to the app instance in case of module reloads
+    app._apply_update_func = apply_update_and_restart
+
+    def on_app_quit():
+        if getattr(app, 'pending_update_files_to_delete', None) is not None:
+            app._apply_update_func(app.pending_update_files_to_delete, relaunch=False)
+
+    q_app = QApplication.instance()
+    if not hasattr(app, '_updater_quit_connected'):
+        q_app.aboutToQuit.connect(on_app_quit)
+        app._updater_quit_connected = True
+
     btn_check.clicked.connect(on_check_clicked)
