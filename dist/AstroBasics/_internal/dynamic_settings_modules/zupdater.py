@@ -14,6 +14,11 @@ from PyQt6.QtCore import QThread, pyqtSignal, Qt
 UPDATE_SERVER_URL = "https://raw.githubusercontent.com/alhmoraansel/Astrology-charts/main/dist/AstroBasics/"
 MANIFEST_FILENAME = "manifest.json"
 
+# --- PROTECTED PATHS ---
+# These files and directories will NEVER be deleted or overwritten by remote files.
+PROTECTED_DIRS = {'autosave','ephe','analysis_export', 'saves','created chart exports'}
+PROTECTED_FILES = {'manifest.json', 'astro_settings.json', 'custom_vargas.json', '.hash_cache.json'}
+
 def get_base_dir():
     """Get the root directory of the application."""
     if getattr(sys, 'frozen', False):
@@ -36,9 +41,14 @@ class UpdateWorker(QThread):
     progress = pyqtSignal(int, str)
     finished = pyqtSignal(bool, dict, list, str) # success, files_to_update, files_to_delete, message
     
+    def __init__(self, full_update=False):
+        super().__init__()
+        self.full_update = full_update
+    
     def run(self):
         try:
-            self.progress.emit(10, "Fetching update manifest...")
+            mode_str = "FULL " if self.full_update else ""
+            self.progress.emit(10, f"Fetching {mode_str}update manifest...")
             
             # 1. Fetch remote manifest
             manifest_url = UPDATE_SERVER_URL + MANIFEST_FILENAME
@@ -57,7 +67,7 @@ class UpdateWorker(QThread):
             
             # Load local hash cache to speed up deep checks
             local_hash_cache = {}
-            if os.path.exists(hash_cache_path):
+            if os.path.exists(hash_cache_path) and not self.full_update:
                 try:
                     with open(hash_cache_path, 'r') as f:
                         local_hash_cache = json.load(f)
@@ -73,55 +83,68 @@ class UpdateWorker(QThread):
                 self.finished.emit(True, {}, [], f"No files in remote update. (V{remote_version})")
                 return
 
-            # Scan local directory for files that no longer exist on remote
-            exclude_dirs = {'update_cache', 'autosave', 'analysis_export', 'saves', '__pycache__'}
-            exclude_files = {'manifest.json', 'astro_settings.json', 'apply_update.bat', 'apply_update.sh', '.hash_cache.json'}
-            
+            # Scan local directory for files that no longer exist on remote (or ALL files if FULL UPDATE)
             for root, dirs, files in os.walk(base_dir):
-                dirs[:] = [d for d in dirs if d not in exclude_dirs]
+                dirs[:] = [d for d in dirs if d not in PROTECTED_DIRS]
                 for file in files:
-                    if file in exclude_files or file.endswith(".pyc"):
+                    if file in PROTECTED_FILES or file.endswith(".pyc"):
                         continue
                         
                     filepath = os.path.join(root, file)
                     rel_path = os.path.relpath(filepath, base_dir)
                     rel_path_unix = rel_path.replace("\\", "/")
                     
-                    if rel_path_unix not in remote_files:
-                        files_to_delete.append(rel_path)
-                
-            for i, (rel_path, remote_hash) in enumerate(remote_files.items()):
-                os_rel_path = os.path.normpath(rel_path)
-                local_path = os.path.join(base_dir, os_rel_path)
-                
-                local_hash = None
-                if os.path.exists(local_path):
-                    try:
-                        stat = os.stat(local_path)
-                        mtime = stat.st_mtime
-                        size = stat.st_size
-                        
-                        cached_data = local_hash_cache.get(rel_path)
-                        if cached_data and cached_data.get('mtime') == mtime and cached_data.get('size') == size:
-                            local_hash = cached_data.get('hash')
-                        else:
-                            local_hash = get_file_hash(local_path)
-                            local_hash_cache[rel_path] = {'mtime': mtime, 'size': size, 'hash': local_hash}
-                    except OSError:
-                        local_hash = get_file_hash(local_path)
-                
-                if local_hash != remote_hash:
+                    if self.full_update:
+                        files_to_delete.append(rel_path) # Flag everything for deletion
+                    elif rel_path_unix not in remote_files:
+                        files_to_delete.append(rel_path) # Flag only orphans
+            
+            if self.full_update:
+                for rel_path, remote_hash in remote_files.items():
+                    # Strict protection check for remote files
+                    rel_path_unix = rel_path.replace("\\", "/")
+                    if rel_path_unix.split("/")[0] in PROTECTED_DIRS or os.path.basename(rel_path_unix) in PROTECTED_FILES:
+                        continue
                     files_to_update[rel_path] = remote_hash
+            else:
+                for i, (rel_path, remote_hash) in enumerate(remote_files.items()):
+                    # Strict protection check for remote files
+                    rel_path_unix = rel_path.replace("\\", "/")
+                    if rel_path_unix.split("/")[0] in PROTECTED_DIRS or os.path.basename(rel_path_unix) in PROTECTED_FILES:
+                        continue
+                        
+                    os_rel_path = os.path.normpath(rel_path)
+                    local_path = os.path.join(base_dir, os_rel_path)
                     
-                if i % max(1, total_files // 10) == 0:
-                    self.progress.emit(30 + int((i / total_files) * 30), f"Checking file hashes...")
+                    local_hash = None
+                    if os.path.exists(local_path):
+                        try:
+                            stat = os.stat(local_path)
+                            mtime = stat.st_mtime
+                            size = stat.st_size
+                            
+                            cached_data = local_hash_cache.get(rel_path)
+                            if cached_data and cached_data.get('mtime') == mtime and cached_data.get('size') == size:
+                                local_hash = cached_data.get('hash')
+                            else:
+                                local_hash = get_file_hash(local_path)
+                                local_hash_cache[rel_path] = {'mtime': mtime, 'size': size, 'hash': local_hash}
+                        except OSError:
+                            local_hash = get_file_hash(local_path)
                     
-            # Save the updated hash cache for the next run
-            try:
-                with open(hash_cache_path, 'w') as f:
-                    json.dump(local_hash_cache, f)
-            except Exception:
-                pass
+                    if local_hash != remote_hash:
+                        files_to_update[rel_path] = remote_hash
+                        
+                    if i % max(1, total_files // 10) == 0:
+                        self.progress.emit(30 + int((i / total_files) * 30), f"Checking file hashes...")
+                    
+            # Save the updated hash cache for the next run (skip saving if we bypassed it for full update)
+            if not self.full_update:
+                try:
+                    with open(hash_cache_path, 'w') as f:
+                        json.dump(local_hash_cache, f)
+                except Exception:
+                    pass
 
             if not files_to_update and not files_to_delete:
                 # Edge Case: Files match but version differs. Update local manifest silently.
@@ -139,8 +162,8 @@ class UpdateWorker(QThread):
             for rel_path, remote_hash in files_to_update.items():
                 os_rel_path = os.path.normpath(rel_path)
                 target_path = os.path.join(update_cache_dir, os_rel_path)
-                # If it's already in the cache with the correct hash, skip download
-                if not (os.path.exists(target_path) and get_file_hash(target_path) == remote_hash):
+                # If full_update is forced OR the file is missing/wrong hash in cache
+                if self.full_update or not (os.path.exists(target_path) and get_file_hash(target_path) == remote_hash):
                     files_to_download[rel_path] = remote_hash
 
             if files_to_download:
@@ -167,6 +190,7 @@ class UpdateWorker(QThread):
                             if os.path.exists(target_path):
                                 os.remove(target_path)
                             os.rename(part_path, target_path)
+                            print(f"[DEBUG] Downloaded: {rel_path} -> {target_path}")
                             break
                         except Exception as e:
                             if os.path.exists(part_path):
@@ -212,9 +236,18 @@ def setup_ui(app, layout):
     btn_check.setStyleSheet("font-size: 13px; font-weight: bold; color: #1E8449; background-color: #E8F8F5; border: 1px solid #A2D9CE; border-radius: 4px;")
     btn_check.setFixedHeight(28)
     
+    btn_full = QPushButton("UPDATE FULL")
+    btn_full.setStyleSheet("font-size: 13px; font-weight: bold; color: #C0392B; background-color: #FDEDEC; border: 1px solid #F5B7B1; border-radius: 4px;")
+    btn_full.setFixedHeight(28)
+    
+    btn_layout = QHBoxLayout()
+    btn_layout.setSpacing(6)
+    btn_layout.addWidget(btn_check)
+    btn_layout.addWidget(btn_full)
+    
     v_layout.addWidget(status_label)
     v_layout.addWidget(progress_bar)
-    v_layout.addWidget(btn_check)
+    v_layout.addLayout(btn_layout)
     group.setLayout(v_layout)
     layout.addWidget(group)
     
@@ -227,15 +260,25 @@ def setup_ui(app, layout):
         except RuntimeError:
             pass # UI was destroyed, ignore updates
 
-    def on_check_clicked():
+    def on_check_clicked(is_full=False):
+        if is_full:
+            reply = QMessageBox.question(
+                app, "Full Update Warning", 
+                "This will redownload the ENTIRE application and wipe all local application files to give you a clean slate.\n\n(Your saves and settings will remain safe).\n\nContinue?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            if reply == QMessageBox.StandardButton.No:
+                return
+
         try:
             btn_check.setEnabled(False)
+            btn_full.setEnabled(False)
             progress_bar.setVisible(True)
             progress_bar.setValue(0)
         except RuntimeError:
             return
         
-        app.updater_worker = UpdateWorker()
+        app.updater_worker = UpdateWorker(full_update=is_full)
         app.updater_worker.progress.connect(on_progress)
         app.updater_worker.finished.connect(on_update_finished)
         app.updater_worker.start()
@@ -243,6 +286,7 @@ def setup_ui(app, layout):
     def on_update_finished(success, files_to_update, files_to_delete, msg):
         try:
             btn_check.setEnabled(True)
+            btn_full.setEnabled(True)
             progress_bar.setVisible(False)
             status_label.setText(msg)
         except RuntimeError:
@@ -339,4 +383,5 @@ rm -rf "{cache_dir}"
         q_app.aboutToQuit.connect(on_app_quit)
         app._updater_quit_connected = True
 
-    btn_check.clicked.connect(on_check_clicked)
+    btn_check.clicked.connect(lambda: on_check_clicked(is_full=False))
+    btn_full.clicked.connect(lambda: on_check_clicked(is_full=True))
