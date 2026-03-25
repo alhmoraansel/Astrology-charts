@@ -10,8 +10,8 @@ MANIFEST_FILENAME = "manifest.json"
 
 # --- PROTECTED PATHS ---
 # These files and directories will NEVER be deleted or overwritten by remote files.
-PROTECTED_DIRS = {'update_cache', 'autosave', 'analysis_export', 'saves', '__pycache__'}
-PROTECTED_FILES = {'manifest.json','icon.ico', 'astro_settings.json', 'custom_vargas.json', 'apply_update.bat', 'apply_update.sh', '.hash_cache.json','unins000.exe','unins000.dat',}
+PROTECTED_DIRS = {'update_cache', 'autosave', 'analysis_export', 'created chart exports', 'saves', '__pycache__'}
+PROTECTED_FILES = {'manifest.json', 'icon.ico', 'astro_settings.json', 'custom_vargas.json', 'apply_update.bat', 'apply_update.sh', '.hash_cache.json', 'unins000.exe', 'unins000.dat'}
 
 def get_base_dir():
     """Get the root directory of the application."""
@@ -20,18 +20,16 @@ def get_base_dir():
     return os.path.abspath(".")
 
 def get_file_hash(filepath):
-    """Calculate SHA256 hash of a file, normalizing line endings for text files."""
+    """Calculate SHA256 hash of a file, normalizing line endings and trailing whitespaces for text files."""
     if not os.path.exists(filepath):
         return None
     hasher = hashlib.sha256()
     
-    # Extensions that are susceptible to Git CRLF <-> LF modification
     text_extensions = {
         '.py', '.json', '.txt', '.md', '.bat', '.sh', '.csv', 
         '.ini', '.cfg', '.toml', '.xml', '.yml', '.yaml', '.rst', 
         '.html', '.css', '.js'
     }
-    # Extensionless text files commonly modified by git (e.g., Python packages)
     text_filenames = {
         'license', 'licence', 'record', 'installer', 'metadata', 
         'wheel', 'notice', 'readme', 'authors', 'contributors'
@@ -40,18 +38,15 @@ def get_file_hash(filepath):
     _, ext = os.path.splitext(filepath)
     filename = os.path.basename(filepath).lower()
     
-    # 1. Check if the file is explicitly a known text format/name
     is_text = (ext.lower() in text_extensions) or \
               (filename in text_filenames) or \
               (filename.startswith('license')) or \
               (filename.startswith('readme'))
     
-    # 2. Git-style fallback for other extensionless files
     if not is_text and not ext:
         try:
             with open(filepath, 'rb') as f:
                 chunk = f.read(8192)
-                # If the file has no null bytes, treat as text to counter Git CRLF changes
                 if chunk and b'\x00' not in chunk:
                     is_text = True
         except Exception:
@@ -60,12 +55,16 @@ def get_file_hash(filepath):
     try:
         with open(filepath, 'rb') as f:
             if is_text:
-                # Strip carriage returns so \r\n and \n both become purely \n before hashing
                 content = f.read()
                 content = content.replace(b'\r\n', b'\n').replace(b'\r', b'\n')
+                # Robustly ignore trailing spaces on each line and blank lines at EOF
+                # This counters Git's autocrlf and EOF-fixer pre-commit hooks
+                lines = [line.rstrip(b' \t') for line in content.split(b'\n')]
+                while lines and not lines[-1]:
+                    lines.pop()
+                content = b'\n'.join(lines)
                 hasher.update(content)
             else:
-                # Binary files are hashed exactly as they are
                 buf = f.read(65536)
                 while len(buf) > 0:
                     hasher.update(buf)
@@ -77,7 +76,7 @@ def get_file_hash(filepath):
 
 class UpdateWorker(QThread):
     progress = pyqtSignal(int, str)
-    finished = pyqtSignal(bool, dict, list, str) # success, files_to_update, files_to_delete, message
+    finished = pyqtSignal(bool, dict, list, str) 
     
     def __init__(self, full_update=False):
         super().__init__()
@@ -88,9 +87,10 @@ class UpdateWorker(QThread):
             mode_str = "FULL " if self.full_update else ""
             self.progress.emit(10, f"Fetching {mode_str}update manifest...")
             
-            # 1. Fetch remote manifest
-            manifest_url = UPDATE_SERVER_URL + MANIFEST_FILENAME
-            req = urllib.request.Request(manifest_url, headers={'User-Agent': 'AstroUpdater/1.4', 'Cache-Control': 'no-cache'})
+            # 1. Fetch remote manifest with cache busting
+            cache_buster = f"?t={int(time.time())}"
+            manifest_url = UPDATE_SERVER_URL + MANIFEST_FILENAME + cache_buster
+            req = urllib.request.Request(manifest_url, headers={'User-Agent': 'AstroUpdater/1.5', 'Cache-Control': 'no-cache, no-store, must-revalidate'})
             with urllib.request.urlopen(req, timeout=10) as response:
                 remote_manifest = json.loads(response.read().decode('utf-8'))
                 
@@ -103,7 +103,6 @@ class UpdateWorker(QThread):
             
             self.progress.emit(30, f"Analyzing version {remote_version}...")
             
-            # Load local hash cache to speed up deep checks
             local_hash_cache = {}
             if os.path.exists(hash_cache_path) and not self.full_update:
                 try:
@@ -112,7 +111,6 @@ class UpdateWorker(QThread):
                 except json.JSONDecodeError:
                     pass
             
-            # 2. Compare hashes (Deep Check) & Find Deleted Files
             files_to_update = {}
             files_to_delete = []
             total_files = len(remote_files)
@@ -121,7 +119,6 @@ class UpdateWorker(QThread):
                 self.finished.emit(True, {}, [], f"No files in remote update. (V{remote_version})")
                 return
 
-            # Scan local directory for files that no longer exist on remote (or ALL files if FULL UPDATE)
             for root, dirs, files in os.walk(base_dir):
                 dirs[:] = [d for d in dirs if d not in PROTECTED_DIRS]
                 for file in files:
@@ -133,20 +130,18 @@ class UpdateWorker(QThread):
                     rel_path_unix = rel_path.replace("\\", "/")
                     
                     if self.full_update:
-                        files_to_delete.append(rel_path) # Flag everything for deletion
+                        files_to_delete.append(rel_path)
                     elif rel_path_unix not in remote_files:
-                        files_to_delete.append(rel_path) # Flag only orphans
+                        files_to_delete.append(rel_path)
             
             if self.full_update:
                 for rel_path, remote_hash in remote_files.items():
-                    # Strict protection check for remote files
                     rel_path_unix = rel_path.replace("\\", "/")
                     if rel_path_unix.split("/")[0] in PROTECTED_DIRS or os.path.basename(rel_path_unix) in PROTECTED_FILES:
                         continue
                     files_to_update[rel_path] = remote_hash
             else:
                 for i, (rel_path, remote_hash) in enumerate(remote_files.items()):
-                    # Strict protection check for remote files
                     rel_path_unix = rel_path.replace("\\", "/")
                     if rel_path_unix.split("/")[0] in PROTECTED_DIRS or os.path.basename(rel_path_unix) in PROTECTED_FILES:
                         continue
@@ -176,7 +171,6 @@ class UpdateWorker(QThread):
                     if i % max(1, total_files // 10) == 0:
                         self.progress.emit(30 + int((i / total_files) * 30), f"Checking file hashes...")
                     
-            # Save the updated hash cache for the next run (skip saving if we bypassed it for full update)
             if not self.full_update:
                 try:
                     with open(hash_cache_path, 'w') as f:
@@ -185,7 +179,6 @@ class UpdateWorker(QThread):
                     pass
 
             if not files_to_update and not files_to_delete:
-                # Edge Case: Files match but version differs. Update local manifest silently.
                 with open(local_manifest_path, 'w') as f:
                     json.dump(remote_manifest, f, indent=4)
                 self.progress.emit(100, "Up to date.")
@@ -195,12 +188,10 @@ class UpdateWorker(QThread):
             update_cache_dir = os.path.join(base_dir, "update_cache")
             os.makedirs(update_cache_dir, exist_ok=True)
             
-            # Determine exactly what needs to be downloaded over the network
             files_to_download = {}
             for rel_path, remote_hash in files_to_update.items():
                 os_rel_path = os.path.normpath(rel_path)
                 target_path = os.path.join(update_cache_dir, os_rel_path)
-                # If full_update is forced OR the file is missing/wrong hash in cache
                 if self.full_update or not (os.path.exists(target_path) and get_file_hash(target_path) == remote_hash):
                     files_to_download[rel_path] = remote_hash
 
@@ -209,7 +200,7 @@ class UpdateWorker(QThread):
                 dl_count = 0
                 for rel_path, remote_hash in files_to_download.items():
                     url_rel_path = rel_path.replace("\\", "/").replace(" ", "%20")
-                    file_url = UPDATE_SERVER_URL + url_rel_path
+                    file_url = UPDATE_SERVER_URL + url_rel_path + cache_buster
                     
                     os_rel_path = os.path.normpath(rel_path)
                     target_path = os.path.join(update_cache_dir, os_rel_path)
@@ -217,11 +208,10 @@ class UpdateWorker(QThread):
                     
                     os.makedirs(os.path.dirname(target_path), exist_ok=True)
                     
-                    # Download with retry logic
                     retries = 3
                     for attempt in range(retries):
                         try:
-                            req = urllib.request.Request(file_url, headers={'User-Agent': 'AstroUpdater/1.4', 'Cache-Control': 'no-cache'})
+                            req = urllib.request.Request(file_url, headers={'User-Agent': 'AstroUpdater/1.5', 'Cache-Control': 'no-cache, no-store, must-revalidate'})
                             with urllib.request.urlopen(req, timeout=15) as response, open(part_path, 'wb') as out_file:
                                 out_file.write(response.read())
                             
@@ -240,7 +230,6 @@ class UpdateWorker(QThread):
                     dl_count += 1
                     self.progress.emit(60 + int((dl_count / len(files_to_download)) * 35), f"Downloaded {dl_count}/{len(files_to_download)}...")
             
-            # CRITICAL: Save the new manifest to the cache so it replaces the old one
             manifest_cache_path = os.path.join(update_cache_dir, MANIFEST_FILENAME)
             with open(manifest_cache_path, 'w') as f:
                 json.dump(remote_manifest, f, indent=4)
@@ -249,14 +238,12 @@ class UpdateWorker(QThread):
             self.finished.emit(True, files_to_update, files_to_delete, f"Ready to install v{remote_version}.")
             
         except URLError as e:
-            # Safely capture specific urllib socket/network errors
             err_msg = str(e.reason) if hasattr(e, 'reason') else str(e)
             self.finished.emit(False, {}, [], f"Network error: {err_msg}")
         except Exception as e:
             self.finished.emit(False, {}, [], f"Update check failed: {str(e)}")
 
 def setup_ui(app, layout):
-    """Contract method for dynamic module loader"""
     app.pending_update_files_to_delete = None
     
     group = QGroupBox("Updater")
@@ -272,7 +259,6 @@ def setup_ui(app, layout):
     progress_bar.setFixedHeight(12)
     progress_bar.setTextVisible(False)
     
-
     btn_check = QPushButton("Check for Updates")
     btn_check.setFixedHeight(28)
     btn_check.setStyleSheet("""
@@ -334,7 +320,7 @@ def setup_ui(app, layout):
             progress_bar.setValue(val)
             status_label.setText(msg)
         except RuntimeError:
-            pass # UI was destroyed, ignore updates
+            pass 
 
     def on_check_clicked(is_full=False, is_auto=False):
         if is_full:
@@ -368,9 +354,8 @@ def setup_ui(app, layout):
             progress_bar.setVisible(False)
             status_label.setText(msg)
         except RuntimeError:
-            return # UI has been deleted (app closed or reloaded), abort dialog logic
+            return 
         
-        # This will securely prompt if files need updating, but quietly update the label if there are no updates or a failure
         if success and (files_to_update or files_to_delete):
             msg_text = ""
             if files_to_update:
@@ -387,7 +372,7 @@ def setup_ui(app, layout):
                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
                 )
             except RuntimeError:
-                return # App window was deleted while waiting to show the dialog
+                return
             
             if reply == QMessageBox.StandardButton.Yes:
                 app.pending_update_files_to_delete = None
@@ -419,10 +404,10 @@ def setup_ui(app, layout):
             launch_cmd = f'start "" "{exe_name}"' if is_frozen else f'python "{exe_name}"'
             launch_str = f"{launch_cmd}\n" if relaunch else ""
             
-            # timeout /t 2 ensures the python app completely releases locks on Windows before xcopy triggers
+            # Using /h (hidden) and /r (read-only) overrides file permissions preventing updates
             bat_content = f"""@echo off
 timeout /t 2 /nobreak > NUL
-{deletion_commands_bat}xcopy /s /y /q "{cache_dir}\\*" "{base_dir}\\"
+{deletion_commands_bat}xcopy /s /y /q /h /r "{cache_dir}\\*" "{base_dir}\\"
 rmdir /s /q "{cache_dir}"
 {launch_str}del "%~f0"
 """
@@ -433,14 +418,13 @@ rmdir /s /q "{cache_dir}"
             sys.exit(0)
             
         else:
-            # POSIX compliance for Mac/Linux
             sh_path = os.path.join(base_dir, "apply_update.sh")
             launch_cmd = f'"{sys.executable}" "{exe_name}"' if not is_frozen else f'./"{exe_name}"'
             launch_str = f"{launch_cmd} &\n" if relaunch else ""
             
             sh_content = f"""#!/bin/bash
 sleep 2
-{deletion_commands_sh}cp -R "{cache_dir}/"* "{base_dir}/"
+{deletion_commands_sh}cp -fR "{cache_dir}/"* "{base_dir}/"
 rm -rf "{cache_dir}"
 {launch_str}rm -- "$0"
 """
@@ -450,7 +434,6 @@ rm -rf "{cache_dir}"
             subprocess.Popen([sh_path], start_new_session=True)
             sys.exit(0)
             
-    # Safely attach the restart function to the app instance in case of module reloads
     app._apply_update_func = apply_update_and_restart
 
     def on_app_quit():
@@ -465,9 +448,6 @@ rm -rf "{cache_dir}"
     btn_check.clicked.connect(lambda: on_check_clicked(is_full=False))
     btn_full.clicked.connect(lambda: on_check_clicked(is_full=True))
 
-    # === AUTO-CHECK ON APP START ===
-    # Using `app` flag ensures it only automatically runs once per application lifecycle
     if not getattr(app, '_has_auto_checked_updates', False):
         app._has_auto_checked_updates = True
-        #Use QTimer to delay the auto-check slightly (1 second), letting the UI fully load/paint first
         QTimer.singleShot(1000, lambda: on_check_clicked(is_full=False, is_auto=True))
