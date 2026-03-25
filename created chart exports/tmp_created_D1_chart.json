@@ -1,0 +1,37 @@
+{
+    "divisional_charts": {
+        "D1": {
+            "ascendant": {},
+            "planets": [
+                {
+                    "name": "Venus",
+                    "sign_index": 1
+                },
+                {
+                    "name": "Mars",
+                    "sign_index": 0
+                },
+                {
+                    "name": "Ketu",
+                    "retro": true
+                },
+                {
+                    "name": "Jupiter",
+                    "sign_index": 0
+                },
+                {
+                    "name": "Rahu",
+                    "retro": true
+                },
+                {
+                    "name": "Saturn",
+                    "sign_index": 0
+                },
+                {
+                    "name": "Mercury",
+                    "sign_index": 1
+                }
+            ]
+        }
+    }
+}

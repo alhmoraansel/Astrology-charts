@@ -1,13 +1,15 @@
-# dynamic_settings_modules/vimshottari_mod.py
+#dunamic_system_modules/vishmottari_mode.py
+
 import datetime
-from PyQt6.QtWidgets import (QPushButton, QMessageBox, QLabel, QVBoxLayout, QHBoxLayout,
-                             QDialog, QTreeWidget, QTreeWidgetItem, QHeaderView, QLineEdit,
-                             QApplication, QAbstractItemView, QDateEdit)
+import __main__  # NEW: Import __main__ to access the main application namespace
+from PyQt6.QtWidgets import (QPushButton, QMessageBox, QLabel, QVBoxLayout, QHBoxLayout,QDialog, QTreeWidget, QTreeWidgetItem, QHeaderView, QLineEdit,QApplication, QAbstractItemView, QDateEdit, QGroupBox)
 from PyQt6.QtCore import Qt, QTimer, QDate
 from PyQt6.QtGui import QColor, QBrush, QFont
 
 import astro_engine
 
+# Attempt to load SmoothScroller from the main application namespace
+SmoothScroller = getattr(__main__, 'SmoothScroller', None)
 # --- VIMSHOTTARI CONSTANTS ---
 DASHA_LORDS = ["Ketu", "Venus", "Sun", "Moon",
                "Mars", "Rahu", "Jupiter", "Saturn", "Mercury"]
@@ -39,8 +41,12 @@ class VimshottariDialog(QDialog):
         self.is_fully_loaded = False
         self._load_queue = []
         self.active_leaf_item = None
-        # NEW: Tracks strictly the 5 active items for O(1) instantaneous updates
+        # Tracks strictly the 5 active items for O(1) instantaneous updates
         self.active_path_items = []
+        self._search_cache = []  # Pure data cache for lightning-fast search
+        
+        # NEW: Keep a reference to scrollers to prevent garbage collection
+        self.scrollers = [] 
 
         # Safely parse birth date
         y = max(1, birth_dt_dict.get("year", 2000))
@@ -96,6 +102,11 @@ class VimshottariDialog(QDialog):
         self.tree.setSelectionBehavior(
             QTreeWidget.SelectionBehavior.SelectRows)
 
+        # --- NEW: Qt Scrolling Optimizations ---
+        self.tree.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.tree.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.tree.setUniformRowHeights(True)
+
         self.tree.header().setSectionResizeMode(
             0, QHeaderView.ResizeMode.ResizeToContents)
         self.tree.header().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
@@ -107,6 +118,9 @@ class VimshottariDialog(QDialog):
         self.tree.itemExpanded.connect(self.on_item_expanded)
 
         layout.addWidget(self.tree)
+
+        # --- NEW: Apply your custom Smooth Scroller ---
+        self.apply_smooth_scroll(self.tree)
 
         # --- Footer ---
         footer = QHBoxLayout()
@@ -134,6 +148,12 @@ class VimshottariDialog(QDialog):
 
         # Initialize the interface
         self.populate_tree()
+
+    # --- NEW: Smooth Scroll Applier Method ---
+    def apply_smooth_scroll(self, widget):
+        if SmoothScroller:
+            scroller = SmoothScroller(widget)
+            self.scrollers.append(scroller)
 
     def on_target_date_changed(self, new_qdate):
         """Triggered when the user picks a new date. Instant O(1) highlighting update."""
@@ -287,11 +307,18 @@ class VimshottariDialog(QDialog):
             seq_name = prefix + ("-" if prefix else "") + sub_lord
             is_active = actual_start <= self.current_date < sub_end
 
+            start_str = self.format_dt(actual_start, depth + 1)
+            end_str = self.format_dt(sub_end, depth + 1)
+
             item = QTreeWidgetItem(parent_item)
             item.setText(0, seq_name)
-            item.setText(1, self.format_dt(actual_start, depth + 1))
-            item.setText(2, self.format_dt(sub_end, depth + 1))
+            item.setText(1, start_str)
+            item.setText(2, end_str)
             item.setText(3, age_str)
+
+            # Cache for lightning fast O(1) text search
+            search_text = f"{seq_name} {start_str} {end_str} {age_str}".lower()
+            self._search_cache.append((search_text, item))
 
             # Attach all required data immediately to allow rapid highlight refreshing
             data = {
@@ -337,6 +364,7 @@ class VimshottariDialog(QDialog):
         self.tree.clear()
         self.is_fully_loaded = False
         self._load_queue = []
+        self._search_cache.clear()
         self.active_leaf_item = None
 
         nak_len = 360.0 / 27.0
@@ -377,11 +405,17 @@ class VimshottariDialog(QDialog):
                 age_str = f"{y}y {m}m"
                 is_active = actual_start <= self.current_date < md_end
 
+                start_str = self.format_dt(actual_start, 1)
+                end_str = self.format_dt(md_end, 1)
+
                 root = QTreeWidgetItem(self.tree)
                 root.setText(0, md_lord)
-                root.setText(1, self.format_dt(actual_start, 1))
-                root.setText(2, self.format_dt(md_end, 1))
+                root.setText(1, start_str)
+                root.setText(2, end_str)
                 root.setText(3, age_str)
+
+                search_text = f"{md_lord} {start_str} {end_str} {age_str}".lower()
+                self._search_cache.append((search_text, root))
 
                 font = root.font(0)
                 font.setBold(True)
@@ -508,7 +542,7 @@ class VimshottariDialog(QDialog):
         self.load_status_lbl.setText("✔️ Timeline fully indexed.")
 
     def _perform_search(self):
-        text = ""
+        text = self.search_input.text().strip().lower()
         if not text:
             self.tree.collapseAll()
             self._re_expand_active()
@@ -520,22 +554,13 @@ class VimshottariDialog(QDialog):
         if not self.is_fully_loaded:
             self.force_load_all()
 
-        import PyQt6.QtWidgets as QtWidgets
-        iterator = QtWidgets.QTreeWidgetItemIterator(self.tree)
-
         first_match = None
         self.tree.setUpdatesEnabled(False)
         self.tree.clearSelection()
 
-        while iterator.value():
-            item = iterator.value()
-            match = False
-            for col in range(4):
-                if text in item.text(col).lower():
-                    match = True
-                    break
-
-            if match:
+        # Traverse the pure data cache instead of the UI Tree for instant results
+        for search_string, item in self._search_cache:
+            if text in search_string:
                 if first_match is None:
                     first_match = item
                 item.setSelected(True)
@@ -545,8 +570,6 @@ class VimshottariDialog(QDialog):
                 while p:
                     p.setExpanded(True)
                     p = p.parent()
-
-            iterator += 1
 
         self.tree.setUpdatesEnabled(True)
         if first_match:
@@ -565,17 +588,43 @@ class VimshottariDialog(QDialog):
                 pass
             iterator += 1
 
-
 def setup_ui(app, layout):
-    lbl_title = QLabel("Vimshottari Timeline ")
-    lbl_title.setStyleSheet(
-        "color: #2980b9; font-weight: bold; font-size: 15px; margin-top: 8px;")
-    layout.addWidget(lbl_title)
+    group = QGroupBox("Vimshottari Timeline")
+    v_layout = QVBoxLayout()
+    v_layout.setContentsMargins(8, 8, 8, 8)
+    
+    status_label = QLabel("Dashas Explorer, Indexes the timeline on first launch.")
+    status_label.setWordWrap(True)
+    status_label.setStyleSheet("color: #555; font-size: 11px;")
+    btn_layout = QHBoxLayout()
+    btn_layout.setSpacing(6)
 
     btn_show = QPushButton("Open Dasha Tree")
-    btn_show.setStyleSheet(
-        "background-color: #2980b9; color: white; font-weight: bold; padding: 6px;")
-    layout.addWidget(btn_show)
+
+# --- Open Dasha Tree Button (Vimshottari Blue Theme) ---
+    btn_show.setStyleSheet("""
+    QPushButton {
+        background-color: #2980b9; 
+        color: white; 
+        font-weight: bold; 
+        padding: 6px 15px;
+        border: 1px solid #1c5982;
+        border-radius: 4px;
+    }
+    QPushButton:hover {
+        background-color: #0d5c91;
+        border-color: #2980b9;
+    }
+    QPushButton:pressed {
+        background-color: #2471a3;
+        border-style: inset;
+    }
+""")
+    v_layout.addWidget(status_label)
+    btn_layout.addWidget(btn_show)
+    v_layout.addLayout(btn_layout)
+    group.setLayout(v_layout)
+    layout.addWidget(group)
 
     def open_dasha():
         if not hasattr(app, 'current_base_chart') or not app.current_base_chart:
@@ -591,10 +640,18 @@ def setup_ui(app, layout):
             return
 
         birth_dt_dict = app.time_ctrl.current_time
-        current_dt = datetime.datetime.now()
+        moon_lon = moon_p.get("lon", 0.0)
 
-        dlg = VimshottariDialog(app, moon_p.get(
-            "lon", 0.0), birth_dt_dict, current_dt)
-        dlg.exec()
+        # Create a signature to check if the chart properties have changed
+        chart_sig = (moon_lon, tuple(birth_dt_dict.items()))
+
+        # Cache the dialog per chart to prevent re-indexing the entire tree!
+        if not hasattr(app, '_vimshottari_dlg_cache') or getattr(app, '_vimshottari_chart_sig', None) != chart_sig:
+            current_dt = datetime.datetime.now()
+            app._vimshottari_dlg_cache = VimshottariDialog(
+                app, moon_lon, birth_dt_dict, current_dt)
+            app._vimshottari_chart_sig = chart_sig
+
+        app._vimshottari_dlg_cache.exec()
 
     btn_show.clicked.connect(open_dasha)

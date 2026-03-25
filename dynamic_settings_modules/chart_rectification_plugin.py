@@ -1,7 +1,7 @@
 # dynamic_settings_modules/chart_rectification_plugin.py
 
 import sys, os, json, datetime, queue, threading
-from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,QDialog, QGridLayout, QComboBox, QSpinBox, QCheckBox,QMessageBox, QFileDialog, QInputDialog)
+from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,QDialog, QGridLayout, QComboBox, QSpinBox, QCheckBox,QMessageBox, QFileDialog, QInputDialog,QGroupBox)
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
 
 # Explicitly map the parent folder so it finds astro_engine and main.py
@@ -16,21 +16,70 @@ class NoScrollComboBox(QComboBox):
 
 def setup_ui(app, layout):
     controller = RectificationController(app)
+    group = QGroupBox("Rectify Time")
+    v_layout = QVBoxLayout()
+    v_layout.setContentsMargins(8, 8, 8, 8)
     
-    btn_load_json_rectify = QPushButton("Load JSON (Rectify Time)")
-    btn_load_json_rectify.setStyleSheet("font-weight: bold; color: #8E44AD; border: 1px solid #D2B4DE; background-color: #F5EEF8;")
+    status_label = QLabel("Find time of hypothetical charts. JSON (special format) can also be imported")
+    status_label.setWordWrap(True)
+    status_label.setStyleSheet("color: #555; font-size: 11px;")
+
+    btn_layout = QHBoxLayout()
+    btn_layout.setSpacing(6)
+        
+    btn_load_json_rectify = QPushButton("Load JSON")
+
+    # --- Load JSON Button (Purple Theme) ---
+    btn_load_json_rectify.setStyleSheet("""
+    QPushButton {
+        font-weight: bold; 
+        color: #8E44AD; 
+        border: 1px solid #D2B4DE; 
+        background-color: #F5EEF8;
+        padding: 4px;
+        border-radius: 4px;
+    }
+    QPushButton:hover {
+        background-color: #EBDEF0;
+        border-color: #8E44AD;
+    }
+    QPushButton:pressed {
+        background-color: #D7BDE2;
+        border-style: inset;
+    }
+""")
     btn_load_json_rectify.clicked.connect(controller.load_json_rectify_dialog)
-    
+
     btn_build_chart_rectify = QPushButton("Build Target Chart...")
-    btn_build_chart_rectify.setStyleSheet("font-weight: bold; color: #2980B9; border: 1px solid #AED6F1; background-color: #EAF2F8;")
     btn_build_chart_rectify.clicked.connect(controller.open_chart_builder_dialog)
 
-    rect_btns = QHBoxLayout()
-    rect_btns.setSpacing(4)
-    rect_btns.addWidget(btn_load_json_rectify)
-    rect_btns.addWidget(btn_build_chart_rectify)
+# --- Build Target Chart Button (Blue Theme) ---
+    btn_build_chart_rectify.setStyleSheet("""
+    QPushButton {
+        font-weight: bold; 
+        color: #2980B9; 
+        border: 1px solid #AED6F1; 
+        background-color: #EAF2F8;
+        padding: 4px;
+        border-radius: 4px;
+    }
+    QPushButton:hover {
+        background-color: #D6EAF8;
+        border-color: #2980B9;
+    }
+    QPushButton:pressed {
+        background-color: #AED6F1;
+        border-style: inset;
+    }
+""")
+
+    btn_layout.addWidget(btn_load_json_rectify)
+    btn_layout.addWidget(btn_build_chart_rectify)
+    v_layout.addWidget(status_label)
+    v_layout.addLayout(btn_layout)
+    group.setLayout(v_layout)
+    layout.addWidget(group)
     
-    layout.addLayout(rect_btns)
     layout.controller = controller
 
 

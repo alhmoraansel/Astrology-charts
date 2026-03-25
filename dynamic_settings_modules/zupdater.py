@@ -1,10 +1,4 @@
-import os
-import sys
-import json
-import hashlib
-import subprocess
-import urllib.request
-import time
+import os, sys, json, hashlib, subprocess, urllib.request, time
 from urllib.error import URLError
 
 from PyQt6.QtWidgets import QGroupBox, QVBoxLayout, QPushButton, QLabel, QHBoxLayout, QMessageBox, QProgressBar, QApplication
@@ -17,7 +11,7 @@ MANIFEST_FILENAME = "manifest.json"
 # --- PROTECTED PATHS ---
 # These files and directories will NEVER be deleted or overwritten by remote files.
 PROTECTED_DIRS = {'update_cache', 'autosave', 'analysis_export', 'saves', '__pycache__'}
-PROTECTED_FILES = {'manifest.json', 'astro_settings.json', 'custom_vargas.json', 'apply_update.bat', 'apply_update.sh', '.hash_cache.json','unins000.exe','unins000.dat',}
+PROTECTED_FILES = {'manifest.json','icon.ico', 'astro_settings.json', 'custom_vargas.json', 'apply_update.bat', 'apply_update.sh', '.hash_cache.json','unins000.exe','unins000.dat',}
 
 def get_base_dir():
     """Get the root directory of the application."""
@@ -32,12 +26,40 @@ def get_file_hash(filepath):
     hasher = hashlib.sha256()
     
     # Extensions that are susceptible to Git CRLF <-> LF modification
-    text_extensions = {'.py', '.json', '.txt', '.md', '.bat', '.sh', '.csv'}
+    text_extensions = {
+        '.py', '.json', '.txt', '.md', '.bat', '.sh', '.csv', 
+        '.ini', '.cfg', '.toml', '.xml', '.yml', '.yaml', '.rst', 
+        '.html', '.css', '.js'
+    }
+    # Extensionless text files commonly modified by git (e.g., Python packages)
+    text_filenames = {
+        'license', 'licence', 'record', 'installer', 'metadata', 
+        'wheel', 'notice', 'readme', 'authors', 'contributors'
+    }
+    
     _, ext = os.path.splitext(filepath)
+    filename = os.path.basename(filepath).lower()
+    
+    # 1. Check if the file is explicitly a known text format/name
+    is_text = (ext.lower() in text_extensions) or \
+              (filename in text_filenames) or \
+              (filename.startswith('license')) or \
+              (filename.startswith('readme'))
+    
+    # 2. Git-style fallback for other extensionless files
+    if not is_text and not ext:
+        try:
+            with open(filepath, 'rb') as f:
+                chunk = f.read(8192)
+                # If the file has no null bytes, treat as text to counter Git CRLF changes
+                if chunk and b'\x00' not in chunk:
+                    is_text = True
+        except Exception:
+            pass
     
     try:
         with open(filepath, 'rb') as f:
-            if ext.lower() in text_extensions:
+            if is_text:
                 # Strip carriage returns so \r\n and \n both become purely \n before hashing
                 content = f.read()
                 content = content.replace(b'\r\n', b'\n').replace(b'\r', b'\n')
@@ -250,14 +272,50 @@ def setup_ui(app, layout):
     progress_bar.setFixedHeight(12)
     progress_bar.setTextVisible(False)
     
+
     btn_check = QPushButton("Check for Updates")
-    btn_check.setStyleSheet("font-size: 13px; font-weight: bold; color: #1E8449; background-color: #E8F8F5; border: 1px solid #A2D9CE; border-radius: 4px;")
     btn_check.setFixedHeight(28)
+    btn_check.setStyleSheet("""
+        QPushButton {
+            font-size: 13px; 
+            font-weight: bold; 
+            color: #1E8449; 
+            background-color: #E8F8F5; 
+            border: 1px solid #A2D9CE; 
+            border-radius: 4px;
+            padding: 0px 10px;
+        }
+        QPushButton:hover {
+            background-color: #D1F2EB;
+            border-color: #1E8449;
+        }
+        QPushButton:pressed {
+            background-color: #A9DFBF;
+            border-style: inset;
+        }
+    """)
     
     btn_full = QPushButton("UPDATE FULL")
-    btn_full.setStyleSheet("font-size: 13px; font-weight: bold; color: #C0392B; background-color: #FDEDEC; border: 1px solid #F5B7B1; border-radius: 4px;")
     btn_full.setFixedHeight(28)
-    
+    btn_full.setStyleSheet("""
+        QPushButton {
+            font-size: 13px; 
+            font-weight: bold; 
+            color: #C0392B; 
+            background-color: #FDEDEC; 
+            border: 1px solid #F5B7B1; 
+            border-radius: 4px;
+            padding: 0px 10px;
+        }
+        QPushButton:hover {
+            background-color: #FADBD8;
+            border-color: #C0392B;
+        }
+        QPushButton:pressed {
+            background-color: #F5B7B1;
+            border-style: inset;
+        }
+    """)
     btn_layout = QHBoxLayout()
     btn_layout.setSpacing(6)
     btn_layout.addWidget(btn_check)
@@ -411,5 +469,5 @@ rm -rf "{cache_dir}"
     # Using `app` flag ensures it only automatically runs once per application lifecycle
     if not getattr(app, '_has_auto_checked_updates', False):
         app._has_auto_checked_updates = True
-        # Use QTimer to delay the auto-check slightly (1 second), letting the UI fully load/paint first
+        #Use QTimer to delay the auto-check slightly (1 second), letting the UI fully load/paint first
         QTimer.singleShot(1000, lambda: on_check_clicked(is_full=False, is_auto=True))

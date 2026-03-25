@@ -1,6 +1,4 @@
-import os
-import hashlib
-import json
+import os, hashlib, json
 
 # ==========================================
 # Run this script BEFORE uploading a new update to your server.
@@ -15,7 +13,7 @@ OUTPUT_FILE = os.path.join(BUILD_DIR, "manifest.json")
 
 # Files and folders to EXCLUDE from the update checks
 EXCLUDE_DIRS = ['update_cache', 'autosave', 'analysis_export', 'created chart exports','saves', '__pycache__']
-EXCLUDE_FILES = ['manifest.json', 'astro_settings.json', 'custom_vargas.json', 'apply_update.bat', 'apply_update.sh', '.hash_cache.json','unins000.exe','unins000.dat',]
+EXCLUDE_FILES = ['manifest.json','icon.ico' 'astro_settings.json', 'custom_vargas.json', 'apply_update.bat', 'apply_update.sh', '.hash_cache.json','unins000.exe','unins000.dat',]
 
 def get_file_hash(filepath):
     """Calculate SHA256 hash of a file, normalizing line endings for text files."""
@@ -24,12 +22,40 @@ def get_file_hash(filepath):
     hasher = hashlib.sha256()
     
     # Extensions that are susceptible to Git CRLF <-> LF modification
-    text_extensions = {'.py', '.json', '.txt', '.md', '.bat', '.sh', '.csv'}
+    text_extensions = {
+        '.py', '.json', '.txt', '.md', '.bat', '.sh', '.csv', 
+        '.ini', '.cfg', '.toml', '.xml', '.yml', '.yaml', '.rst', 
+        '.html', '.css', '.js'
+    }
+    # Extensionless text files commonly modified by git (e.g., Python packages)
+    text_filenames = {
+        'license', 'licence', 'record', 'installer', 'metadata', 
+        'wheel', 'notice', 'readme', 'authors', 'contributors'
+    }
+    
     _, ext = os.path.splitext(filepath)
+    filename = os.path.basename(filepath).lower()
+    
+    # 1. Check if the file is explicitly a known text format/name
+    is_text = (ext.lower() in text_extensions) or \
+              (filename in text_filenames) or \
+              (filename.startswith('license')) or \
+              (filename.startswith('readme'))
+    
+    # 2. Git-style fallback for other extensionless files
+    if not is_text and not ext:
+        try:
+            with open(filepath, 'rb') as f:
+                chunk = f.read(8192)
+                # If the file has no null bytes, treat as text to counter Git CRLF changes
+                if chunk and b'\x00' not in chunk:
+                    is_text = True
+        except Exception:
+            pass
     
     try:
         with open(filepath, 'rb') as f:
-            if ext.lower() in text_extensions:
+            if is_text:
                 # Strip carriage returns so \r\n and \n both become purely \n before hashing
                 content = f.read()
                 content = content.replace(b'\r\n', b'\n').replace(b'\r', b'\n')

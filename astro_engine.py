@@ -265,210 +265,6 @@ def get_nakshatra(lon_deg):
 
 
 # ==========================================
-# ADVANCED METADATA COMPUTATION
-# ==========================================
-
-def assign_functional_nature(planets):
-    """Evaluates if a planet acts as a functional benefic, malefic, or neutral."""
-    for p in planets:
-        if p["name"] in ["Rahu", "Ketu"]:
-            p["func_color"] = "#7f8c8d"
-            p["func_label"] = "Neutral (Node)"
-            continue
-            
-        lordships = p.get("lord_of", [])
-        
-        # Astrological logic flags
-        has_kendra = any(h in [4, 7, 10] for h in lordships)
-        has_trine = any(h in [1, 5, 9] for h in lordships)
-        has_upachaya = any(h in [3, 11] for h in lordships)
-        has_dusthana = any(h in [6, 8, 12] for h in lordships)
-        
-        # Color & Label routing
-        if has_kendra and has_trine:
-            color, label = "#FFD700", "Yoga Karaka (Gold)"
-        elif has_trine:
-            color, label = "#27ae60", "Functional Benefic (Trine)"
-        elif has_upachaya:
-            if has_dusthana:
-                color, label = "#c0392b", "Functional Malefic"
-            else:
-                color, label = "#f1c40f", "Mixed/Opportunistic"
-        elif has_dusthana:
-            color, label = "#c0392b", "Functional Malefic"
-        elif has_kendra:
-            color, label = "#2980b9", "Situational/Neutral (Kendra)"
-        else:
-            color, label = "#7f8c8d", "Neutral"
-            
-        p["func_color"] = color
-        p["func_label"] = label
-
-def assign_afflictions(chart_data):
-    """Calculates Afflictions (by malefics) and Protections (by benefics) via conjunctions and aspects."""
-    malefics = {"Sun", "Mars", "Saturn", "Rahu", "Ketu"}
-    benefics = {"Moon", "Mercury", "Jupiter", "Venus"}
-    aspects = chart_data.get("aspects", [])
-    
-    for p in chart_data["planets"]:
-        # 1. Find Afflictions
-        conj_m = []
-        for other in chart_data["planets"]:
-            if other["sign_index"] == p["sign_index"] and other["name"] != p["name"] and other["name"] in malefics:
-                conj_m.append(other["name"])
-                
-        asp_m = []
-        for asp in aspects:
-            if asp["target_house"] == p["house"] and asp["aspecting_planet"] in malefics and asp["aspecting_planet"] != p["name"]:
-                asp_m.append(asp["aspecting_planet"])
-                
-        afflictors = list(set(conj_m + asp_m))
-        p["afflicted"] = bool(afflictors)
-        p["afflicting_bodies"] = afflictors
-        
-        # 2. Find Protections (Blessings)
-        conj_b = []
-        for other in chart_data["planets"]:
-            if other["sign_index"] == p["sign_index"] and other["name"] != p["name"] and other["name"] in benefics:
-                conj_b.append(other["name"])
-                
-        asp_b = []
-        for asp in aspects:
-            if asp["target_house"] == p["house"] and asp["aspecting_planet"] in benefics and asp["aspecting_planet"] != p["name"]:
-                asp_b.append(asp["aspecting_planet"])
-                
-        protectors = list(set(conj_b + asp_b))
-        p["protected"] = bool(protectors)
-        p["protecting_bodies"] = protectors
-
-def compute_house_metadata(chart_data):
-    """Calculates deep contextual data for each house for the advanced outlining engine."""
-    chart_data["houses_info"] = {}
-    
-    # Pre-calculate counts
-    aspect_counts = {h: 0 for h in range(1, 13)}
-    for asp in chart_data.get("aspects", []): 
-        aspect_counts[asp["target_house"]] += 1
-
-    # Map planets to their dispositors (the lord of the sign they sit in)
-    disp_map = {}
-    p_house = {}
-    for p in chart_data["planets"]:
-        if p["name"] not in ["Rahu", "Ketu"]:
-            ruler = SIGN_RULERS.get(p["sign_num"])
-            if ruler:
-                disp_map[p["name"]] = ruler
-        p_house[p["name"]] = p["house"]
-
-    # --- Identify Regime Nodes ---
-    regime_terminals = set()
-    projection_hubs = set()
-    convergence_hubs = set()
-    
-    # 1. Terminals: Follow dispositor chain to find final bosses
-    for p_name in disp_map:
-        visited = []
-        curr = p_name
-        while curr not in visited and curr: 
-            visited.append(curr)
-            curr = disp_map.get(curr)
-            
-        if curr: 
-            # Found a loop/terminal. Record houses involved.
-            idx = visited.index(curr)
-            terminal_planets = visited[idx:]
-            for tp in terminal_planets:
-                if tp in p_house:
-                    regime_terminals.add(p_house[tp])
-
-    # 2. Hubs: Activity based sets
-    for h_num in range(1, 13):
-        # Projection Hub: Does the planet(s) here cast 3 or more aspects?
-        outward_aspects = set()
-        for asp in chart_data.get("aspects", []):
-            if asp["source_house"] == h_num:
-                outward_aspects.add(asp["target_house"])
-        if len(outward_aspects) >= 3: 
-            projection_hubs.add(h_num)
-            
-        # Convergence Hub: Do 4 or more planets influence this house (occupants + aspects)?
-        influences = set()
-        for p in chart_data["planets"]:
-            if p["house"] == h_num:
-                influences.add(p["name"])
-        for asp in chart_data.get("aspects", []):
-            if asp["target_house"] == h_num:
-                influences.add(asp["aspecting_planet"])
-                
-        if len(influences) >= 4: 
-            convergence_hubs.add(h_num)
-            
-    # --- Generate House Styling ---
-    for h_num in range(1, 13):
-        sign_num = (chart_data["ascendant"]["sign_index"] + h_num - 1) % 12 + 1
-        
-        # Default State
-        v_color, v_width, v_vitality = "#BDC3C7", 1.0, "Background Scenery (Neutral)"
-        
-        # Mode 1: Vitality (Lords) evaluation
-        lord_p = None
-        for p in chart_data["planets"]:
-            if p["name"] == SIGN_RULERS.get(sign_num):
-                lord_p = p
-                break
-                
-        if lord_p:
-            is_strong = lord_p.get("exalted", False) or lord_p.get("own_sign", False)
-            in_dusthana = lord_p.get("house", 1) in [6, 8, 12]
-            in_kendra_trikona = lord_p.get("house", 1) in [1, 4, 5, 7, 9, 10]
-            
-            if is_strong and not in_dusthana and not lord_p.get("combust", False): 
-                v_color, v_width, v_vitality = "#27ae60", 3.5, "Life Engine (Powerful Lord)"
-            elif is_strong and in_dusthana: 
-                v_color, v_width, v_vitality = "#e67e22", 3.5, "Plot Twist (Strong Lord in Dusthana)"
-            elif lord_p.get("debilitated", False) and in_kendra_trikona: 
-                v_color, v_width, v_vitality = "#e67e22", 3.5, "Plot Twist (Debilitated Lord in Kendra/Trine)"
-            elif (lord_p.get("debilitated", False) and not in_kendra_trikona) or lord_p.get("combust", False): 
-                v_color, v_width, v_vitality = "#c0392b", 3.5, "Friction Zone (Compromised Lord)"
-                    
-        # Mode 2: Pressure (Aspects) evaluation
-        p_count = aspect_counts[h_num]
-        if p_count >= 4:
-            p_color, p_width, p_label = "#c0392b", 3.5, f"Overloaded ({p_count} influences)"
-        elif p_count == 3:
-            p_color, p_width, p_label = "#f1c40f", 3.0, f"Strong ({p_count} influences)"
-        elif p_count == 2:
-            p_color, p_width, p_label = "#2980b9", 2.5, f"Moderately Active ({p_count} influences)"
-        else:
-            p_color, p_width, p_label = "#BDC3C7", 1.0, f"Quiet ({p_count} influences)"
-        
-        # Mode 3: Regime (Forces) evaluation
-        r_colors = []
-        r_labels = []
-        if h_num in regime_terminals: 
-            r_colors.append("#DC143C")
-            r_labels.append("<b style='color:#DC143C;'>Dispositor Terminal (Crimson)</b>")
-        if h_num in projection_hubs: 
-            r_colors.append("#005FFF")
-            r_labels.append("<b style='color:#005FFF;'>Aspect Projection Hub (Blue)</b>")
-        if h_num in convergence_hubs: 
-            r_colors.append("#FFD700")
-            r_labels.append("<b style='color:#f39c12;'>Theme Convergence (Gold)</b>")
-
-        chart_data["houses_info"][h_num] = {
-            "vitality_color": v_color, 
-            "vitality_width": v_width, 
-            "vitality_label": v_vitality, 
-            "pressure_color": p_color, 
-            "pressure_width": p_width, 
-            "pressure_label": p_label, 
-            "pressure_count": p_count, 
-            "regime_colors": r_colors, 
-            "regime_labels": r_labels
-        }
-
-
-# ==========================================
 # RECTIFICATION ENGINE
 # ==========================================
 
@@ -938,9 +734,6 @@ class EphemerisEngine:
             })
 
         chart["aspects"] = self.calculate_vedic_aspects(chart["planets"])
-        assign_functional_nature(chart["planets"])
-        assign_afflictions(chart)
-        compute_house_metadata(chart)
         return chart
 
     def process_imported_json(self, json_data):
@@ -1605,10 +1398,6 @@ class EphemerisEngine:
             
         chart_data["panchang"] = panchang
 
-        assign_functional_nature(chart_data["planets"])
-        assign_afflictions(chart_data)
-        compute_house_metadata(chart_data)
-        
         return chart_data
 
     def compute_divisional_chart(self, base_chart, div_type):
@@ -1651,9 +1440,4 @@ class EphemerisEngine:
                 p["combust"] = False
             
         chart["aspects"] = self.calculate_vedic_aspects(chart["planets"])
-        
-        assign_functional_nature(chart["planets"])
-        assign_afflictions(chart)
-        compute_house_metadata(chart)
-        
         return chart
