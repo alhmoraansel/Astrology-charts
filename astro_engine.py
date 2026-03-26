@@ -1,6 +1,6 @@
 # astro_engine.py
 
-import swisseph as swe, datetime, pytz, time, math, copy
+import swisseph as swe, datetime, pytz, time, math, copy, os
 
 # ==========================================
 # GLOBAL ASTROLOGICAL RULES & CONSTANTS
