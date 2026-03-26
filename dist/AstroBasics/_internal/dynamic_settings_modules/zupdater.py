@@ -1,9 +1,18 @@
 #dynamic_settings_module/zupdater.py
 
-import os, sys, json, hashlib, subprocess, urllib.request, time
+import os
+import sys
+import json
+import hashlib
+import subprocess
+import urllib.request
+import time
 from urllib.error import URLError
 
-from PyQt6.QtWidgets import QGroupBox, QVBoxLayout, QPushButton, QLabel, QHBoxLayout, QMessageBox, QProgressBar, QApplication
+from PyQt6.QtWidgets import (
+    QGroupBox, QVBoxLayout, QPushButton, QLabel, QHBoxLayout, 
+    QMessageBox, QProgressBar, QApplication, QCheckBox
+)
 from PyQt6.QtCore import QThread, pyqtSignal, Qt, QTimer
 
 # --- CONFIGURATION ---
@@ -13,7 +22,11 @@ MANIFEST_FILENAME = "manifest.json"
 # --- PROTECTED PATHS ---
 # These files and directories will NEVER be deleted or overwritten by remote files.
 PROTECTED_DIRS = {'update_cache', 'autosave', 'analysis_export', 'created chart exports', 'saves', '__pycache__'}
-PROTECTED_FILES = {'manifest.json', 'icon.ico', 'astro_settings.json', 'custom_vargas.json', 'apply_update.bat', 'apply_update.sh', '.hash_cache.json', 'unins000.exe', 'unins000.dat'}
+PROTECTED_FILES = {
+    'manifest.json', 'icon.ico', 'astro_settings.json', 'custom_vargas.json', 
+    'apply_update.bat', 'apply_update.sh', '.hash_cache.json', 
+    'unins000.exe', 'unins000.dat', 'updater_config.json'
+}
 
 def get_base_dir():
     """Get the root directory of the application."""
@@ -92,7 +105,10 @@ class UpdateWorker(QThread):
             # 1. Fetch remote manifest with cache busting
             cache_buster = f"?t={int(time.time())}"
             manifest_url = UPDATE_SERVER_URL + MANIFEST_FILENAME + cache_buster
-            req = urllib.request.Request(manifest_url, headers={'User-Agent': 'AstroUpdater/1.5', 'Cache-Control': 'no-cache, no-store, must-revalidate'})
+            req = urllib.request.Request(
+                manifest_url, 
+                headers={'User-Agent': 'AstroUpdater/1.5', 'Cache-Control': 'no-cache, no-store, must-revalidate'}
+            )
             with urllib.request.urlopen(req, timeout=10) as response:
                 remote_manifest = json.loads(response.read().decode('utf-8'))
                 
@@ -171,7 +187,7 @@ class UpdateWorker(QThread):
                         files_to_update[rel_path] = remote_hash
                         
                     if i % max(1, total_files // 10) == 0:
-                        self.progress.emit(30 + int((i / total_files) * 30), f"Checking file hashes...")
+                        self.progress.emit(30 + int((i / total_files) * 30), "Checking file hashes...")
                     
             if not self.full_update:
                 try:
@@ -213,7 +229,10 @@ class UpdateWorker(QThread):
                     retries = 3
                     for attempt in range(retries):
                         try:
-                            req = urllib.request.Request(file_url, headers={'User-Agent': 'AstroUpdater/1.5', 'Cache-Control': 'no-cache, no-store, must-revalidate'})
+                            req = urllib.request.Request(
+                                file_url, 
+                                headers={'User-Agent': 'AstroUpdater/1.5', 'Cache-Control': 'no-cache, no-store, must-revalidate'}
+                            )
                             with urllib.request.urlopen(req, timeout=15) as response, open(part_path, 'wb') as out_file:
                                 out_file.write(response.read())
                             
@@ -248,6 +267,17 @@ class UpdateWorker(QThread):
 def setup_ui(app, layout):
     app.pending_update_files_to_delete = None
     
+    # --- Load Updater Configurations ---
+    config_path = os.path.join(get_base_dir(), "updater_config.json")
+    auto_update_enabled = True
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, 'r') as f:
+                cfg = json.load(f)
+                auto_update_enabled = cfg.get("auto_update", True)
+        except Exception:
+            pass
+            
     group = QGroupBox("Updater")
     v_layout = QVBoxLayout()
     v_layout.setContentsMargins(8, 8, 8, 8)
@@ -309,9 +339,23 @@ def setup_ui(app, layout):
     btn_layout.addWidget(btn_check)
     btn_layout.addWidget(btn_full)
     
+    cb_auto_update = QCheckBox("Check for updates automatically on startup")
+    cb_auto_update.setChecked(auto_update_enabled)
+    cb_auto_update.setStyleSheet("font-size: 11px; color: #555;")
+    
+    def on_auto_update_toggled(checked):
+        try:
+            with open(config_path, 'w') as f:
+                json.dump({"auto_update": checked}, f)
+        except Exception:
+            pass
+            
+    cb_auto_update.toggled.connect(on_auto_update_toggled)
+    
     v_layout.addWidget(status_label)
     v_layout.addWidget(progress_bar)
     v_layout.addLayout(btn_layout)
+    v_layout.addWidget(cb_auto_update)
     group.setLayout(v_layout)
     layout.addWidget(group)
     
@@ -450,6 +494,6 @@ rm -rf "{cache_dir}"
     btn_check.clicked.connect(lambda: on_check_clicked(is_full=False))
     btn_full.clicked.connect(lambda: on_check_clicked(is_full=True))
 
-    if not getattr(app, '_has_auto_checked_updates', False):
+    if auto_update_enabled and not getattr(app, '_has_auto_checked_updates', False):
         app._has_auto_checked_updates = True
         QTimer.singleShot(1000, lambda: on_check_clicked(is_full=False, is_auto=True))

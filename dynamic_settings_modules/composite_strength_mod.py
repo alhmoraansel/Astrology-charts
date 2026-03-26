@@ -79,7 +79,7 @@ class CustomTooltipTable(QTableWidget):
         self.tooltip_label = QLabel(self, Qt.WindowType.ToolTip | Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
         self.tooltip_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         self.tooltip_label.setStyleSheet("""
-            QLabel { background-color: #FFFFFF; color: #0F172A; border: 1px solid #CBD5E1; border-radius: 6px; padding: 10px; font-size: 13px; font-family: 'Segoe UI', Tahoma, sans-serif; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }
+            QLabel { background-color: #FFFFFF; color: #0F172A; border: 1px solid #CBD5E1; border-radius: 6px; padding: 10px; font-size: 13px; font-family: 'Segoe UI', Tahoma, sans-serif;  }
         """)
         self.tooltip_label.hide()
 
@@ -134,7 +134,7 @@ class CompositeChartWidget(QWidget):
         self.tooltip_label = QLabel(self, Qt.WindowType.ToolTip | Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
         self.tooltip_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         self.tooltip_label.setStyleSheet("""
-            QLabel { background-color: #FFFFFF; color: #0F172A; border: 1px solid #CBD5E1; border-radius: 6px; padding: 12px; font-size: 13px; font-family: 'Segoe UI', Tahoma, sans-serif; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }
+            QLabel { background-color: #FFFFFF; color: #0F172A; border: 1px solid #CBD5E1; border-radius: 6px; padding: 12px; font-size: 13px; font-family: 'Segoe UI', Tahoma, sans-serif;  }
         """)
         self.tooltip_label.hide()
         
@@ -807,7 +807,7 @@ class CompositeStrengthDialog(QDialog):
         info_lbl = QLabel(
             "<b>Composite Strength Index (CSI)</b> merges Shadbala, Ashtakavarga, and Avasthas into a unified scalar. "
             "It applies penalties for combustion and nodal conjunctions, mapping everything to final Nature in which houses or planets express themselves."
-            "<i>  Note:</i>  This is the creation of the author himself, and has no classical origins. Therefore, care must be taken while referring to this Index."
+            "<i>  Note:</i>  Since the author did not referred to classical texts while implementing this, therefore, care must be taken while referring to this Index."
         )
         info_lbl.setStyleSheet("color: #334155; font-size: 13px; margin-bottom: 8px;")
         info_lbl.setWordWrap(True)
