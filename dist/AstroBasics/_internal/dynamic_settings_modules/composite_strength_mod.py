@@ -1,6 +1,6 @@
 # dynamic_settings_modules/composite_strength_mod.py
-import sys, math
-from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QDialog, QTabWidget, QTableWidget, QTableWidgetItem, QHeaderView, QLabel, QScrollArea, QGroupBox, QFrame, QCheckBox, QSizePolicy)
+import sys, math, json, os
+from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QDialog, QTabWidget, QTableWidget, QTableWidgetItem, QHeaderView, QLabel, QScrollArea, QGroupBox, QFrame, QCheckBox, QSizePolicy, QDoubleSpinBox, QGridLayout)
 from PyQt6.QtGui import QPainter, QColor, QFont, QPen, QBrush, QPolygonF, QPainterPath
 from PyQt6.QtCore import Qt, QRectF, QPointF, QTimer
 import __main__
@@ -13,55 +13,102 @@ error_print = getattr(__main__, 'error_print', print)
 import astro_engine
 
 # ==============================================================================
-# GLOBAL WEIGHTS & SIZING FOR COMPOSITE STRENGTH INDEX (CSI)
+# GLOBAL WEIGHTS & PERSISTENCE
 # ==============================================================================
 MIN_CHART_SIZE = 400                   # Global variable for minimum chart size
 
-CSI_WEIGHTS = {
+DEFAULT_CSI_WEIGHTS = {
     # Planetary Base Weights
-    "SHADBALA_NORM_WEIGHT": 0.50,      # Weight of Normalized Shadbala (Total / Required)
-    "ASHTAKAVARGA_SAV_WEIGHT": 0.25,   # Weight of House SAV points
-    "AVASTHA_DIGNITY_WEIGHT": 0.25,    # Weight of natural planetary dignity state
+    "SHADBALA_NORM_WEIGHT": 0.50,      
+    "ASHTAKAVARGA_SAV_WEIGHT": 0.25,   
+    "AVASTHA_DIGNITY_WEIGHT": 0.25,    
     
     # Planetary Penalties and Modifiers
-    "COMBUSTION_PENALTY": -0.25,       # 25% reduction in overall strength if combust
-    "RETROGRADE_MODIFIER": 0.15,       # 15% boost in absolute strength, but erratic behavior
-    "ECLIPSE_NODE_PENALTY": -0.20,     # 20% reduction if conjunct Rahu/Ketu tightly
+    "COMBUSTION_PENALTY": -0.25,       
+    "RETROGRADE_MODIFIER": 0.15,       
+    "ECLIPSE_NODE_PENALTY": -0.20,     
     
-    # ==========================================================================
-    # SPECIAL OVERRIDE RULES (Triggers massive points / deductions)
-    # ==========================================================================
-    "SPECIAL_RULE_EXCHANGE_BONUS": 0.60,         # Massive bonus for Occupied House in Parivartana Yoga
-    "SPECIAL_RULE_INDIRECT_EXCHANGE_BONUS": 0.30,# Indirect bonus for the Ruled House in Parivartana Yoga
-    "SPECIAL_RULE_VIPARITA_BONUS": 0.60,         # Massive bonus for Occupied House in Viparita Raja Yoga
-    "SPECIAL_RULE_INDIRECT_VIPARITA_BONUS": 0.30,# Indirect bonus for the Ruled House in Viparita Raja Yoga
-    "SPECIAL_RULE_VIPARITA_CANCELLED_BONUS": 0.00, # Zero points if Viparita is cancelled by Lagna Lord in Trik Bhava
-    "SPECIAL_RULE_LAGNA_TRIK_BHAVA_PENALTY": -0.40,# Massive Deduction if Lagna Lord goes to 6/8/12
+    # Special Override Rules
+    "SPECIAL_RULE_EXCHANGE_BONUS": 0.15,         # Parivartana Yoga
+    "SPECIAL_RULE_INDIRECT_EXCHANGE_BONUS": 0.00,# Parivartana Yoga (Indirect)
+    "SPECIAL_RULE_VIPARITA_BONUS": 0.00,         # Viparita Raja Yoga (Set to 0 default)
+    "SPECIAL_RULE_INDIRECT_VIPARITA_BONUS": 0.00,# Viparita Raja Yoga (Indirect)
+    "SPECIAL_RULE_VIPARITA_CANCELLED_BONUS": 0.00, 
+    "SPECIAL_RULE_LAGNA_TRIK_BHAVA_PENALTY": -0.40,
     
     # Exaltation & Debilitation Special Modifiers
-    "SPECIAL_RULE_EXALTED_OCCUPANT_BONUS": 0.30, # Direct bonus to the house occupied by an exalted planet
-    "SPECIAL_RULE_EXALTED_LORD_BONUS": 0.15,     # Indirect bonus to the house ruled by an exalted planet
-    "SPECIAL_RULE_DEB_OCCUPANT_PENALTY": 0.00,   # Penalty to the house occupied by a debilitated planet (0.0 as requested)
-    "SPECIAL_RULE_DEB_LORD_PENALTY": 0.00,       # Indirect penalty to the house ruled by a debilitated planet (0.0 as requested)
+    "SPECIAL_RULE_EXALTED_OCCUPANT_BONUS": 0.30, 
+    "SPECIAL_RULE_EXALTED_LORD_BONUS": 0.00,     
+    "SPECIAL_RULE_DEB_OCCUPANT_PENALTY": 0.00,   
+    "SPECIAL_RULE_DEB_LORD_PENALTY": 0.00,       
 
-    # Standard Functional Mode Planetary Modifiers 
-    "FUNC_LORD_FRIEND_MODIFIER": 0.15, # Bonus for occupying Friend's or Own House
-    "FUNC_LORD_ENEMY_PENALTY": -0.15,  # Penalty for occupying Enemy's House
+    # Functional Mode Planetary Modifiers 
+    "FUNC_LORD_FRIEND_MODIFIER": 0.15, 
+    "FUNC_LORD_ENEMY_PENALTY": 0.00,  
     
-    # Functional Mode HOUSE Modifiers (Propagated from Lord's Placement)
-    "FUNC_HOUSE_LORD_BENEFIC_BONUS": 0.20,     # Bonus if the house lord is a Functional Benefic
-    "FUNC_HOUSE_LORD_MALEFIC_PENALTY": -0.20,  # Penalty if the house lord is a Functional Malefic
-    "FUNC_HOUSE_LORD_FRIEND_PLC_BONUS": 0.15,  # Bonus if house lord went to a Friend's/Own house
-    "FUNC_HOUSE_LORD_ENEMY_PLC_PENALTY": -0.15,# Penalty if house lord went to an Enemy's house
-    "FUNC_HOUSE_LORD_TRIK_BHAVA_PENALTY": -0.25, # Penalty if house lord went to 6, 8, or 12th house (Overridden if Viparita)
+    # Functional Mode HOUSE Modifiers
+    "FUNC_HOUSE_LORD_BENEFIC_BONUS": 0.00,     
+    "FUNC_HOUSE_LORD_MALEFIC_PENALTY": 0.00,  
+    "FUNC_HOUSE_LORD_FRIEND_PLC_BONUS": 0.15,  
+    "FUNC_HOUSE_LORD_ENEMY_PLC_PENALTY": 0.00,
+    "FUNC_HOUSE_LORD_TRIK_BHAVA_PENALTY": -0.25, 
     
-    # Shadbala Scaling Modifiers
-    "SHADBALA_SCALING_WEIGHT": 1.0,    # Baseline multiplier when Shadbala scaling is activated for base/house points
-    
-    # House Net Energy Base Weights
-    "HOUSE_LORD_WEIGHT": 0.5,          # Multiplier for the Lord's CSI contributing to the house
-    "HOUSE_MALEFIC_PRESSURE_WEIGHT": 0.8, # Multiplier reducing malefic occupant pressure
-    "HOUSE_SAV_DIVISOR": 28.0          # Base auspicious point threshold for SAV
+    # Scaling & Core Engine Base Weights
+    "SHADBALA_SCALING_WEIGHT": 1.0,    
+    "HOUSE_LORD_WEIGHT": 0.5,          
+    "HOUSE_MALEFIC_PRESSURE_WEIGHT": 0.8, 
+    "HOUSE_SAV_DIVISOR": 28.0          
+}
+
+CSI_WEIGHTS = DEFAULT_CSI_WEIGHTS.copy()
+PREFS_FILE = "csi_weights_prefs.json"
+
+def load_csi_weights():
+    if os.path.exists(PREFS_FILE):
+        try:
+            with open(PREFS_FILE, 'r') as f:
+                saved = json.load(f)
+                CSI_WEIGHTS.update(saved)
+        except Exception as e:
+            error_print(f"Error loading CSI weights: {e}")
+
+def save_csi_weights():
+    try:
+        with open(PREFS_FILE, 'w') as f:
+            json.dump(CSI_WEIGHTS, f, indent=4)
+    except Exception as e:
+        error_print(f"Error saving CSI weights: {e}")
+
+load_csi_weights()
+
+WEIGHT_NAMES_MAPPING = {
+    "SHADBALA_NORM_WEIGHT": "Shadbala Base Weight",
+    "ASHTAKAVARGA_SAV_WEIGHT": "Ashtakavarga (SAV) Base Weight",
+    "AVASTHA_DIGNITY_WEIGHT": "Avastha Dignity Base Weight",
+    "HOUSE_LORD_WEIGHT": "House Lord Influence Weight",
+    "HOUSE_MALEFIC_PRESSURE_WEIGHT": "Malefic Pressure Multiplier",
+    "HOUSE_SAV_DIVISOR": "SAV Neutral Divisor (Avg 28)",
+    "SHADBALA_SCALING_WEIGHT": "Shadbala Scaling Multiplier",
+    "COMBUSTION_PENALTY": "Combustion Penalty",
+    "RETROGRADE_MODIFIER": "Retrograde Modifier",
+    "ECLIPSE_NODE_PENALTY": "Eclipse (Nodal Conjunction) Penalty",
+    "SPECIAL_RULE_EXCHANGE_BONUS": "Parivartana (Exchange) Bonus",
+    "SPECIAL_RULE_INDIRECT_EXCHANGE_BONUS": "Parivartana (Indirect) Bonus",
+    "SPECIAL_RULE_VIPARITA_BONUS": "Viparita Raja Yoga Bonus",
+    "SPECIAL_RULE_INDIRECT_VIPARITA_BONUS": "Viparita Yoga (Indirect) Bonus",
+    "SPECIAL_RULE_VIPARITA_CANCELLED_BONUS": "Viparita Cancelled Penalty",
+    "SPECIAL_RULE_LAGNA_TRIK_BHAVA_PENALTY": "Lagna Lord in Trik Penalty",
+    "SPECIAL_RULE_EXALTED_OCCUPANT_BONUS": "Exalted Occupant Bonus",
+    "SPECIAL_RULE_EXALTED_LORD_BONUS": "Exalted Lord (Indirect) Bonus",
+    "SPECIAL_RULE_DEB_OCCUPANT_PENALTY": "Debilitated Occupant Penalty",
+    "SPECIAL_RULE_DEB_LORD_PENALTY": "Debilitated Lord (Indirect) Penalty",
+    "FUNC_LORD_FRIEND_MODIFIER": "Occupying Friend/Own House",
+    "FUNC_LORD_ENEMY_PENALTY": "Occupying Enemy House",
+    "FUNC_HOUSE_LORD_BENEFIC_BONUS": "House Lord is Func. Benefic",
+    "FUNC_HOUSE_LORD_MALEFIC_PENALTY": "House Lord is Func. Malefic",
+    "FUNC_HOUSE_LORD_FRIEND_PLC_BONUS": "House Lord in Friend/Own Sign",
+    "FUNC_HOUSE_LORD_ENEMY_PLC_PENALTY": "House Lord in Enemy Sign",
+    "FUNC_HOUSE_LORD_TRIK_BHAVA_PENALTY": "House Lord in Trik Bhava Penalty"
 }
 
 REQUIRED_SHADBALA = {
@@ -69,13 +116,12 @@ REQUIRED_SHADBALA = {
     "Mercury": 420.0, "Jupiter": 390.0, "Venus": 330.0, "Saturn": 300.0
 }
 
-# Group classifications for functional relation logic
 DEVA_GRAHAS = ["Sun", "Moon", "Mars", "Jupiter"]
 DANAVA_GRAHAS = ["Saturn", "Rahu", "Ketu", "Venus"]
 
 # ==============================================================================
 # CUSTOM UI COMPONENTS FOR TOOLTIPS & TABLES
-# ==============================================================================
+
 class CustomTooltipTable(QTableWidget):
     """A custom table that bypasses OS delays to show HTML tooltips instantly following the cursor."""
     def __init__(self, *args, **kwargs):
@@ -125,7 +171,6 @@ class CustomTooltipTable(QTableWidget):
 # VISUALIZER COMPONENT: COMPOSITE DIAMOND CHART
 # ==============================================================================
 class CompositeChartWidget(QWidget):
-    """Draws a diamond chart with color-coded house outlines representing net energy."""
     def __init__(self, csi_data, chart_data, parent=None):
         super().__init__(parent)
         self.csi_data = csi_data
@@ -465,7 +510,6 @@ class CSICalculator:
         csi_results = {"planets": {}, "houses": {}}
         asc_sign_idx = self.chart["ascendant"]["sign_index"]
         
-        # Pre-calculate Lagna Lord's position for Viparita cancellation check
         lagna_lord_name = astro_engine.SIGN_RULERS.get(asc_sign_idx + 1)
         lagna_lord_p = next((pl for pl in planets_data if pl["name"] == lagna_lord_name), None)
         lagna_lord_h_num = ((lagna_lord_p["sign_index"] - asc_sign_idx) % 12) + 1 if lagna_lord_p else 1
@@ -511,15 +555,15 @@ class CSICalculator:
             if combust: 
                 v = CSI_WEIGHTS["COMBUSTION_PENALTY"] * sb_mod
                 modifier += v
-                base_mod_html += f"• Combustion Penalty: <span style='color:#DC2626;'>{v:.2f}</span>{sb_tag}<br>"
+                if abs(v) > 0.001: base_mod_html += f"• Combustion Penalty: <span style='color:#DC2626;'>{v:.2f}</span>{sb_tag}<br>"
             if is_retro: 
                 v = CSI_WEIGHTS["RETROGRADE_MODIFIER"] * sb_mod
                 modifier += v
-                base_mod_html += f"• Retrograde Modifier: <span style='color:#059669;'>+{v:.2f}</span>{sb_tag}<br>"
+                if abs(v) > 0.001: base_mod_html += f"• Retrograde Modifier: <span style='color:#059669;'>+{v:.2f}</span>{sb_tag}<br>"
             if node_conjunct: 
                 v = CSI_WEIGHTS["ECLIPSE_NODE_PENALTY"] * sb_mod
                 modifier += v
-                base_mod_html += f"• Nodal Eclipse Penalty: <span style='color:#DC2626;'>{v:.2f}</span>{sb_tag}<br>"
+                if abs(v) > 0.001: base_mod_html += f"• Nodal Eclipse Penalty: <span style='color:#DC2626;'>{v:.2f}</span>{sb_tag}<br>"
             
             lord_relation = None
             special_rule_html = ""
@@ -528,7 +572,6 @@ class CSICalculator:
             if self.use_functional:
                 sign_lord = astro_engine.SIGN_RULERS.get(sign_idx + 1)
                 
-                # Check Viparita Raja Yoga (6/8/12 Lord in 6/8/12) AND check Lagna Lord
                 ruled_h = [((s - asc_sign_idx - 1) % 12) + 1 for s, l in astro_engine.SIGN_RULERS.items() if l == p_name]
                 is_lagna_lord = 1 in ruled_h
                 occupies_dusthana = h_num in [6, 8, 12]
@@ -541,49 +584,47 @@ class CSICalculator:
                     is_viparita = False
                     is_viparita_cancelled = True
                 
-                # Check Rashi Exchange (Parivartana)
                 is_exchange = False
                 if sign_lord != p_name and sign_lord in [pl["name"] for pl in planets_data]:
                     disp_p = next(pl for pl in planets_data if pl["name"] == sign_lord)
                     if astro_engine.SIGN_RULERS.get(disp_p["sign_index"] + 1) == p_name:
                         is_exchange = True
 
-                # Apply Special Highest Override Rules or Fallbacks
                 if is_exchange:
                     lord_relation = "Rashi Exchange"
                     v = CSI_WEIGHTS["SPECIAL_RULE_EXCHANGE_BONUS"] * sb_mod
                     modifier += v
-                    special_rule_html = f"<div style='background-color:#ECFDF5; padding:6px; border:1px solid #059669; border-radius:4px; margin-bottom:6px; color:#059669;'><b>✨ Rule Triggered: Parivartana Yoga (Exchange)</b><br>Awarded high bonus (+{v:.2f}){sb_tag}</div>"
+                    if abs(v) > 0.001: special_rule_html = f"<div style='background-color:#ECFDF5; padding:6px; border:1px solid #059669; border-radius:4px; margin-bottom:6px; color:#059669;'><b>✨ Rule Triggered: Parivartana Yoga (Exchange)</b><br>Awarded high bonus (+{v:.2f}){sb_tag}</div>"
                 elif is_lagna_lord and occupies_dusthana:
                     lord_relation = "Lagna Lord in Trik Bhava"
                     v = CSI_WEIGHTS["SPECIAL_RULE_LAGNA_TRIK_BHAVA_PENALTY"] * sb_mod
                     modifier += v
-                    special_rule_html = f"<div style='background-color:#FEF2F2; padding:6px; border:1px solid #DC2626; border-radius:4px; margin-bottom:6px; color:#DC2626;'><b>⚠️ Rule Triggered: Lagna Lord in Trik Bhava (H{h_num})</b><br>Deducted points ({v:.2f}){sb_tag}</div>"
+                    if abs(v) > 0.001: special_rule_html = f"<div style='background-color:#FEF2F2; padding:6px; border:1px solid #DC2626; border-radius:4px; margin-bottom:6px; color:#DC2626;'><b>⚠️ Rule Triggered: Lagna Lord in Trik Bhava (H{h_num})</b><br>Deducted points ({v:.2f}){sb_tag}</div>"
                 elif is_viparita:
                     lord_relation = "Viparita Raja Yoga"
                     v = CSI_WEIGHTS["SPECIAL_RULE_VIPARITA_BONUS"] * sb_mod
                     modifier += v
-                    special_rule_html = f"<div style='background-color:#FEF3C7; padding:6px; border:1px solid #D97706; border-radius:4px; margin-bottom:6px; color:#D97706;'><b>✨ Rule Triggered: Viparita Raja Yoga (6/8/12 Lord in 6/8/12)</b><br>Awarded high bonus (+{v:.2f}){sb_tag}</div>"
+                    if abs(v) > 0.001: special_rule_html = f"<div style='background-color:#FEF3C7; padding:6px; border:1px solid #D97706; border-radius:4px; margin-bottom:6px; color:#D97706;'><b>✨ Rule Triggered: Viparita Raja Yoga (6/8/12 Lord in 6/8/12)</b><br>Awarded high bonus (+{v:.2f}){sb_tag}</div>"
                 elif is_viparita_cancelled:
                     lord_relation = "Viparita Raja Yoga (Cancelled)"
                     v = CSI_WEIGHTS["SPECIAL_RULE_VIPARITA_CANCELLED_BONUS"] * sb_mod
                     modifier += v
-                    special_rule_html = f"<div style='background-color:#F1F5F9; padding:6px; border:1px solid #CBD5E1; border-radius:4px; margin-bottom:6px; color:#475569;'><b>ℹ️ Rule Triggered: Viparita Yoga (Cancelled)</b><br>Lagna Lord is in Trik Bhava. Awarded points (+{v:.2f}){sb_tag}</div>"
+                    if abs(v) > 0.001: special_rule_html = f"<div style='background-color:#F1F5F9; padding:6px; border:1px solid #CBD5E1; border-radius:4px; margin-bottom:6px; color:#475569;'><b>ℹ️ Rule Triggered: Viparita Yoga (Cancelled)</b><br>Lagna Lord is in Trik Bhava. Awarded points (+{v:.2f}){sb_tag}</div>"
                 elif p_name == sign_lord:
                     lord_relation = "Own Sign"
                     v = CSI_WEIGHTS["FUNC_LORD_FRIEND_MODIFIER"] * sb_mod
                     modifier += v
-                    mod_html_ext += f"• Own Sign Bonus: <span style='color:#059669;'>+{v:.2f}</span>{sb_tag}<br>"
+                    if abs(v) > 0.001: mod_html_ext += f"• Own Sign Bonus: <span style='color:#059669;'>+{v:.2f}</span>{sb_tag}<br>"
                 elif self.is_enemy(p_name, sign_lord):
                     lord_relation = "Enemy House"
                     v = CSI_WEIGHTS["FUNC_LORD_ENEMY_PENALTY"] * sb_mod
                     modifier += v
-                    mod_html_ext += f"• Enemy House ({sign_lord[:2]}) Penalty: <span style='color:#DC2626;'>{v:.2f}</span>{sb_tag}<br>"
+                    if abs(v) > 0.001: mod_html_ext += f"• Enemy House ({sign_lord[:2]}) Penalty: <span style='color:#DC2626;'>{v:.2f}</span>{sb_tag}<br>"
                 else:
                     lord_relation = "Friend House"
                     v = CSI_WEIGHTS["FUNC_LORD_FRIEND_MODIFIER"] * sb_mod
                     modifier += v
-                    mod_html_ext += f"• Friend House ({sign_lord[:2]}) Bonus: <span style='color:#059669;'>+{v:.2f}</span>{sb_tag}<br>"
+                    if abs(v) > 0.001: mod_html_ext += f"• Friend House ({sign_lord[:2]}) Bonus: <span style='color:#059669;'>+{v:.2f}</span>{sb_tag}<br>"
             
             final_csi = base_csi * max(0.1, modifier)
             
@@ -687,27 +728,27 @@ class CSICalculator:
                         if occ_relation == "Rashi Exchange":
                             v = CSI_WEIGHTS["SPECIAL_RULE_EXCHANGE_BONUS"] * occ_sb_mod
                             net_energy += v
-                            occupant_mod_html += f"<div style='color:#059669; margin-top:2px;'><b>✨ Occupant ({occ}) in Parivartana</b>: +{v:.2f}{sb_tag}</div>"
+                            if abs(v) > 0.001: occupant_mod_html += f"<div style='color:#059669; margin-top:2px;'><b>✨ Occupant ({occ}) in Parivartana</b>: +{v:.2f}{sb_tag}</div>"
                             got_direct_exchange = True
                         elif occ_relation == "Viparita Raja Yoga":
                             v = CSI_WEIGHTS["SPECIAL_RULE_VIPARITA_BONUS"] * occ_sb_mod
                             net_energy += v
-                            occupant_mod_html += f"<div style='color:#D97706; margin-top:2px;'><b>✨ Occupant ({occ}) forms Viparita</b>: +{v:.2f}{sb_tag}</div>"
+                            if abs(v) > 0.001: occupant_mod_html += f"<div style='color:#D97706; margin-top:2px;'><b>✨ Occupant ({occ}) forms Viparita</b>: +{v:.2f}{sb_tag}</div>"
                             got_direct_viparita = True
                         elif occ_relation == "Viparita Raja Yoga (Cancelled)":
                             v = CSI_WEIGHTS["SPECIAL_RULE_VIPARITA_CANCELLED_BONUS"] * occ_sb_mod
                             net_energy += v
-                            occupant_mod_html += f"<div style='color:#64748B; margin-top:2px;'><b>ℹ️ Occupant ({occ}) Viparita Cancelled</b>: +{v:.2f}{sb_tag}</div>"
+                            if abs(v) > 0.001: occupant_mod_html += f"<div style='color:#64748B; margin-top:2px;'><b>ℹ️ Occupant ({occ}) Viparita Cancelled</b>: +{v:.2f}{sb_tag}</div>"
                             got_direct_cancelled = True
 
                         if occ_data.get("is_exalted"):
                             v = CSI_WEIGHTS["SPECIAL_RULE_EXALTED_OCCUPANT_BONUS"] * occ_sb_mod
                             net_energy += v
-                            occupant_mod_html += f"<div style='color:#059669; margin-top:2px;'><b>✨ Occupant ({occ}) is Exalted</b>: +{v:.2f}{sb_tag}</div>"
+                            if abs(v) > 0.001: occupant_mod_html += f"<div style='color:#059669; margin-top:2px;'><b>✨ Occupant ({occ}) is Exalted</b>: +{v:.2f}{sb_tag}</div>"
                         elif occ_data.get("is_debilitated"):
                             v = CSI_WEIGHTS["SPECIAL_RULE_DEB_OCCUPANT_PENALTY"] * occ_sb_mod
                             net_energy += v
-                            occupant_mod_html += f"<div style='color:#64748B; margin-top:2px;'><b>ℹ️ Occupant ({occ}) is Debilitated</b>: {v:.2f}{sb_tag}</div>"
+                            if abs(v) > 0.001: occupant_mod_html += f"<div style='color:#64748B; margin-top:2px;'><b>ℹ️ Occupant ({occ}) is Debilitated</b>: {v:.2f}{sb_tag}</div>"
 
                 lord_mod_html = ""
                 # Check modifiers from the House Lord's placement
@@ -729,53 +770,53 @@ class CSICalculator:
                     if l_nature == "Benefic":
                         v = CSI_WEIGHTS["FUNC_HOUSE_LORD_BENEFIC_BONUS"] * l_sb_mod
                         net_energy += v
-                        lord_mod_html += f"• Lord ({lord_name}) is Func. Benefic: <span style='color:#059669;'>+{v:.2f}</span>{sb_tag}<br>"
+                        if abs(v) > 0.001: lord_mod_html += f"• Lord ({lord_name}) is Func. Benefic: <span style='color:#059669;'>+{v:.2f}</span>{sb_tag}<br>"
                     else:
                         v = CSI_WEIGHTS["FUNC_HOUSE_LORD_MALEFIC_PENALTY"] * l_sb_mod
                         net_energy += v
-                        lord_mod_html += f"• Lord ({lord_name}) is Func. Malefic: <span style='color:#DC2626;'>{v:.2f}</span>{sb_tag}<br>"
+                        if abs(v) > 0.001: lord_mod_html += f"• Lord ({lord_name}) is Func. Malefic: <span style='color:#DC2626;'>{v:.2f}</span>{sb_tag}<br>"
                         
                     if l_relation in ["Own Sign", "Friend House"]:
                         v = CSI_WEIGHTS["FUNC_HOUSE_LORD_FRIEND_PLC_BONUS"] * l_sb_mod
                         net_energy += v
-                        lord_mod_html += f"• Lord sits in {l_relation}: <span style='color:#059669;'>+{v:.2f}</span>{sb_tag}<br>"
+                        if abs(v) > 0.001: lord_mod_html += f"• Lord sits in {l_relation}: <span style='color:#059669;'>+{v:.2f}</span>{sb_tag}<br>"
                     elif l_relation == "Enemy House":
                         v = CSI_WEIGHTS["FUNC_HOUSE_LORD_ENEMY_PLC_PENALTY"] * l_sb_mod
                         net_energy += v
-                        lord_mod_html += f"• Lord sits in Enemy House: <span style='color:#DC2626;'>{v:.2f}</span>{sb_tag}<br>"
+                        if abs(v) > 0.001: lord_mod_html += f"• Lord sits in Enemy House: <span style='color:#DC2626;'>{v:.2f}</span>{sb_tag}<br>"
                         
                     if lord_h_num in [6, 8, 12] and l_relation not in ["Viparita Raja Yoga", "Viparita Raja Yoga (Cancelled)", "Lagna Lord in Trik Bhava", "Rashi Exchange"]:
                         v = CSI_WEIGHTS["FUNC_HOUSE_LORD_TRIK_BHAVA_PENALTY"] * l_sb_mod
                         net_energy += v
-                        lord_mod_html += f"• Lord in Trik Bhava (H{lord_h_num}): <span style='color:#DC2626;'>{v:.2f}</span>{sb_tag}<br>"
+                        if abs(v) > 0.001: lord_mod_html += f"• Lord in Trik Bhava (H{lord_h_num}): <span style='color:#DC2626;'>{v:.2f}</span>{sb_tag}<br>"
 
                     # Indirect Rule Assignments (Only apply if NOT already directly triggered by occupants)
                     if l_relation == "Rashi Exchange" and not got_direct_exchange:
                         v = CSI_WEIGHTS["SPECIAL_RULE_INDIRECT_EXCHANGE_BONUS"] * l_sb_mod
                         net_energy += v
-                        lord_mod_html += f"<div style='color:#059669; margin-top:2px;'><b>✨ Lord in Parivartana (Indirect)</b>: +{v:.2f}{sb_tag}</div>"
+                        if abs(v) > 0.001: lord_mod_html += f"<div style='color:#059669; margin-top:2px;'><b>✨ Lord in Parivartana (Indirect)</b>: +{v:.2f}{sb_tag}</div>"
                     elif l_relation == "Viparita Raja Yoga" and not got_direct_viparita:
                         v = CSI_WEIGHTS["SPECIAL_RULE_INDIRECT_VIPARITA_BONUS"] * l_sb_mod
                         net_energy += v
-                        lord_mod_html += f"<div style='color:#D97706; margin-top:2px;'><b>✨ Lord forms Viparita (Indirect)</b>: +{v:.2f}{sb_tag}</div>"
+                        if abs(v) > 0.001: lord_mod_html += f"<div style='color:#D97706; margin-top:2px;'><b>✨ Lord forms Viparita (Indirect)</b>: +{v:.2f}{sb_tag}</div>"
                     elif l_relation == "Viparita Raja Yoga (Cancelled)" and not got_direct_cancelled:
                         v = CSI_WEIGHTS["SPECIAL_RULE_VIPARITA_CANCELLED_BONUS"] * l_sb_mod
                         net_energy += v
-                        lord_mod_html += f"<div style='color:#64748B; margin-top:2px;'><b>ℹ️ Lord's Viparita Cancelled</b>: +{v:.2f}{sb_tag}</div>"
+                        if abs(v) > 0.001: lord_mod_html += f"<div style='color:#64748B; margin-top:2px;'><b>ℹ️ Lord's Viparita Cancelled</b>: +{v:.2f}{sb_tag}</div>"
                     elif l_relation == "Lagna Lord in Trik Bhava":
                         v = CSI_WEIGHTS["SPECIAL_RULE_LAGNA_TRIK_BHAVA_PENALTY"] * l_sb_mod
                         net_energy += v
-                        lord_mod_html += f"<div style='color:#DC2626; margin-top:2px;'><b>⚠️ Lagna Lord in Trik Bhava</b>: {v:.2f}{sb_tag}</div>"
+                        if abs(v) > 0.001: lord_mod_html += f"<div style='color:#DC2626; margin-top:2px;'><b>⚠️ Lagna Lord in Trik Bhava</b>: {v:.2f}{sb_tag}</div>"
 
                     # Exalted / Debilitated Logic (Indirect)
                     if l_data.get("is_exalted"):
                         v = CSI_WEIGHTS["SPECIAL_RULE_EXALTED_LORD_BONUS"] * l_sb_mod
                         net_energy += v
-                        lord_mod_html += f"<div style='color:#059669; margin-top:2px;'><b>✨ Lord ({lord_name}) is Exalted (Indirect)</b>: +{v:.2f}{sb_tag}</div>"
+                        if abs(v) > 0.001: lord_mod_html += f"<div style='color:#059669; margin-top:2px;'><b>✨ Lord ({lord_name}) is Exalted (Indirect)</b>: +{v:.2f}{sb_tag}</div>"
                     elif l_data.get("is_debilitated"):
                         v = CSI_WEIGHTS["SPECIAL_RULE_DEB_LORD_PENALTY"] * l_sb_mod
                         net_energy += v
-                        lord_mod_html += f"<div style='color:#64748B; margin-top:2px;'><b>ℹ️ Lord ({lord_name}) is Debilitated (Indirect)</b>: {v:.2f}{sb_tag}</div>"
+                        if abs(v) > 0.001: lord_mod_html += f"<div style='color:#64748B; margin-top:2px;'><b>ℹ️ Lord ({lord_name}) is Debilitated (Indirect)</b>: {v:.2f}{sb_tag}</div>"
 
 
                 func_mod_html = occupant_mod_html + lord_mod_html
@@ -812,8 +853,8 @@ class CompositeStrengthDialog(QDialog):
         super().__init__(parent)
         self.app = app
         self.setWindowFlags(Qt.WindowType.Window)
-        self.setWindowTitle("Composite Strength Index (CSI) - AstroBasics Diamond Chart Pro")
-        self.resize(1100, 750)
+        self.setWindowTitle("Composite Strength Index (CSI) - AstroBasics Diamond Chart Pro : USE WITH CAUTION")
+        self.resize(1100, 850)
         self.scrollers = []
 
         self.csi_data = csi_data
@@ -834,51 +875,25 @@ class CompositeStrengthDialog(QDialog):
         info_lbl = QLabel(
             "<b>Composite Strength Index (CSI)</b> merges Shadbala, Ashtakavarga, and Avasthas into a unified scalar. "
             "It applies penalties for combustion and nodal conjunctions, mapping everything to final Nature in which houses or planets express themselves."
-            "<i>  Note:</i>  Since the author did not referred to classical texts while implementing this, therefore, care must be taken while referring to this Index."
+            "<i>  Note:</i>  Since the author did not refer to classical texts while implementing this, care must be taken while using this Index."
         )
         info_lbl.setStyleSheet("color: #334155; font-size: 13px; margin-bottom: 8px;")
         info_lbl.setWordWrap(True)
         layout.addWidget(info_lbl)
 
-        # Consolidate the stylesheet for easier maintenance
         checkbox_style = """
-            QCheckBox {
-                background-color: #F8FAFC;
-                border: 1px solid #E2E8F0;
-                border-radius: 6px;
-                padding: 4px 10px;
-                font-size: 11px;
-                font-weight: 500;
-                color: #334155;
-            }
-            QCheckBox:hover {
-                background-color: #F1F5F9;
-                border: 1px solid #CBD5E1;
-            }
-            QCheckBox:checked {
-                background-color: #F0F9FF;
-                border: 1px solid #0EA5E9;
-                color: #0369A1;
-            }
-            QCheckBox::indicator {
-                width: 14px;
-                height: 14px;
-                border-radius: 3px;
-                border: 1px solid #CBD5E1;
-                background-color: white;
-            }
-            QCheckBox::indicator:checked {
-                background-color: #0EA5E9;
-            }
+            QCheckBox { background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 6px; padding: 4px 10px; font-size: 11px; font-weight: 500; color: #334155; }
+            QCheckBox:hover { background-color: #F1F5F9; border: 1px solid #CBD5E1; }
+            QCheckBox:checked { background-color: #F0F9FF; border: 1px solid #0EA5E9; color: #0369A1; }
+            QCheckBox::indicator { width: 14px; height: 14px; border-radius: 3px; border: 1px solid #CBD5E1; background-color: white; }
+            QCheckBox::indicator:checked { background-color: #0EA5E9; }
         """
 
-        # Apply to Functional Checkbox
         self.cb_functional = QCheckBox("Use Functional Benefic/Malefic", self)
         self.cb_functional.setStyleSheet(checkbox_style)
         self.cb_functional.setChecked(True)
         self.cb_functional.stateChanged.connect(self.recalculate_and_refresh)
 
-        # Apply to Shadbala Checkbox
         self.cb_shadbala = QCheckBox("Scale by Planet Shadbala", self) 
         self.cb_shadbala.setStyleSheet(checkbox_style)
         self.cb_shadbala.setChecked(True)
@@ -897,12 +912,15 @@ class CompositeStrengthDialog(QDialog):
         self.tab_chart_layout = QVBoxLayout(self.tab_chart)
         self.tab_table_layout = QVBoxLayout(self.tab_table)
         
+        # Split second tab into table container and settings container
+        self.table_container = QVBoxLayout()
+        self.tab_table_layout.addLayout(self.table_container)
+        self.build_settings_panel()
+        
         self.tabs.addTab(self.tab_chart, "1. Houses Analysis")
         self.tabs.addTab(self.tab_table, "2. Planetary Analysis")
         layout.addWidget(self.tabs)
         
-        # We explicitly call a fresh synchronous recalculation upon opening instead of relying on the cached setup_ui state
-        # which might have been grabbed a millisecond before the Shadbala engine was done finishing all keys.
         self.recalculate_and_refresh()
 
     def apply_smooth_scroll(self, widget):
@@ -931,6 +949,67 @@ class CompositeStrengthDialog(QDialog):
             self.build_chart_tab()
             self.build_table_tab()
 
+    def update_weight(self, key, value):
+        if CSI_WEIGHTS[key] != value:
+            CSI_WEIGHTS[key] = value
+            save_csi_weights()
+            self.recalculate_and_refresh()
+
+    def reset_weights(self):
+        global CSI_WEIGHTS
+        CSI_WEIGHTS.update(DEFAULT_CSI_WEIGHTS)
+        save_csi_weights()
+        self.build_settings_panel()
+        self.recalculate_and_refresh()
+
+    def build_settings_panel(self):
+        if hasattr(self, 'settings_group'):
+            self.settings_group.deleteLater()
+            
+        self.settings_group = QGroupBox("Calculation weights and modifiers")
+        self.settings_group.setStyleSheet("QGroupBox { font-weight: bold; border: 1px solid #CBD5E1; border-radius: 6px; margin-top: 10px; }")
+        
+        settings_scroll = QScrollArea()
+        settings_scroll.setWidgetResizable(True)
+        settings_scroll.setMaximumHeight(250)
+        settings_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        self.apply_smooth_scroll(settings_scroll)
+        
+        settings_widget = QWidget()
+        settings_layout = QGridLayout(settings_widget)
+        settings_layout.setHorizontalSpacing(15)
+        
+        row, col = 0, 0
+        for key, name in WEIGHT_NAMES_MAPPING.items():
+            lbl = QLabel(name)
+            lbl.setStyleSheet("font-size: 11px; color: #334155;")
+            spin = QDoubleSpinBox()
+            spin.setRange(-100.0, 100.0)
+            spin.setSingleStep(0.05)
+            spin.setValue(CSI_WEIGHTS[key])
+            spin.setStyleSheet("QDoubleSpinBox { padding: 2px; font-size: 11px; border: 1px solid #CBD5E1; border-radius: 3px; }")
+            
+            spin.editingFinished.connect(lambda k=key, s=spin: self.update_weight(k, s.value()))
+            
+            settings_layout.addWidget(lbl, row, col*2)
+            settings_layout.addWidget(spin, row, col*2 + 1)
+            
+            col += 1
+            if col > 3:  # Changed to 4 columns (0, 1, 2, 3)
+                col = 0
+                row += 1
+                
+        # reset_btn = QPushButton("Reset All to Default")
+        # reset_btn.setStyleSheet("QPushButton { background-color: #FEE2E2; color: #DC2626; border: 1px solid #FCA5A5; padding: 4px; border-radius: 4px; font-weight: bold; margin-top: 10px; } QPushButton:hover { background-color: #FECACA; }")
+        # reset_btn.clicked.connect(self.reset_weights)
+        #settings_layout.addWidget(reset_btn, row + 1, 0, 1, 8) # Span across all 8 grid columns (4 label-spinbox pairs)
+
+        settings_scroll.setWidget(settings_widget)
+        group_layout = QVBoxLayout(self.settings_group)
+        group_layout.addWidget(settings_scroll)
+        
+        self.tab_table_layout.addWidget(self.settings_group)
+
     def build_chart_tab(self):
         self._clear_layout(self.tab_chart_layout)
         
@@ -957,7 +1036,7 @@ class CompositeStrengthDialog(QDialog):
         self.tab_chart_layout.addWidget(scroll)
 
     def build_table_tab(self):
-        self._clear_layout(self.tab_table_layout)
+        self._clear_layout(self.table_container)
         
         table = CustomTooltipTable()
         self.apply_smooth_scroll(table)
@@ -986,9 +1065,9 @@ class CompositeStrengthDialog(QDialog):
             table.setItem(row, 3, av_item)
             
             pens = []
-            if data['combust']: pens.append("Combust")
-            if data['retro']: pens.append("Retro")
-            if data['node_conj']: pens.append("Eclipse")
+            if data['combust'] and abs(CSI_WEIGHTS["COMBUSTION_PENALTY"]) > 0.001: pens.append("Combust")
+            if data['retro'] and abs(CSI_WEIGHTS["RETROGRADE_MODIFIER"]) > 0.001: pens.append("Retro")
+            if data['node_conj'] and abs(CSI_WEIGHTS["ECLIPSE_NODE_PENALTY"]) > 0.001: pens.append("Eclipse")
             pen_str = ", ".join(pens) if pens else "None"
             
             pen_item = QTableWidgetItem(pen_str)
@@ -1036,7 +1115,7 @@ class CompositeStrengthDialog(QDialog):
                 f"</div>"
             )
             csi_item.setData(Qt.ItemDataRole.UserRole, tt_html)
-            self.tab_table_layout.addWidget(table)
+            self.table_container.addWidget(table)
             table.setItem(row, 5, csi_item)
             
             vec_item = QTableWidgetItem(data['vector'])
@@ -1046,37 +1125,6 @@ class CompositeStrengthDialog(QDialog):
             elif "Challenging" in data['vector']: vec_item.setForeground(QColor("#D97706"))
             vec_item.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
             table.setItem(row, 6, vec_item)
-            
-        weights_html = (
-            f"<div style='background: #F8FAFC; padding: 10px; border: 1px solid #E2E8F0; border-radius: 6px; font-size: 12px; margin-right: 320px;'>"
-            f"Following are the weights applied for calculation of Composite Strength Index.<br> "
-            f"<b>Applied Weights:</b> Shadbala: {CSI_WEIGHTS['SHADBALA_NORM_WEIGHT']} | "
-            f"Ashtakavarga SAV: {CSI_WEIGHTS['ASHTAKAVARGA_SAV_WEIGHT']} | "
-            f"Avastha/Dignity: {CSI_WEIGHTS['AVASTHA_DIGNITY_WEIGHT']}<br>"
-            f"<b>Special Yogas (Houses):</b> Occupied Exchange Bonus: <span style='color:#059669;'>+{CSI_WEIGHTS['SPECIAL_RULE_EXCHANGE_BONUS']}</span> | "
-            f"Indirect Exchange Bonus: <span style='color:#059669;'>+{CSI_WEIGHTS['SPECIAL_RULE_INDIRECT_EXCHANGE_BONUS']}</span> | "
-            f"Occupied Viparita Bonus: <span style='color:#059669;'>+{CSI_WEIGHTS['SPECIAL_RULE_VIPARITA_BONUS']}</span> | "
-            f"Indirect Viparita Bonus: <span style='color:#059669;'>+{CSI_WEIGHTS['SPECIAL_RULE_INDIRECT_VIPARITA_BONUS']}</span><br>"
-            f"<b>Special Global Overrides:</b> Viparita Cancelled Bonus: <span style='color:#64748B;'>+{CSI_WEIGHTS['SPECIAL_RULE_VIPARITA_CANCELLED_BONUS']}</span> | "
-            f"Lagna in Trik Bhava Penalty: <span style='color:#DC2626;'>{CSI_WEIGHTS['SPECIAL_RULE_LAGNA_TRIK_BHAVA_PENALTY']}</span><br>"
-            f"<b>Exaltation & Debilitation:</b> Exalted Occupant Bonus: <span style='color:#059669;'>+{CSI_WEIGHTS['SPECIAL_RULE_EXALTED_OCCUPANT_BONUS']}</span> | "
-            f"Exalted Lord (Indirect): <span style='color:#059669;'>+{CSI_WEIGHTS['SPECIAL_RULE_EXALTED_LORD_BONUS']}</span> | "
-            f"Debilitated Occupant Penalty: <span style='color:#64748B;'>{CSI_WEIGHTS['SPECIAL_RULE_DEB_OCCUPANT_PENALTY']}</span> | "
-            f"Debilitated Lord (Indirect): <span style='color:#64748B;'>{CSI_WEIGHTS['SPECIAL_RULE_DEB_LORD_PENALTY']}</span><br>"
-            f"<b>Functional Planet Modifiers:</b> Friend/Own House Bonus: <span style='color:#059669;'>+{CSI_WEIGHTS['FUNC_LORD_FRIEND_MODIFIER']}</span> | "
-            f"Enemy House Penalty: <span style='color:#DC2626;'>{CSI_WEIGHTS['FUNC_LORD_ENEMY_PENALTY']}</span><br>"
-            f"<b>Functional House Modifiers:</b> Lord Benefic: <span style='color:#059669;'>+{CSI_WEIGHTS['FUNC_HOUSE_LORD_BENEFIC_BONUS']}</span> | "
-            f"Lord Malefic: <span style='color:#DC2626;'>{CSI_WEIGHTS['FUNC_HOUSE_LORD_MALEFIC_PENALTY']}</span> | "
-            f"Lord in Friend/Own: <span style='color:#059669;'>+{CSI_WEIGHTS['FUNC_HOUSE_LORD_FRIEND_PLC_BONUS']}</span> | "
-            f"Lord in Enemy: <span style='color:#DC2626;'>{CSI_WEIGHTS['FUNC_HOUSE_LORD_ENEMY_PLC_PENALTY']}</span> | "
-            f"Lord in Trik Bhava (6,8,12): <span style='color:#DC2626;'>{CSI_WEIGHTS['FUNC_HOUSE_LORD_TRIK_BHAVA_PENALTY']}</span><br>"
-            f"<b>House Adjustments:</b> Lord Weight {CSI_WEIGHTS['HOUSE_LORD_WEIGHT']} | "
-            f"Malefic Pressure Multiplier {CSI_WEIGHTS['HOUSE_MALEFIC_PRESSURE_WEIGHT']} | "
-            f"SAV Base Target (for house to give strong results) {CSI_WEIGHTS['HOUSE_SAV_DIVISOR']}<br>"
-            f"<b>Scaling:</b> Shadbala Scaling Depends on the shadabala of the planet (Occupant/Lord)."
-            f"</div>"
-        )
-        self.tab_table_layout.addWidget(QLabel(weights_html))
 
 # ==============================================================================
 # PLUGIN ENTRY POINT
@@ -1190,8 +1238,6 @@ def setup_ui(app, layout):
                 active_btn.setEnabled(True)
             
             if hasattr(app, '_csi_dialog') and getattr(app._csi_dialog, 'isVisible', lambda: False)():
-                # We skip recalculating blindly if the dialog is open to avoid overriding user's un-toggled checkboxes!
-                # If they clicked something in the dialog, it handles its own state perfectly now.
                 pass
                 
         except Exception as e:

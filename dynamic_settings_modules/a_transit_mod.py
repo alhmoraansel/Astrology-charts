@@ -8,16 +8,14 @@ from PyQt6.QtGui import QPainter, QColor, QPen, QFont, QBrush
 
 import astro_engine, chart_renderer
 
-# Global reference to access plugin state from the monkey-patched renderer
-TRANSIT_PLUGIN_INSTANCE = None
-
 class TransitPluginUI(QWidget):
     def __init__(self, app_ref, parent=None):
         super().__init__(parent)
         self.app = app_ref
         
-        global TRANSIT_PLUGIN_INSTANCE
-        TRANSIT_PLUGIN_INSTANCE = self
+        # Attach directly to the ChartRenderer class to survive hot-reloads
+        # and avoid module-scope closure bugs caused by __pycache__ creation.
+        chart_renderer.ChartRenderer._transit_plugin_instance = self
 
         # Plugin State
         self.is_enabled = False
@@ -27,8 +25,9 @@ class TransitPluginUI(QWidget):
         
         self.init_ui()
         self.patch_chart_renderer()
-        self.calculate_transit()
-
+        
+        # Removed the QTimer and initial calculation. 
+        # We will use "Lazy Evaluation" instead to calculate only when the app is fully ready.
 
     def init_ui(self):
         # The main layout for the widget itself
@@ -158,6 +157,11 @@ class TransitPluginUI(QWidget):
     def on_enable_toggle(self, state):
         self.is_enabled = (state == Qt.CheckState.Checked.value)
         self.controls_widget.setVisible(self.is_enabled)
+        
+        # Lazy initialization: Calculate exactly when enabled if we don't have data yet
+        if self.is_enabled and not self.transit_data:
+            self.calculate_transit()
+            
         self.trigger_redraw()
 
     def set_time_to_now(self):
@@ -216,7 +220,7 @@ class TransitPluginUI(QWidget):
             'year': self.transit_dt.year, 'month': self.transit_dt.month, 'day': self.transit_dt.day,
             'hour': self.transit_dt.hour, 'minute': self.transit_dt.minute, 'second': self.transit_dt.second
         }
-        return astro_engine.dt_dict_to_utc_jd(dt_dict, self.app.current_tz)
+        return astro_engine.dt_dict_to_utc_jd(dt_dict, getattr(self.app, 'current_tz', 0.0))
 
     def calculate_transit(self):
         dt_dict = {
@@ -224,10 +228,22 @@ class TransitPluginUI(QWidget):
             'hour': self.transit_dt.hour, 'minute': self.transit_dt.minute, 'second': self.transit_dt.second
         }
         
-        # Calculate full transit chart
-        self.transit_data = self.app.ephemeris.calculate_chart(
-            dt_dict, self.app.current_lat, self.app.current_lon, self.app.current_tz
-        )
+        # Safely fetch location variables. If main app hasn't fully loaded them yet, abort cleanly.
+        lat = getattr(self.app, 'current_lat', None)
+        lon = getattr(self.app, 'current_lon', None)
+        tz = getattr(self.app, 'current_tz', None)
+        
+        if lat is None or lon is None or tz is None:
+            return # App is not fully initialized yet; defer calculation.
+            
+        try:
+            # Calculate full transit chart
+            self.transit_data = self.app.ephemeris.calculate_chart(
+                dt_dict, lat, lon, tz
+            )
+        except Exception as e:
+            print(f"Gochar calculation deferred: {e}")
+            
         self.trigger_redraw()
 
     def trigger_redraw(self):
@@ -243,13 +259,18 @@ class TransitPluginUI(QWidget):
                 # 1. Run standard natal chart paint event
                 renderer_self._original_paintEvent_gochar(event)
                 
-                # 2. Draw Gochar Overlay
-                if TRANSIT_PLUGIN_INSTANCE and TRANSIT_PLUGIN_INSTANCE.is_enabled:
-                    TRANSIT_PLUGIN_INSTANCE.draw_transits(renderer_self)
+                # 2. Draw Gochar Overlay using the class-level reference
+                plugin = getattr(chart_renderer.ChartRenderer, "_transit_plugin_instance", None)
+                if plugin and plugin.is_enabled:
+                    plugin.draw_transits(renderer_self)
 
             chart_renderer.ChartRenderer.paintEvent = hooked_paintEvent
 
     def draw_transits(self, renderer):
+        # If enabled but missing data (e.g., app just finished loading), lazy load it now
+        if not self.transit_data and self.is_enabled:
+            self.calculate_transit()
+            
         if not self.transit_data or not getattr(renderer, 'chart_data', None):
             return
             
