@@ -54,9 +54,18 @@ def get_dignities(p_name, sign_num, deg_in_sign):
     return is_exalted, is_own, is_debilitated
 
 
+
 # ==========================================
 # SWISSEPH SAFE WRAPPERS & FALLBACK MATH
 # ==========================================
+def get_resource_path(relative_path):
+    """Get absolute path to resource, works for dev and for PyInstaller frozen apps"""
+    try:
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
+
 
 def fallback_ayanamsa(jd):
     """Fallback Ayanamsa calculation if Swiss Ephemeris is missing."""
@@ -261,12 +270,12 @@ def get_nakshatra(lon_deg):
 
 # ==========================================
 # RECTIFICATION ENGINE
-# ==========================================
+# ===========================================
 
 def perform_rectification_search(params, result_queue, stop_event):
     """Core mathematical lock-pick engine for finding birth times based on constraints."""
     try:
-        swe.set_ephe_path('ephe')
+        swe.set_ephe_path(get_resource_path('ephe'))
         div_type = params['div_type']
         target_asc = params['target_asc']
         target_planets = params['target_planets']
@@ -480,10 +489,9 @@ def perform_rectification_search(params, result_queue, stop_event):
 # ==========================================
 # EPHEMERIS CHART CALCULATOR ENGINE
 # ==========================================
-
 class EphemerisEngine:
     def __init__(self):
-        swe.set_ephe_path('ephe')
+        swe.set_ephe_path(get_resource_path('ephe'))
         
         # Safely wrap internal swisseph constants in getattr to completely prevent
         # AttributeError crashes on module instantiation regardless of swisseph version.

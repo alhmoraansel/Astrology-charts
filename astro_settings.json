@@ -39,7 +39,7 @@
         "D11": false,
         "D12": false,
         "D16": false,
-        "D20": false,
+        "D20": true,
         "D24": false,
         "D27": false,
         "D30": false,
@@ -49,6 +49,7 @@
     },
     "active_charts_order": [
         "D1",
-        "D9"
+        "D9",
+        "D20"
     ]
 }
