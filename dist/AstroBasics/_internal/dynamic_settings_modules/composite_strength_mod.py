@@ -1,5 +1,4 @@
 # dynamic_settings_modules/composite_strength_mod.py
-
 import sys, math
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QDialog, QTabWidget, QTableWidget, QTableWidgetItem, QHeaderView, QLabel, QScrollArea, QGroupBox, QFrame, QCheckBox, QSizePolicy)
 from PyQt6.QtGui import QPainter, QColor, QFont, QPen, QBrush, QPolygonF, QPainterPath
@@ -39,6 +38,12 @@ CSI_WEIGHTS = {
     "SPECIAL_RULE_VIPARITA_CANCELLED_BONUS": 0.00, # Zero points if Viparita is cancelled by Lagna Lord in Trik Bhava
     "SPECIAL_RULE_LAGNA_TRIK_BHAVA_PENALTY": -0.40,# Massive Deduction if Lagna Lord goes to 6/8/12
     
+    # Exaltation & Debilitation Special Modifiers
+    "SPECIAL_RULE_EXALTED_OCCUPANT_BONUS": 0.30, # Direct bonus to the house occupied by an exalted planet
+    "SPECIAL_RULE_EXALTED_LORD_BONUS": 0.15,     # Indirect bonus to the house ruled by an exalted planet
+    "SPECIAL_RULE_DEB_OCCUPANT_PENALTY": 0.00,   # Penalty to the house occupied by a debilitated planet (0.0 as requested)
+    "SPECIAL_RULE_DEB_LORD_PENALTY": 0.00,       # Indirect penalty to the house ruled by a debilitated planet (0.0 as requested)
+
     # Standard Functional Mode Planetary Modifiers 
     "FUNC_LORD_FRIEND_MODIFIER": 0.15, # Bonus for occupying Friend's or Own House
     "FUNC_LORD_ENEMY_PENALTY": -0.15,  # Penalty for occupying Enemy's House
@@ -79,7 +84,7 @@ class CustomTooltipTable(QTableWidget):
         self.tooltip_label = QLabel(self, Qt.WindowType.ToolTip | Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
         self.tooltip_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         self.tooltip_label.setStyleSheet("""
-            QLabel { background-color: #FFFFFF; color: #0F172A; border: 1px solid #CBD5E1; border-radius: 6px; padding: 10px; font-size: 13px; font-family: 'Segoe UI', Tahoma, sans-serif;  }
+            QLabel { background-color: #FFFFFF; color: #0F172A; border: 1px solid #CBD5E1; border-radius: 6px; padding: 10px; font-size: 13px; font-family: 'Segoe UI', Tahoma, sans-serif;}
         """)
         self.tooltip_label.hide()
 
@@ -134,7 +139,7 @@ class CompositeChartWidget(QWidget):
         self.tooltip_label = QLabel(self, Qt.WindowType.ToolTip | Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
         self.tooltip_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         self.tooltip_label.setStyleSheet("""
-            QLabel { background-color: #FFFFFF; color: #0F172A; border: 1px solid #CBD5E1; border-radius: 6px; padding: 12px; font-size: 13px; font-family: 'Segoe UI', Tahoma, sans-serif;  }
+            QLabel { background-color: #FFFFFF; color: #0F172A; border: 1px solid #CBD5E1; border-radius: 6px; padding: 12px; font-size: 13px; font-family: 'Segoe UI', Tahoma, sans-serif; }
         """)
         self.tooltip_label.hide()
         
@@ -555,12 +560,12 @@ class CSICalculator:
                     modifier += v
                     special_rule_html = f"<div style='background-color:#FEF2F2; padding:6px; border:1px solid #DC2626; border-radius:4px; margin-bottom:6px; color:#DC2626;'><b>⚠️ Rule Triggered: Lagna Lord in Trik Bhava (H{h_num})</b><br>Deducted points ({v:.2f}){sb_tag}</div>"
                 elif is_viparita:
-                    lord_relation = "Viparita Yoga"
+                    lord_relation = "Viparita Raja Yoga"
                     v = CSI_WEIGHTS["SPECIAL_RULE_VIPARITA_BONUS"] * sb_mod
                     modifier += v
-                    special_rule_html = f"<div style='background-color:#FEF3C7; padding:6px; border:1px solid #D97706; border-radius:4px; margin-bottom:6px; color:#D97706;'><b>✨ Rule Triggered: Viparita Yoga (6/8/12 Lord in 6/8/12)</b><br>Awarded high bonus (+{v:.2f}){sb_tag}</div>"
+                    special_rule_html = f"<div style='background-color:#FEF3C7; padding:6px; border:1px solid #D97706; border-radius:4px; margin-bottom:6px; color:#D97706;'><b>✨ Rule Triggered: Viparita Raja Yoga (6/8/12 Lord in 6/8/12)</b><br>Awarded high bonus (+{v:.2f}){sb_tag}</div>"
                 elif is_viparita_cancelled:
-                    lord_relation = "Viparita Yoga (Cancelled)"
+                    lord_relation = "Viparita Raja Yoga (Cancelled)"
                     v = CSI_WEIGHTS["SPECIAL_RULE_VIPARITA_CANCELLED_BONUS"] * sb_mod
                     modifier += v
                     special_rule_html = f"<div style='background-color:#F1F5F9; padding:6px; border:1px solid #CBD5E1; border-radius:4px; margin-bottom:6px; color:#475569;'><b>ℹ️ Rule Triggered: Viparita Yoga (Cancelled)</b><br>Lagna Lord is in Trik Bhava. Awarded points (+{v:.2f}){sb_tag}</div>"
@@ -616,7 +621,9 @@ class CSICalculator:
                 "base_mod_html": base_mod_html,
                 "mod_html_ext": mod_html_ext,
                 "special_rule_html": special_rule_html,
-                "total_modifier": modifier
+                "total_modifier": modifier,
+                "is_exalted": p.get("exalted", False),
+                "is_debilitated": p.get("debilitated", False)
             }
 
         # 2. HOUSE CSI CALCULATION
@@ -682,16 +689,25 @@ class CSICalculator:
                             net_energy += v
                             occupant_mod_html += f"<div style='color:#059669; margin-top:2px;'><b>✨ Occupant ({occ}) in Parivartana</b>: +{v:.2f}{sb_tag}</div>"
                             got_direct_exchange = True
-                        elif occ_relation == "Viparita Yoga":
+                        elif occ_relation == "Viparita Raja Yoga":
                             v = CSI_WEIGHTS["SPECIAL_RULE_VIPARITA_BONUS"] * occ_sb_mod
                             net_energy += v
                             occupant_mod_html += f"<div style='color:#D97706; margin-top:2px;'><b>✨ Occupant ({occ}) forms Viparita</b>: +{v:.2f}{sb_tag}</div>"
                             got_direct_viparita = True
-                        elif occ_relation == "Viparita Yoga (Cancelled)":
+                        elif occ_relation == "Viparita Raja Yoga (Cancelled)":
                             v = CSI_WEIGHTS["SPECIAL_RULE_VIPARITA_CANCELLED_BONUS"] * occ_sb_mod
                             net_energy += v
                             occupant_mod_html += f"<div style='color:#64748B; margin-top:2px;'><b>ℹ️ Occupant ({occ}) Viparita Cancelled</b>: +{v:.2f}{sb_tag}</div>"
                             got_direct_cancelled = True
+
+                        if occ_data.get("is_exalted"):
+                            v = CSI_WEIGHTS["SPECIAL_RULE_EXALTED_OCCUPANT_BONUS"] * occ_sb_mod
+                            net_energy += v
+                            occupant_mod_html += f"<div style='color:#059669; margin-top:2px;'><b>✨ Occupant ({occ}) is Exalted</b>: +{v:.2f}{sb_tag}</div>"
+                        elif occ_data.get("is_debilitated"):
+                            v = CSI_WEIGHTS["SPECIAL_RULE_DEB_OCCUPANT_PENALTY"] * occ_sb_mod
+                            net_energy += v
+                            occupant_mod_html += f"<div style='color:#64748B; margin-top:2px;'><b>ℹ️ Occupant ({occ}) is Debilitated</b>: {v:.2f}{sb_tag}</div>"
 
                 lord_mod_html = ""
                 # Check modifiers from the House Lord's placement
@@ -728,7 +744,7 @@ class CSICalculator:
                         net_energy += v
                         lord_mod_html += f"• Lord sits in Enemy House: <span style='color:#DC2626;'>{v:.2f}</span>{sb_tag}<br>"
                         
-                    if lord_h_num in [6, 8, 12] and l_relation not in ["Viparita Yoga", "Viparita Yoga (Cancelled)", "Lagna Lord in Trik Bhava", "Rashi Exchange"]:
+                    if lord_h_num in [6, 8, 12] and l_relation not in ["Viparita Raja Yoga", "Viparita Raja Yoga (Cancelled)", "Lagna Lord in Trik Bhava", "Rashi Exchange"]:
                         v = CSI_WEIGHTS["FUNC_HOUSE_LORD_TRIK_BHAVA_PENALTY"] * l_sb_mod
                         net_energy += v
                         lord_mod_html += f"• Lord in Trik Bhava (H{lord_h_num}): <span style='color:#DC2626;'>{v:.2f}</span>{sb_tag}<br>"
@@ -738,11 +754,11 @@ class CSICalculator:
                         v = CSI_WEIGHTS["SPECIAL_RULE_INDIRECT_EXCHANGE_BONUS"] * l_sb_mod
                         net_energy += v
                         lord_mod_html += f"<div style='color:#059669; margin-top:2px;'><b>✨ Lord in Parivartana (Indirect)</b>: +{v:.2f}{sb_tag}</div>"
-                    elif l_relation == "Viparita Yoga" and not got_direct_viparita:
+                    elif l_relation == "Viparita Raja Yoga" and not got_direct_viparita:
                         v = CSI_WEIGHTS["SPECIAL_RULE_INDIRECT_VIPARITA_BONUS"] * l_sb_mod
                         net_energy += v
                         lord_mod_html += f"<div style='color:#D97706; margin-top:2px;'><b>✨ Lord forms Viparita (Indirect)</b>: +{v:.2f}{sb_tag}</div>"
-                    elif l_relation == "Viparita Yoga (Cancelled)" and not got_direct_cancelled:
+                    elif l_relation == "Viparita Raja Yoga (Cancelled)" and not got_direct_cancelled:
                         v = CSI_WEIGHTS["SPECIAL_RULE_VIPARITA_CANCELLED_BONUS"] * l_sb_mod
                         net_energy += v
                         lord_mod_html += f"<div style='color:#64748B; margin-top:2px;'><b>ℹ️ Lord's Viparita Cancelled</b>: +{v:.2f}{sb_tag}</div>"
@@ -750,6 +766,17 @@ class CSICalculator:
                         v = CSI_WEIGHTS["SPECIAL_RULE_LAGNA_TRIK_BHAVA_PENALTY"] * l_sb_mod
                         net_energy += v
                         lord_mod_html += f"<div style='color:#DC2626; margin-top:2px;'><b>⚠️ Lagna Lord in Trik Bhava</b>: {v:.2f}{sb_tag}</div>"
+
+                    # Exalted / Debilitated Logic (Indirect)
+                    if l_data.get("is_exalted"):
+                        v = CSI_WEIGHTS["SPECIAL_RULE_EXALTED_LORD_BONUS"] * l_sb_mod
+                        net_energy += v
+                        lord_mod_html += f"<div style='color:#059669; margin-top:2px;'><b>✨ Lord ({lord_name}) is Exalted (Indirect)</b>: +{v:.2f}{sb_tag}</div>"
+                    elif l_data.get("is_debilitated"):
+                        v = CSI_WEIGHTS["SPECIAL_RULE_DEB_LORD_PENALTY"] * l_sb_mod
+                        net_energy += v
+                        lord_mod_html += f"<div style='color:#64748B; margin-top:2px;'><b>ℹ️ Lord ({lord_name}) is Debilitated (Indirect)</b>: {v:.2f}{sb_tag}</div>"
+
 
                 func_mod_html = occupant_mod_html + lord_mod_html
             
@@ -785,7 +812,7 @@ class CompositeStrengthDialog(QDialog):
         super().__init__(parent)
         self.app = app
         self.setWindowFlags(Qt.WindowType.Window)
-        self.setWindowTitle("Composite Strength Index (CSI) - AstroBasics Diamond Chart Pro : USE WITH CAUTION")
+        self.setWindowTitle("Composite Strength Index (CSI) - AstroBasics Diamond Chart Pro")
         self.resize(1100, 750)
         self.scrollers = []
 
@@ -1026,10 +1053,19 @@ class CompositeStrengthDialog(QDialog):
             f"<b>Applied Weights:</b> Shadbala: {CSI_WEIGHTS['SHADBALA_NORM_WEIGHT']} | "
             f"Ashtakavarga SAV: {CSI_WEIGHTS['ASHTAKAVARGA_SAV_WEIGHT']} | "
             f"Avastha/Dignity: {CSI_WEIGHTS['AVASTHA_DIGNITY_WEIGHT']}<br>"
+            f"<b>Special Yogas (Houses):</b> Occupied Exchange Bonus: <span style='color:#059669;'>+{CSI_WEIGHTS['SPECIAL_RULE_EXCHANGE_BONUS']}</span> | "
+            f"Indirect Exchange Bonus: <span style='color:#059669;'>+{CSI_WEIGHTS['SPECIAL_RULE_INDIRECT_EXCHANGE_BONUS']}</span> | "
+            f"Occupied Viparita Bonus: <span style='color:#059669;'>+{CSI_WEIGHTS['SPECIAL_RULE_VIPARITA_BONUS']}</span> | "
+            f"Indirect Viparita Bonus: <span style='color:#059669;'>+{CSI_WEIGHTS['SPECIAL_RULE_INDIRECT_VIPARITA_BONUS']}</span><br>"
+            f"<b>Special Global Overrides:</b> Viparita Cancelled Bonus: <span style='color:#64748B;'>+{CSI_WEIGHTS['SPECIAL_RULE_VIPARITA_CANCELLED_BONUS']}</span> | "
             f"Lagna in Trik Bhava Penalty: <span style='color:#DC2626;'>{CSI_WEIGHTS['SPECIAL_RULE_LAGNA_TRIK_BHAVA_PENALTY']}</span><br>"
-            f"<b>Planet Modifiers:</b> Friend/Own House Bonus: <span style='color:#059669;'>+{CSI_WEIGHTS['FUNC_LORD_FRIEND_MODIFIER']}</span> | "
+            f"<b>Exaltation & Debilitation:</b> Exalted Occupant Bonus: <span style='color:#059669;'>+{CSI_WEIGHTS['SPECIAL_RULE_EXALTED_OCCUPANT_BONUS']}</span> | "
+            f"Exalted Lord (Indirect): <span style='color:#059669;'>+{CSI_WEIGHTS['SPECIAL_RULE_EXALTED_LORD_BONUS']}</span> | "
+            f"Debilitated Occupant Penalty: <span style='color:#64748B;'>{CSI_WEIGHTS['SPECIAL_RULE_DEB_OCCUPANT_PENALTY']}</span> | "
+            f"Debilitated Lord (Indirect): <span style='color:#64748B;'>{CSI_WEIGHTS['SPECIAL_RULE_DEB_LORD_PENALTY']}</span><br>"
+            f"<b>Functional Planet Modifiers:</b> Friend/Own House Bonus: <span style='color:#059669;'>+{CSI_WEIGHTS['FUNC_LORD_FRIEND_MODIFIER']}</span> | "
             f"Enemy House Penalty: <span style='color:#DC2626;'>{CSI_WEIGHTS['FUNC_LORD_ENEMY_PENALTY']}</span><br>"
-            f"<b>House Modifiers:</b> Lord Benefic: <span style='color:#059669;'>+{CSI_WEIGHTS['FUNC_HOUSE_LORD_BENEFIC_BONUS']}</span> | "
+            f"<b>Functional House Modifiers:</b> Lord Benefic: <span style='color:#059669;'>+{CSI_WEIGHTS['FUNC_HOUSE_LORD_BENEFIC_BONUS']}</span> | "
             f"Lord Malefic: <span style='color:#DC2626;'>{CSI_WEIGHTS['FUNC_HOUSE_LORD_MALEFIC_PENALTY']}</span> | "
             f"Lord in Friend/Own: <span style='color:#059669;'>+{CSI_WEIGHTS['FUNC_HOUSE_LORD_FRIEND_PLC_BONUS']}</span> | "
             f"Lord in Enemy: <span style='color:#DC2626;'>{CSI_WEIGHTS['FUNC_HOUSE_LORD_ENEMY_PLC_PENALTY']}</span> | "

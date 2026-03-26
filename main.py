@@ -648,7 +648,10 @@ class AstroApp(QMainWindow):
         self.resize(1300, 800)
 
         if os.path.exists(resource_path("icon.ico")):
-            self.setWindowIcon(QIcon(resource_path("icon.ico")))
+            app_icon = QIcon(resource_path("icon.ico"))
+            self.setWindowIcon(app_icon)
+            # This magic line applies the icon globally to ALL windows, including plugins
+            QApplication.instance().setWindowIcon(app_icon)
 
         self.current_file_path = None
         self.last_load_dir = os.path.join(os.getcwd(), "saves")
