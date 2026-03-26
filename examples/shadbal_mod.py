@@ -545,54 +545,81 @@ class ShadbalaCalculator:
 
     def calc_kala_bala(self, p_name, p_lon):
         lon_deg = float(getattr(self.app, "current_lon", 77.2090))
+        # lmt_hours represents hours passed since midnight
         lmt_hours = (self.cur_jd + 0.5 + lon_deg / 360.0) % 1.0 * 24.0
-        bt_gap_hours = lmt_hours if lmt_hours <= 12.0 else 24.0 - lmt_hours
-        nat_val = bt_gap_hours * 5.0
+        
+        # Unnata: difference between midnight and apparent birth time
+        unnata_hours = lmt_hours if lmt_hours <= 12.0 else 24.0 - lmt_hours
+        
+        # Convert to Ghatis (1 hour = 2.5 Ghatis)
+        unnata_ghatis = unnata_hours * 2.5
+        nata_ghatis = 30.0 - unnata_ghatis
 
-        if p_name in ["Moon", "Mars", "Saturn"]: natonnata = nat_val
-        elif p_name in ["Sun", "Jupiter", "Venus"]: natonnata = 60.0 - nat_val
-        else: natonnata = 60.0
+        if p_name in ["Moon", "Mars", "Saturn"]: 
+            natonnata = nata_ghatis * 2.0
+        elif p_name in ["Sun", "Jupiter", "Venus"]: 
+            natonnata = 60.0 - (nata_ghatis * 2.0)
+        else: # Mercury gets full Nathonnata
+            natonnata = 60.0
 
-        ayana_bala = self.ayana_balas.get(p_name, 0.0)
-        paksha = self.paksha_val if p_name in ["Moon", "Mercury", "Jupiter", "Venus"] else 60.0 - self.paksha_val
+        moon_lon = getattr(self, "moon_lon", (self.sun_lon + (self.paksha_val * 3.0)) % 360.0)
+        moon_sun_diff = (360.0 + moon_lon - self.sun_lon) % 360.0
+        
+        # If sum exceeds 6 Rashis (180 deg), deduct from 12 Rashis (360 deg)
+        if moon_sun_diff > 180.0:
+            moon_sun_diff = 360.0 - moon_sun_diff
+            
+        benefic_paksha = moon_sun_diff / 3.0
+        malefic_paksha = 60.0 - benefic_paksha
+        
+        if p_name in ["Moon", "Mercury", "Jupiter", "Venus"]:
+            paksha = benefic_paksha
+        else:
+            paksha = malefic_paksha
 
         sun2lagna_dist = (360.0 + self.asc_lon - self.sun_lon) % 360.0
         tribhaga = 0.0
         if p_name == "Jupiter": tribhaga = 60.0
-        if sun2lagna_dist <= 60.0 and p_name == "Mercury": tribhaga = 60.0
+        elif sun2lagna_dist <= 60.0 and p_name == "Mercury": tribhaga = 60.0
         elif 60.0 < sun2lagna_dist <= 120.0 and p_name == "Sun": tribhaga = 60.0
         elif 120.0 < sun2lagna_dist <= 180.0 and p_name == "Saturn": tribhaga = 60.0
         elif 180.0 < sun2lagna_dist <= 240.0 and p_name == "Moon": tribhaga = 60.0
         elif 240.0 < sun2lagna_dist <= 300.0 and p_name == "Venus": tribhaga = 60.0
         elif 300.0 < sun2lagna_dist <= 360.0 and p_name == "Mars": tribhaga = 60.0
 
-        try:
-            if self.has_swe:
-                import swisseph as swe
-                y, m, d, _ = swe.revjul(self.cur_jd, swe.GREG_CAL)
-            else: raise Exception()
-        except:
-            dt = datetime.datetime.fromordinal(int(self.cur_jd - 1721425.5))
-            y, m, d = dt.year, dt.month, dt.day
+        base_ahargan = 714404108573
+        jd_1860 = 2400410.5
+        
+        # Calculate Ahargan (days past from Creation to birth)
+        ahargan = base_ahargan + int(self.cur_jd - jd_1860)
 
-        lords = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-        daylord_map = { "Sunday": "Sun", "Monday": "Moon", "Tuesday": "Mars", "Wednesday": "Mercury", "Thursday": "Jupiter", "Friday": "Venus", "Saturday": "Saturn" }
+        # Lord of the Astrological Year (Varsha)
+        varsha_q = ahargan // 60
+        varsha_rem = ((varsha_q * 3) + 1) % 7
+        
+        # Lord of the Astrological Month (Maas)
+        maas_q = ahargan // 30
+        maas_rem = ((maas_q * 2) + 1) % 7
+        
+        # Lord of the Day (Dina)
+        dina_rem = ahargan % 7
 
-        varsha_wd = datetime.date(int(y), 1, 1).weekday()
-        maasa_wd = datetime.date(int(y), int(m), 1).weekday()
-        dina_wd = datetime.date(int(y), int(m), int(d)).weekday()
+        daylord_map = {1: "Sun", 2: "Moon", 3: "Mars", 4: "Mercury", 5: "Jupiter", 6: "Venus", 0: "Saturn"}
+        
+        varsha_lord = daylord_map[varsha_rem]
+        maasa_lord = daylord_map[maas_rem]
+        dina_lord = daylord_map[dina_rem]
 
-        varsha_lord = daylord_map[lords[varsha_wd]]
-        maasa_lord = daylord_map[lords[maasa_wd]]
-        dina_lord = daylord_map[lords[dina_wd]]
-
+        # Hora Ruler
+        # 1 hour roughly equals 15 degrees of sun2lagna_dist (distance from sunrise)
         hora_num = int(sun2lagna_dist // 15.0)
-        if sun2lagna_dist % 15.0 > 0: hora_num += 1
-
-        lords_seq = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"] * 5
-        bornvaara = lords[dina_wd]
-        dinaidx = lords_seq.index(bornvaara)
-        hora_lord = daylord_map[lords_seq[dinaidx + hora_num]]
+        
+        # Sequence: skips by 6 weekdays inclusive (+5 index shift)
+        weekday_names = ["Sun", "Moon", "Mars", "Mercury", "Jupiter", "Venus", "Saturn"]
+        dina_idx = weekday_names.index(dina_lord)
+        
+        hora_lord_idx = (dina_idx + (hora_num * 5)) % 7
+        hora_lord = weekday_names[hora_lord_idx]
 
         vmdh_bala = 0.0
         if p_name == varsha_lord: vmdh_bala += 15.0
@@ -600,11 +627,20 @@ class ShadbalaCalculator:
         if p_name == dina_lord: vmdh_bala += 45.0
         if p_name == hora_lord: vmdh_bala += 60.0
 
+        # ---------------------------------------------------------
+        # 5. Ayana Bal (Sloka 15-17)
+        # ---------------------------------------------------------
+        # Using the pre-calculated Ayana bala values as Krantis 
+        # (declinations) are usually calculated in a separate planetary module.
+        ayana_bala = self.ayana_balas.get(p_name, 0.0)
+
         return {
             "Total": natonnata + ayana_bala + paksha + tribhaga + vmdh_bala,
             "Natonnata": natonnata, "Ayana": ayana_bala, "Paksha": paksha, "Tribhaga": tribhaga, "VMDH": vmdh_bala,
             "Lords": f"Y({varsha_lord}), M({maasa_lord}), D({dina_lord}), H({hora_lord})"
         }
+
+
 
     def calc_cheshta_bala(self, p_name, p_data, p_lon):
         if p_name == "Sun": return {"Total": self.ayana_balas.get("Sun", 0.0), "Type": "Ayana Default", "Retro": None, "Gap": 0.0}

@@ -18,14 +18,18 @@ GLOBAL_RASHI_FONT_FAMILY = "Arial"
 GLOBAL_EMOJI_FONT_FAMILY = "Segoe UI Emoji"
 GLOBAL_TOOLTIP_ASTERISK_SIZE = 18  # Global size for tooltips
 GLOBAL_CANVAS_ASTERISK_SCALE = 2.2 # Global multiplier for canvas drawing
+GLOBAL_DEGREE_FONT_MULTIPLIER = 1.1 # Global multiplier for degree font size
+DEGREE_AFTER_SYMBOLS = True # Draw degrees after retrograde/combust/exalted symbols
+DEGREE_FONT_BOLD = True # Draw degrees in bold font
+USE_BETTER_LAYOUT = True # Shift crowded planets to prevent overlap or clipping
 
 # ==========================================
 # ASTROLOGICAL REFERENCE DICTIONARIES
 # ==========================================
 ZODIAC_NAMES = ["Aries", "Taurus", "Gemini", "Cancer", "Leo", "Virgo", "Libra", "Scorpio", "Sagittarius", "Capricorn", "Aquarius", "Pisces"]
-ZODIAC_ELEMENTS = ["🔥 Fire", "🌍 Earth", "💨 Air", "💧 Water"] * 3
+ZODIAC_ELEMENTS = ["🔥 Fire", "🌍 Earth", "💭 Air", "💧 Water"] * 3
 ZODIAC_NATURES = ["Movable", "Fixed", "Dual"] * 4
-ZODIAC_EMOJIS = {1: '🔥', 2: '🌍', 3: '💨', 4: '💧', 5: '🔥', 6: '🌍', 7: '💨', 8: '💧', 9: '🔥', 10: '🌍', 11: '💨', 12: '💧'}
+ZODIAC_EMOJIS = {1: '🔥', 2: '🌍', 3: '💭', 4: '💧', 5: '🔥', 6: '🌍', 7: '💭', 8: '💧', 9: '🔥', 10: '🌍', 11: '💭', 12: '💧'}
 
 SIGN_LORDS = {1: "Mars", 2: "Venus", 3: "Mercury", 4: "Moon", 5: "Sun", 6: "Mercury", 7: "Venus", 8: "Mars", 9: "Jupiter", 10: "Saturn", 11: "Saturn", 12: "Jupiter"}
 
@@ -435,7 +439,7 @@ class ChartRenderer(QWidget):
             self.use_linear_easing = True
         else:
             self.instant_snap = False
-            self.anim_duration = 350.0
+            self.anim_duration = 600.0
             self.use_linear_easing = False
             
         self.update()  
@@ -474,7 +478,6 @@ class ChartRenderer(QWidget):
                 cur[cat][k] = t_v.copy() 
                 cur[cat][k]["x"] = lerp(s_v["x"], t_v["x"])
                 cur[cat][k]["y"] = lerp(s_v["y"], t_v["y"])
-                
                 if cat == "planets":
                     cur[cat][k]["scale"] = lerp(s_v.get("scale", 1.0), t_v.get("scale", 1.0))
 
@@ -516,33 +519,64 @@ class ChartRenderer(QWidget):
             asc_deg_effective = self.chart_data["ascendant"].get("div_lon", self.chart_data["ascendant"]["degree"])
             
         all_bodies = []
+        is_divisional = self.title and not (self.title == "D1" or self.title.startswith("D1 "))
         
         if self.highlight_asc_moon: 
             is_vargottama = self.chart_data["ascendant"].get("vargottama", False)
-            asc_str = "Asc*" if is_vargottama and self.title and "D1" not in self.title else "Asc"
+            asc_str = "Asc*" if is_vargottama and is_divisional else "Asc"
             all_bodies.append({
                 "name": "Ascendant", 
                 "str": asc_str, 
                 "color_dark": DARK_COLORS.get("Ascendant", QColor("#000000")), 
                 "lon": asc_deg_effective, 
                 "retro": False, "exalted": False, "debilitated": False, "combust": False, 
+                "obliterated": False,
                 "raw": {
                     "name": "Ascendant", 
                     "sign_index": base_asc_sign_idx, 
                     "deg_in_sign": self.chart_data["ascendant"]["degree"] % 30, 
-                    "retro": False, "combust": False, "house": 1, 
+                    "retro": False, "combust": False, "obliterated": False, "house": 1, 
                     "vargottama": is_vargottama
                 }
             })
             
+        sun_p = next((p for p in self.chart_data["planets"] if p["name"] == "Sun"), None)
+        sun_raw_lon = sun_p["lon"] if sun_p else None
+
         for p in self.chart_data["planets"]:
             if p["name"] in ["Rahu", "Ketu"] and not self.show_rahu_ketu: 
                 continue
                 
             p_str = UNICODE_SYMS[p["name"]] if self.use_symbols else p["sym"]
-            if p.get("vargottama", False) and self.title and "D1" not in self.title:
+            if p.get("vargottama", False) and is_divisional:
                 p_str += "*"
                 
+            raw_copy = dict(p)
+            
+            # --- Dynamic Combust & Obliterated Logic based on True Longitude ---
+            if sun_raw_lon is not None and p["name"] not in ["Sun", "Rahu", "Ketu"]:
+                p_raw_lon = p["lon"]
+                diff = min((p_raw_lon - sun_raw_lon) % 360, (sun_raw_lon - p_raw_lon) % 360)
+                is_retro = p.get("retro", False)
+                
+                is_combust = False
+                is_obliterated = False
+                
+                if diff <= 1.0:
+                    is_obliterated = True
+                    is_combust = True
+                else:
+                    name = p["name"]
+                    if name == "Moon" and diff <= 12.0: is_combust = True
+                    elif name == "Mars" and diff <= 17.0: is_combust = True
+                    elif name == "Mercury" and ((is_retro and diff <= 12.0) or (not is_retro and diff <= 14.0)): is_combust = True
+                    elif name == "Jupiter" and diff <= 11.0: is_combust = True
+                    elif name == "Venus" and ((is_retro and diff <= 8.0) or (not is_retro and diff <= 10.0)): is_combust = True
+                    elif name == "Saturn" and diff <= 15.0: is_combust = True
+                
+                raw_copy["combust"] = is_combust
+                raw_copy["obliterated"] = is_obliterated
+
             all_bodies.append({
                 "name": p["name"], 
                 "str": p_str, 
@@ -551,8 +585,9 @@ class ChartRenderer(QWidget):
                 "retro": p["retro"], 
                 "exalted": p.get("exalted", False), 
                 "debilitated": p.get("debilitated", False), 
-                "combust": p.get("combust", False), 
-                "raw": p
+                "combust": raw_copy.get("combust", False), 
+                "obliterated": raw_copy.get("obliterated", False),
+                "raw": raw_copy
             })
 
         bodies_by_house = {i: [] for i in range(1, 13)}
@@ -622,6 +657,17 @@ class ChartRenderer(QWidget):
                 else: 
                     px, _ = animation.get_diamond_planet_coords(visual_h_num, idx, num_b, w, h)
                     py = animation.get_diamond_house_center(visual_h_num, w, h)[1] - ((num_b - 1) * spacing) / 2.0 + (idx * spacing)
+                    
+                    # --- NEW LAYOUT ADJUSTMENT: Prevent clipping and overlaps ---
+                    if USE_BETTER_LAYOUT and num_b >= 1:
+                        if visual_h_num in [3, 5]:
+                            px -= w * 0.025
+                        elif visual_h_num in [2, 6]:
+                            px -= w * 0.035
+                        elif visual_h_num in [8, 12]:
+                            px -= w * 0.035
+                        elif visual_h_num in [9, 11]:
+                            px -= w * 0.035
                     
                 layout["planets"][b["name"]] = {
                     "x": px + x, "y": py + y, "str": b["str"], 
@@ -821,6 +867,38 @@ class ChartRenderer(QWidget):
             marker_y, marker_h = b["y"] - 10 * scale, 20 * scale
             marker_fs = max(4, int(marker_base_fs * scale))
             
+            # --- PREPARE DEGREES FOR D1 CHART ONLY ---
+            draw_deg_block = False
+            deg_str = ""
+            deg_color = None
+            deg_fs = 5
+            is_d1_chart = self.title and (self.title == "D1" or self.title.startswith("D1 "))
+            
+            if is_d1_chart and "deg_in_sign" in b["raw"]:
+                draw_deg_block = True
+                deg_val = b["raw"]["deg_in_sign"]
+                deg_str = f"{int(deg_val)}°"
+                
+                # Apply global font multiplier
+                deg_fs = max(5, int(marker_fs * GLOBAL_DEGREE_FONT_MULTIPLIER)) 
+                
+                if deg_val < 6.0: deg_color = QColor("#777777")
+                elif deg_val < 12.0: deg_color = QColor("#27ae60")
+                elif deg_val < 18.0: deg_color = QColor("#DAA520")
+                elif deg_val < 24.0: deg_color = QColor("#27ae60")
+                else: deg_color = QColor("#777777")
+                
+            # DRAW DEGREES BEFORE SYMBOLS
+            if draw_deg_block and not DEGREE_AFTER_SYMBOLS:
+                deg_weight = QFont.Weight.Bold if DEGREE_FONT_BOLD else QFont.Weight.Normal
+                painter.setFont(QFont(GLOBAL_CHART_FONT_FAMILY, deg_fs, deg_weight))
+                painter.setPen(deg_color) 
+                painter.drawText(QRectF(marker_x, marker_y, 30 * scale, marker_h), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, deg_str)
+                marker_x += painter.fontMetrics().horizontalAdvance(deg_str) + 2
+                
+            # --- RESET PEN FOR THE REST OF THE MARKERS ---
+            painter.setPen(b["color_dark"])
+            
             if b["retro"]:
                 painter.setFont(QFont(GLOBAL_CHART_FONT_FAMILY, max(4, marker_fs - 1), QFont.Weight.Bold))
                 painter.drawText(QRectF(marker_x, marker_y - 5 * scale, 20 * scale, marker_h), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, "R")
@@ -837,7 +915,11 @@ class ChartRenderer(QWidget):
                 painter.drawText(QRectF(marker_x, marker_y, 20 * scale, marker_h), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, "▼")
                 marker_x += painter.fontMetrics().horizontalAdvance("▼") + 2
                 
-            if b.get("combust"):
+            if b.get("obliterated"):
+                painter.setFont(QFont(GLOBAL_EMOJI_FONT_FAMILY, marker_fs))
+                painter.drawText(QRectF(marker_x, marker_y, 20 * scale, marker_h), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, "☀")
+                marker_x += painter.fontMetrics().horizontalAdvance("☀") + 2
+            elif b.get("combust"):
                 painter.setFont(QFont(GLOBAL_EMOJI_FONT_FAMILY, marker_fs))
                 painter.drawText(QRectF(marker_x, marker_y, 20 * scale, marker_h), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, "🔥")
                 marker_x += painter.fontMetrics().horizontalAdvance("🔥") + 2
@@ -849,6 +931,15 @@ class ChartRenderer(QWidget):
                     painter.setPen(QColor(func_color))
                     painter.setFont(QFont(GLOBAL_CHART_FONT_FAMILY, int(marker_fs * GLOBAL_CANVAS_ASTERISK_SCALE), QFont.Weight.Bold))
                     painter.drawText(QRectF(marker_x, marker_y + 2 * scale, 20 * scale, marker_h), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, "*")
+                    marker_x += painter.fontMetrics().horizontalAdvance("*") + 1
+                    
+            # DRAW DEGREES AFTER SYMBOLS
+            if draw_deg_block and DEGREE_AFTER_SYMBOLS:
+                deg_weight = QFont.Weight.Bold if DEGREE_FONT_BOLD else QFont.Weight.Normal
+                painter.setFont(QFont(GLOBAL_CHART_FONT_FAMILY, deg_fs, deg_weight))
+                painter.setPen(deg_color) 
+                painter.drawText(QRectF(marker_x, marker_y, 30 * scale, marker_h), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, deg_str)
+                marker_x += painter.fontMetrics().horizontalAdvance(deg_str) + 2
 
         if self.show_aspects and self.show_arrows and self.chart_data and self.chart_data.get("aspects"):
             asc_sign_idx = self.rotated_asc_sign_idx if getattr(self, 'rotated_asc_sign_idx', None) is not None else self.chart_data["ascendant"]["sign_index"]
@@ -937,7 +1028,7 @@ class ChartRenderer(QWidget):
         asc_sign_idx = getattr(self, 'rotated_asc_sign_idx', None) if getattr(self, 'rotated_asc_sign_idx', None) is not None else base_asc_sign_idx
 
         context_prefix = ""
-        is_d_chart = self.title and "D1" not in self.title
+        is_d_chart = self.title and not (self.title == "D1" or self.title.startswith("D1 "))
         
         if is_d_chart:
             chart_prefix = self.title.split()[0]
@@ -971,7 +1062,10 @@ class ChartRenderer(QWidget):
                 if p_raw.get("exalted"): inline_statuses.append("Exalted")
                 if p_raw.get("debilitated"): inline_statuses.append("Debilitated")
                 if p_raw.get("own_sign"): inline_statuses.append("Own Sign")
-                if p_raw.get("combust"): inline_statuses.append("Combust")
+                
+                if p_raw.get("obliterated"): inline_statuses.append("Obliterated")
+                elif p_raw.get("combust"): inline_statuses.append("Combust")
+                
                 if p_raw.get("vargottama") and is_d_chart:
                     inline_statuses.append("Vargottama")
                 
@@ -1018,7 +1112,10 @@ class ChartRenderer(QWidget):
                     if p_raw.get("exalted"): sc += 2; bd.append("Exalted (+2)")
                     if p_raw.get("own_sign"): sc += 2; bd.append("Own Sign (+2)")
                     if p_raw.get("debilitated"): sc -= 2; bd.append("Debilitated (-2)")
-                    if p_raw.get("combust"): sc -= 1; bd.append("Combust (-1)")
+                    
+                    if p_raw.get("obliterated"): sc -= 2; bd.append("Obliterated (-2)")
+                    elif p_raw.get("combust"): sc -= 1; bd.append("Combust (-1)")
+                    
                     if house != "-":
                         if house in [1, 4, 5, 7, 9, 10]: sc += 1; bd.append("Kendra/Trine (+1)")
                         if house in [6, 8, 12]: sc -= 1; bd.append("Dusthana (-1)")

@@ -1,8 +1,6 @@
-import sys
-import os
-import json
-import importlib
-import copy
+#dynamic_settings_modules/research_plugin.py
+
+import sys, os, json, importlib, copy
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,QSplitter, QScrollArea, QGridLayout, QLineEdit, QFileDialog,QMainWindow, QMenu, QMessageBox, QGroupBox, QComboBox)
 from PyQt6.QtCore import Qt, QObject, pyqtSignal, QEvent, QTimer
 from PyQt6.QtGui import QAction

@@ -1,3 +1,5 @@
+#dynamic_settings_module/zupdater.py
+
 import os, sys, json, hashlib, subprocess, urllib.request, time
 from urllib.error import URLError
 

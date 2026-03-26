@@ -1,8 +1,7 @@
 # dynamic_settings_modules/advanced_bphs_calcs.py
 
 import sys, math
-from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QDialog, QTabWidget,
-                             QTableWidget, QTableWidgetItem, QHeaderView, QLabel, QComboBox, QScrollArea, QGroupBox)
+from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QDialog, QTabWidget,QTableWidget, QTableWidgetItem, QHeaderView, QLabel, QComboBox, QScrollArea, QGroupBox)
 from PyQt6.QtGui import QPainter, QColor, QFont, QPen, QBrush, QPainterPath
 from PyQt6.QtCore import Qt, QRectF, QPointF, QTimer
 import swisseph as swe

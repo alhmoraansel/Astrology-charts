@@ -1,4 +1,5 @@
-# dynamic_settings_modules/logger_mod.py
+# dynamic_settings_modules/zzlogger_mod.py
+
 import sys, traceback, threading, logging, warnings, builtins
 from PyQt6.QtWidgets import (QPushButton, QVBoxLayout, QTextBrowser, QWidget, QMainWindow, QApplication)
 from PyQt6.QtCore import qInstallMessageHandler, QtMsgType, QObject, pyqtSignal, Qt, QEvent
@@ -42,7 +43,7 @@ class AstroLoggerCore(QObject):
             f'font-family: \'Cascadia Code\', \'JetBrains Mono\', Consolas, monospace; '
             f'font-size: 20px;">'
             f'<span style="color:{color}; font-weight: 1000; padding-right: 10px;">[{level}]</span>'
-            f'<span style="color:{color};">{f'           '}{safe_msg}</span>'
+            f'<span style="color:{color};">{f"           "}{safe_msg}</span>'
             f'</div>')
         
         self.logs.append(html_msg)
@@ -265,12 +266,34 @@ def setup_ui(app, layout):
         app._unread_log_count = 0
 
     def mark_as_read():
+        try:
+            # Check if the C++ object still exists before updating
+            btn.isEnabled()
+        except RuntimeError:
+            try:
+                if app._live_logger_window:
+                    app._live_logger_window.logs_read.disconnect(mark_as_read)
+            except Exception:
+                pass
+            return
+
         if app._unread_log_count > 0:
             app._unread_log_count = 0
             btn.setText("Logs and Errors")
             btn.setStyleSheet(BTN_STYLE_NORMAL)
 
     def on_new_log_for_btn(level, html_msg):
+        try:
+            # Check if underlying C++ widget is deleted (e.g. dynamic UI reload)
+            btn.isEnabled()
+        except RuntimeError:
+            # Button was deleted. Disconnect to prevent further RuntimeErrors and memory leaks
+            try:
+                sys._astro_logger.new_log.disconnect(on_new_log_for_btn)
+            except Exception:
+                pass
+            return
+
         win = app._live_logger_window
         # Check if the user is currently looking at the logger window
         is_viewing = win and win.isVisible() and not win.isMinimized() and win.isActiveWindow()

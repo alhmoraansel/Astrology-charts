@@ -14,6 +14,7 @@ from geopy.geocoders import Nominatim
 from timezonefinder import TimezoneFinder
 
 #own file dependencies, need not to be changed
+from dynamic_settings_modules.zzlogger_mod import info_print
 import save_prefs,animation,astro_engine
 import help_content
 from chart_renderer import ChartRenderer
@@ -1141,17 +1142,18 @@ class AstroApp(QMainWindow):
         set_layout.setSpacing(4)
 
         self.cb_ayanamsa = NoScrollComboBox()
-        self.cb_ayanamsa.addItems(["Lahiri", "Raman", "Fagan/Bradley"])
+        self.cb_ayanamsa.addItems([
+            "True Lahiri (Chitrapaksha)", "Lahiri", "Raman", "Fagan/Bradley", 
+            "Krishnamurti (KP)", "True Revati", "True Pushya", 
+            "Suryasiddhanta", "Yukteshwar", "Usha/Shashi", "Bhasin"
+        ])
 
         self.cb_outline_mode = NoScrollComboBox()
-        self.cb_outline_mode.addItems(
-            ["Vitality (Lords)", "Pressure (Aspects)", "Regime (Forces)", "None"])
+        self.cb_outline_mode.addItems(["Vitality (Lords)", "Pressure (Aspects)", "Regime (Forces)", "None"])
 
         self.cb_layout_mode = NoScrollComboBox()
-        self.cb_layout_mode.addItems(
-            ["3 Columns", "2 Columns", "1 Left, 2 Right (Stacked)"])
-        self.cb_layout_mode.currentIndexChanged.connect(
-            self.update_grid_layout)
+        self.cb_layout_mode.addItems(["3 Columns", "2 Columns", "1 Left, 2 Right (Stacked)"])
+        self.cb_layout_mode.currentIndexChanged.connect(self.update_grid_layout)
 
         self.cb_ayanamsa.setMaxVisibleItems(20)
         self.cb_outline_mode.setMaxVisibleItems(20)
@@ -1356,10 +1358,8 @@ class AstroApp(QMainWindow):
         if getattr(self, "is_updating_ui", False) or not hasattr(self, "chart_layout"):
             return
 
-        v_scroll = self.charts_scroll.verticalScrollBar(
-        ).value() if hasattr(self, 'charts_scroll') else 0
-        h_scroll = self.charts_scroll.horizontalScrollBar(
-        ).value() if hasattr(self, 'charts_scroll') else 0
+        v_scroll = self.charts_scroll.verticalScrollBar().value() if hasattr(self, 'charts_scroll') else 0
+        h_scroll = self.charts_scroll.horizontalScrollBar().value() if hasattr(self, 'charts_scroll') else 0
 
         active_divs = self.active_charts_order.copy()
         if not active_divs:

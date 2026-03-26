@@ -1,5 +1,4 @@
-# transit_plugin.py
-# A dynamic plugin for AstroBasics Diamond Chart Pro to visualize Gochar (Transit) planets.
+# dynamic_settings_modules/a_transit_mod.py
 
 import datetime, math, copy
 

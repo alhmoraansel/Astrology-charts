@@ -1,9 +1,7 @@
 # dynamic_settings_modules/shadbala_mod.py
-import math
-import datetime
-import traceback
-from PyQt6.QtWidgets import (QPushButton, QMessageBox, QLabel, QVBoxLayout, QHBoxLayout, 
-                             QDialog, QTableWidget, QTableWidgetItem, QHeaderView, QProgressBar, QWidget, QTabWidget, QTextEdit, QStyledItemDelegate,QGroupBox)
+
+import math, datetime, traceback
+from PyQt6.QtWidgets import (QPushButton, QMessageBox, QLabel, QVBoxLayout, QHBoxLayout, QDialog, QTableWidget, QTableWidgetItem, QHeaderView, QProgressBar, QWidget, QTabWidget, QTextEdit, QStyledItemDelegate,QGroupBox)
 from PyQt6.QtGui import QCursor, QFont, QColor, QPen, QBrush, QPainter
 from PyQt6.QtCore import Qt, QTimer, QPoint, QRectF, QPointF
 import __main__
@@ -547,7 +545,6 @@ class ShadbalaCalculator:
                             pinda += val * grah_mult[g]
             self.shodhya_pindas[p] = pinda
 
-
     def get_jm_dignity(self, p_name, varga_name):
         varga_chart = self.varga_charts.get(varga_name, {})
         pv = next((x for x in varga_chart.get("planets", []) if x.get("name") == p_name), None)
@@ -667,62 +664,141 @@ class ShadbalaCalculator:
         dist = min(abs(p_lon - zero_lon), 360.0 - abs(p_lon - zero_lon))
         return {"Total": dist / 3.0, "zero_h": zero_h[p_name], "zero_lon": zero_lon, "dist": dist}
 
+    def get_csp_varsha_lord(self):
+        """Calculates Varsha Lord based on Chaitra Shukla Pratipada (Luni-Solar Year)."""
+        import swisseph as swe
+        import math
+        
+        swe.set_sid_mode(swe.SIDM_LAHIRI)
+        flags = swe.FLG_SWIEPH | swe.FLG_SIDEREAL
+
+        for i in range(380):
+            jd_eval = self.cur_jd - i
+            sun_pos, _ = swe.calc_ut(jd_eval, swe.SUN, flags)
+            moon_pos, _ = swe.calc_ut(jd_eval, swe.MOON, flags)
+            
+            # Sun in Sidereal Pisces (330 to 360 degrees)
+            if 330.0 <= sun_pos[0] < 360.0:
+                tithi_deg = (360.0 + moon_pos[0] - sun_pos[0]) % 360.0
+                # Shukla Pratipada (First 12 degrees after New Moon)
+                if 0.0 <= tithi_deg < 12.0:
+                    weekday_idx = int(math.floor(jd_eval + 1.5 + float(getattr(self.app, "current_lon", 77.2090))/360.0)) % 7
+                    daylord_map = {0: "Sun", 1: "Moon", 2: "Mars", 3: "Mercury", 4: "Jupiter", 5: "Venus", 6: "Saturn"}
+                    return daylord_map[weekday_idx]
+        return "Sun" 
+
+    def get_panchang_maasa_lord(self):
+        """Calculates Maasa Lord based on the current lunar month's Shukla Pratipada."""
+        import swisseph as swe
+        import math
+        
+        swe.set_sid_mode(swe.SIDM_LAHIRI)
+        flags = swe.FLG_SWIEPH | swe.FLG_SIDEREAL
+
+        for i in range(35):
+            jd_eval = self.cur_jd - i
+            sun_pos, _ = swe.calc_ut(jd_eval, swe.SUN, flags)
+            moon_pos, _ = swe.calc_ut(jd_eval, swe.MOON, flags)
+            
+            tithi_deg = (360.0 + moon_pos[0] - sun_pos[0]) % 360.0
+            # Shukla Pratipada of the current lunar month
+            if 0.0 <= tithi_deg < 12.0:
+                weekday_idx = int(math.floor(jd_eval + 1.5 + float(getattr(self.app, "current_lon", 77.2090))/360.0)) % 7
+                daylord_map = {0: "Sun", 1: "Moon", 2: "Mars", 3: "Mercury", 4: "Jupiter", 5: "Venus", 6: "Saturn"}
+                return daylord_map[weekday_idx]
+        return "Sun"
+
     def calc_kala_bala(self, p_name, p_lon):
+        import math
+        
+        # ---------------------------------------------------------
+        # 1. Nathonnata Bal 
+        # ---------------------------------------------------------
         lon_deg = float(getattr(self.app, "current_lon", 77.2090))
         lmt_hours = (self.cur_jd + 0.5 + lon_deg / 360.0) % 1.0 * 24.0
-        bt_gap_hours = lmt_hours if lmt_hours <= 12.0 else 24.0 - lmt_hours
-        nat_val = bt_gap_hours * 5.0
+        
+        unnata_hours = lmt_hours if lmt_hours <= 12.0 else 24.0 - lmt_hours
+        unnata_ghatis = unnata_hours * 2.5
+        nata_ghatis = 30.0 - unnata_ghatis
 
-        if p_name in ["Moon", "Mars", "Saturn"]: natonnata = nat_val
-        elif p_name in ["Sun", "Jupiter", "Venus"]: natonnata = 60.0 - nat_val
-        else: natonnata = 60.0
+        if p_name in ["Moon", "Mars", "Saturn"]: 
+            natonnata = nata_ghatis * 2.0
+        elif p_name in ["Sun", "Jupiter", "Venus"]: 
+            natonnata = 60.0 - (nata_ghatis * 2.0)
+        else: 
+            natonnata = 60.0
 
-        ayana_bala = self.ayana_balas.get(p_name, 0.0)
-        paksha = self.paksha_val if p_name in ["Moon", "Mercury", "Jupiter", "Venus"] else 60.0 - self.paksha_val
+        # ---------------------------------------------------------
+        # 2. Paksha Bal 
+        # ---------------------------------------------------------
+        moon_lon = getattr(self, "moon_lon", (self.sun_lon + (self.paksha_val * 3.0)) % 360.0)
+        moon_sun_diff = (360.0 + moon_lon - self.sun_lon) % 360.0
+        
+        if moon_sun_diff > 180.0:
+            moon_sun_diff = 360.0 - moon_sun_diff
+            
+        benefic_paksha = moon_sun_diff / 3.0
+        malefic_paksha = 60.0 - benefic_paksha
+        
+        if p_name in ["Moon", "Mercury", "Jupiter", "Venus"]:
+            paksha = benefic_paksha
+        else:
+            paksha = malefic_paksha
 
+        # ---------------------------------------------------------
+        # 3. Tribhaga Bal 
+        # ---------------------------------------------------------
         sun2lagna_dist = (360.0 + self.asc_lon - self.sun_lon) % 360.0
         tribhaga = 0.0
         if p_name == "Jupiter": tribhaga = 60.0
-        if sun2lagna_dist <= 60.0 and p_name == "Mercury": tribhaga = 60.0
+        elif sun2lagna_dist <= 60.0 and p_name == "Mercury": tribhaga = 60.0
         elif 60.0 < sun2lagna_dist <= 120.0 and p_name == "Sun": tribhaga = 60.0
         elif 120.0 < sun2lagna_dist <= 180.0 and p_name == "Saturn": tribhaga = 60.0
         elif 180.0 < sun2lagna_dist <= 240.0 and p_name == "Moon": tribhaga = 60.0
         elif 240.0 < sun2lagna_dist <= 300.0 and p_name == "Venus": tribhaga = 60.0
         elif 300.0 < sun2lagna_dist <= 360.0 and p_name == "Mars": tribhaga = 60.0
 
-        try:
-            if self.has_swe:
-                import swisseph as swe
-                y, m, d, _ = swe.revjul(self.cur_jd, swe.GREG_CAL)
-            else: raise Exception()
-        except:
-            dt = datetime.datetime.fromordinal(int(self.cur_jd - 1721425.5))
-            y, m, d = dt.year, dt.month, dt.day
+        # ---------------------------------------------------------
+        # 4. Varsha-Maas-Dina-Hora (VMDH) Bal - PANCHANG METHOD
+        # ---------------------------------------------------------
+        # Call the new helper methods for Year and Month lords
+        varsha_lord = self.get_csp_varsha_lord()
+        maasa_lord = self.get_panchang_maasa_lord()
+        
+        # Calculate current Gregorian weekday based on local time
+        local_jd = self.cur_jd + (lon_deg / 360.0)
+        gregorian_weekday_idx = int(math.floor(local_jd + 1.5)) % 7
+        
+        # In Panchang, the day does not change until Sunrise.
+        # If sun2lagna_dist is roughly between 270 (midnight) and 359 (just before sunrise),
+        # we are technically still on the previous Panchang day.
+        if 270.0 <= sun2lagna_dist < 360.0:
+            gregorian_weekday_idx = (gregorian_weekday_idx - 1) % 7
 
-        lords = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-        daylord_map = { "Sunday": "Sun", "Monday": "Moon", "Tuesday": "Mars", "Wednesday": "Mercury", "Thursday": "Jupiter", "Friday": "Venus", "Saturday": "Saturn" }
+        daylord_map = {
+            0: "Sun", 1: "Moon", 2: "Mars", 3: "Mercury", 
+            4: "Jupiter", 5: "Venus", 6: "Saturn"
+        }
+        dina_lord = daylord_map[gregorian_weekday_idx]
 
-        varsha_wd = datetime.date(int(y), 1, 1).weekday()
-        maasa_wd = datetime.date(int(y), int(m), 1).weekday()
-        dina_wd = datetime.date(int(y), int(m), int(d)).weekday()
-
-        varsha_lord = daylord_map[lords[varsha_wd]]
-        maasa_lord = daylord_map[lords[maasa_wd]]
-        dina_lord = daylord_map[lords[dina_wd]]
-
+        # Hora Ruler (skips by 6 weekdays / jumps +5 index spaces)
         hora_num = int(sun2lagna_dist // 15.0)
-        if sun2lagna_dist % 15.0 > 0: hora_num += 1
-
-        lords_seq = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"] * 5
-        bornvaara = lords[dina_wd]
-        dinaidx = lords_seq.index(bornvaara)
-        hora_lord = daylord_map[lords_seq[dinaidx + hora_num]]
+        weekday_names = ["Sun", "Moon", "Mars", "Mercury", "Jupiter", "Venus", "Saturn"]
+        dina_idx = weekday_names.index(dina_lord)
+        
+        hora_lord_idx = (dina_idx + (hora_num * 5)) % 7
+        hora_lord = weekday_names[hora_lord_idx]
 
         vmdh_bala = 0.0
         if p_name == varsha_lord: vmdh_bala += 15.0
         if p_name == maasa_lord: vmdh_bala += 30.0
         if p_name == dina_lord: vmdh_bala += 45.0
         if p_name == hora_lord: vmdh_bala += 60.0
+
+        # ---------------------------------------------------------
+        # 5. Ayana Bal
+        # ---------------------------------------------------------
+        ayana_bala = self.ayana_balas.get(p_name, 0.0)
 
         return {
             "Total": natonnata + ayana_bala + paksha + tribhaga + vmdh_bala,
