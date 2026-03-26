@@ -1,7 +1,7 @@
 {
     "version": "0.3.0",
     "files": {
-        "AstroBasics.exe": "f41d3497eb009723afc061ab8d1f4f1184b6d7594a68cc364d8ff699f117aa17",
+        "AstroBasics.exe": "162a031e5f17400baff293e2041b8834932a848e80454a8a3f72ad3ec1a5dd4e",
         "_internal/api-ms-win-core-console-l1-1-0.dll": "f0f7cb2a9ffccb43400db88d6bf99f2fcc3161de1ac96c48501d4d522c48c2ca",
         "_internal/api-ms-win-core-datetime-l1-1-0.dll": "55e5f10d0dd9c85ff1c6dc7798e46b3a4422fb7ebc583bb00d06a7df2494397b",
         "_internal/api-ms-win-core-debug-l1-1-0.dll": "092b72832c47f9c4edcde61f1a111c20eb73452984e0a6109482de74eb03c34d",
@@ -42,7 +42,7 @@
         "_internal/api-ms-win-crt-string-l1-1-0.dll": "44ddab31c182235ac5405d31c1cba048316cc230698e392a732ac941ec683bad",
         "_internal/api-ms-win-crt-time-l1-1-0.dll": "a409e25a9d3c252cc0a5af9df85d3733e946087b06cd1fb2cf1bf640eb0d49ba",
         "_internal/api-ms-win-crt-utility-l1-1-0.dll": "cfb2ee4e426bb00b76163c1a66cf8cfef8d7450cbf9bbce3bc9eb2053f51e0e5",
-        "_internal/base_library.zip": "6627f276b05b1e9f42391f782e97e8686d1a1bf2a031b7693118908d51a82228",
+        "_internal/base_library.zip": "8e93c925ab95c99193e5a76845fdd2af83a051acdc1525b1109c5b36de55f318",
         "_internal/libcrypto-3.dll": "e03dd02fdcfb791981c9962827cfcf495f2a47a514c1526efb57f847a9df514a",
         "_internal/libffi-8.dll": "eff52743773eb550fcc6ce3efc37c85724502233b6b002a35496d828bd7b280a",
         "_internal/libssl-3.dll": "1e4bc0638682bfcbb36f4465d6a2e9944d917a60f05ecc8ddf9e96847e05e13f",
