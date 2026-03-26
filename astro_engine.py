@@ -321,9 +321,9 @@ def perform_rectification_search(params, result_queue, stop_event):
                 res = safe_calc_ut(jd, body_map[name], calc_flag)
                 return engine.get_div_sign_and_lon(res[0][0], div_type)[0]
 
-        # Build list of constraints to evaluate
+        # Build list of constraints to evaluate strictly from SLOWEST to FASTEST
         checks = []
-        for p in ["Saturn", "Jupiter", "Rahu", "Ketu", "Mars", "Sun", "Venus", "Mercury", "Moon", "Ascendant"]:
+        for p in ["Saturn", "Rahu", "Ketu", "Jupiter", "Mars", "Sun", "Venus", "Mercury", "Moon", "Ascendant"]:
             if p == "Ascendant" and target_asc is not None:
                 checks.append((p, target_asc))
             elif p in target_planets:
@@ -334,69 +334,112 @@ def perform_rectification_search(params, result_queue, stop_event):
         # --- PHASE 1: SPEED CASCADING WINDOW SEARCH ---
         if params.get('search_mode', 'speed') == 'speed':
             search_range = params.get('search_range', 1000)
-            start_range = params.get('start_range', 1)
+            start_range = params.get('start_range', 0)
             
-            # Radiate outward year by year
-            offsets = [0] if start_range == 1 else []
+            # Radiate outward in expanding symmetrical shells (checking +i and -i simultaneously)
+            # This ensures we search year forward and backward symmetrically so no closer dates are left behind.
             for i in range(start_range, search_range + 1):
-                offsets.extend((i, -i))
-            
-            for offset in offsets:
-                year = params['base_year'] + offset
-                if offset % 10 == 0: 
-                    result_queue.put({"status": "progress", "msg": f"Cascade Scan: Year {year} (Range +/- {search_range})..."})
+                offsets = [i, -i] if i != 0 else [0]
                 
-                # Start with the whole year as the valid window
-                start_win = dt_dict_to_utc_jd({'year': year, 'month': 1, 'day': 1}, params['tz'])
-                end_win = dt_dict_to_utc_jd({'year': year+1, 'month': 1, 'day': 1}, params['tz'])
-                windows = [(start_win, end_win)]
-
-                # Narrow windows down planet by planet
-                for p_name, t_sign in checks:
-                    if not windows: break 
+                year_matches = []
+                
+                for offset in offsets:
+                    year = params['base_year'] + offset
+                    if offset % 10 == 0 and offset >= 0: 
+                        result_queue.put({"status": "progress", "msg": f"Cascading Search: Shell +/- {i} Years (Processing {year})..."})
                     
-                    # Compute safe jump size based on planet speed
-                    if p_name == "Ascendant":
-                        safe_step = 0.5 / 1440.0
-                    else:
-                        calc_step = (window_deg / max_speeds.get(p_name, 1.0)) * 0.45
-                        safe_step = max(calc_step, 1.0 / 1440.0)
-                        
-                    new_windows = []
-                    for w_start, w_end in windows:
-                        t = w_start
-                        in_match = False
-                        m_start = None
-                        
-                        while t <= w_end + safe_step:
-                            if stop_event.is_set(): return
-                            check_t = min(t, w_end)
-                            is_match = (get_sign_idx(check_t, p_name) == t_sign)
-                            
-                            if is_match and not in_match: 
-                                m_start = check_t
-                                in_match = True
-                            elif not is_match and in_match: 
-                                new_windows.append((m_start, check_t))
-                                in_match = False
-                                
-                            if t >= w_end: break
-                            t += safe_step
-                            
-                        if in_match: 
-                            new_windows.append((m_start, w_end))
-                            
-                    windows = new_windows
+                    # Start with the whole year as the valid window
+                    start_win = dt_dict_to_utc_jd({'year': year, 'month': 1, 'day': 1}, params['tz'])
+                    end_win = dt_dict_to_utc_jd({'year': year+1, 'month': 1, 'day': 1}, params['tz'])
+                    windows = [(start_win, end_win)]
 
-                if windows:
-                    blocks = []
-                    for w in windows:
-                        blocks.append({
-                            "start": utc_jd_to_dt_dict(w[0], params['tz']), 
-                            "end": utc_jd_to_dt_dict(w[1], params['tz']), 
-                            "mid_jd": (w[0] + w[1]) / 2.0
-                        })
-                    result_queue.put({"status": "success", "year": year, "blocks": blocks})
+                    # Narrow windows down planet by planet (Slowest -> Fastest)
+                    # "fix slowest planet first, then move forward and backward with time of next slowest"
+                    for p_name, t_sign in checks:
+                        if not windows: break 
+                        
+                        # Compute highly sensitive jump sizes to prevent skipping dates
+                        if p_name == "Ascendant":
+                            calc_step = (window_deg / 500.0) * 0.25
+                            safe_step = max(calc_step, 5.0 / 86400.0) # min 5 seconds
+                        else:
+                            calc_step = (window_deg / max_speeds.get(p_name, 1.0)) * 0.25
+                            safe_step = max(calc_step, 60.0 / 86400.0) # min 1 minute
+                            
+                        new_windows = []
+                        for w_start, w_end in windows:
+                            t = w_start
+                            in_match = False
+                            m_start = None
+                            
+                            # Scan forward within the strict valid timeframe of the slower planet
+                            while True:
+                                if stop_event.is_set(): return
+                                check_t = min(t, w_end)
+                                is_match = (get_sign_idx(check_t, p_name) == t_sign)
+                                
+                                if is_match and not in_match: 
+                                    # EXACT START BOUNDARY (Binary Refinement down to the second)
+                                    t0 = max(w_start, check_t - safe_step)
+                                    t1 = check_t
+                                    if get_sign_idx(t0, p_name) == t_sign:
+                                        m_start = t0
+                                    else:
+                                        for _ in range(15):
+                                            tm = (t0 + t1) / 2.0
+                                            if get_sign_idx(tm, p_name) == t_sign: t1 = tm
+                                            else: t0 = tm
+                                        m_start = t1
+                                    in_match = True
+                                    
+                                elif not is_match and in_match: 
+                                    # EXACT END BOUNDARY (Binary Refinement down to the second)
+                                    t0 = check_t - safe_step
+                                    t1 = check_t
+                                    for _ in range(15):
+                                        tm = (t0 + t1) / 2.0
+                                        if get_sign_idx(tm, p_name) == t_sign: t0 = tm
+                                        else: t1 = tm
+                                    m_end = t0
+                                    new_windows.append((m_start, m_end))
+                                    in_match = False
+                                    
+                                if t >= w_end:
+                                    if in_match: 
+                                        new_windows.append((m_start, w_end))
+                                    break
+                                    
+                                t += safe_step
+                                
+                        # Merge contiguous windows caused by float fragmentation
+                        merged_windows = []
+                        for w in new_windows:
+                            if not merged_windows:
+                                merged_windows.append(w)
+                            else:
+                                last = merged_windows[-1]
+                                if w[0] <= last[1] + (10.0 / 86400.0): # Within 10 seconds, merge
+                                    merged_windows[-1] = (last[0], max(last[1], w[1]))
+                                else:
+                                    merged_windows.append(w)
+                        
+                        windows = merged_windows
+
+                    if windows:
+                        for w in windows:
+                            year_matches.append({
+                                "start": utc_jd_to_dt_dict(w[0], params['tz']), 
+                                "end": utc_jd_to_dt_dict(w[1], params['tz']), 
+                                "start_jd": w[0],
+                                "end_jd": w[1],
+                                "mid_jd": (w[0] + w[1]) / 2.0
+                            })
+
+                if year_matches:
+                    # Symmetrical forward/backward sorting to use precise absolute matches 
+                    # ensuring mathematically closer dates are never skipped!
+                    year_matches.sort(key=lambda x: abs(x["mid_jd"] - origin_jd))
+                    result_queue.put({"status": "success", "year": f"+/- {i}", "blocks": year_matches})
                     return
                     
             # Completed range without finding

@@ -269,8 +269,15 @@ def custom_rectification_search_wrapper(params, result_queue, stop_event):
         
         valid_blocks = []
         
+        def check_retro(jd_val):
+            for sp, want_retro in target_swe.items():
+                calc_res, _ = astro_engine.safe_calc_ut(jd_val, sp, swe.FLG_SWIEPH | swe.FLG_SPEED | swe.FLG_SIDEREAL)
+                speed = calc_res[3]
+                if (speed < 0) != want_retro:
+                    return False
+            return True
+
         for b in res["blocks"]:
-            # Safely extract JDs even if the backend omitted them
             start_jd = b.get("start_jd")
             if start_jd is None:
                 start_jd = astro_engine.dt_dict_to_utc_jd(b["start"], params.get("tz", "UTC"))
@@ -279,51 +286,65 @@ def custom_rectification_search_wrapper(params, result_queue, stop_event):
             if end_jd is None:
                 end_jd = astro_engine.dt_dict_to_utc_jd(b["end"], params.get("tz", "UTC"))
             
-            # JUMP MECHANIC: Instead of checking every 12 hours, jump 2.0 days at a time.
-            step = 2.0 if (end_jd - start_jd) > 365 else 0.5 
-            
+            # ----------------------------------------------------------
+            # JUMP MECHANIC (FIXED)
+            # Tightly constraints search to avoid expanding precise 
+            # Ascendant blocks backwards and forwards accidentally.
+            # ----------------------------------------------------------
+            duration = end_jd - start_jd
+            step = 2.0 if duration > 365 else min(0.5, duration / 4.0)
+            if step <= (1.0 / 1440.0): 
+                step = 1.0 / 1440.0 # Min 1 minute limit
+
             current_jd = start_jd
             in_match = False
             match_start = None
             last_year_reported = None
             
-            while current_jd <= end_jd:
+            while True:
                 if stop_event.is_set(): return
                 
+                check_t = min(current_jd, end_jd)
+                
                 # Sub-sampled reporting logic (fires ~1 time per year max for massive blocks)
-                if (current_jd - start_jd) % 365 < step and (end_jd - start_jd) > 365:
-                    year = astro_engine.utc_jd_to_dt_dict(current_jd, params.get("tz", "UTC"))['year']
+                if (check_t - start_jd) % 365 < step and duration > 365:
+                    year = astro_engine.utc_jd_to_dt_dict(check_t, params.get("tz", "UTC"))['year']
                     if year != last_year_reported:
                         last_year_reported = year
                         result_queue.put({"status": "progress", "msg": f"Fast-scanning Retrograde alignments in {year}..."})
                         
-                # Core evaluation: Jump directly via SWIEPH FLG_SPEED bypass safely
-                match = True
-                for sp, want_retro in target_swe.items():
-                    calc_res = swe.calc_ut(current_jd, sp, swe.FLG_SWIEPH | swe.FLG_SPEED)
-                    
-                    # Robust cross-compatibility extraction of velocity index
-                    if isinstance(calc_res[0], (list, tuple)):
-                        speed = calc_res[0][3] 
-                    else:
-                        speed = calc_res[3]
+                match = check_retro(check_t)
                         
-                    if (speed < 0) != want_retro:
-                        match = False
-                        break
-                        
-                # Block detection
+                # Precise Boundary Refinement heavily CLAMPED inside [start_jd, end_jd]
                 if match and not in_match:
+                    t0 = max(start_jd, check_t - step)
+                    t1 = check_t
+                    if check_retro(t0):
+                        match_start = t0
+                    else:
+                        for _ in range(15):
+                            tm = (t0 + t1) / 2.0
+                            if check_retro(tm): t1 = tm
+                            else: t0 = tm
+                        match_start = t1
                     in_match = True
-                    match_start = current_jd
+                    
                 elif not match and in_match:
+                    t0 = max(start_jd, check_t - step)
+                    t1 = check_t
+                    for _ in range(15):
+                        tm = (t0 + t1) / 2.0
+                        if check_retro(tm): t0 = tm
+                        else: t1 = tm
+                    valid_blocks.append({"start_jd": match_start, "end_jd": t0})
                     in_match = False
-                    valid_blocks.append({"start_jd": match_start, "end_jd": current_jd})
                 
+                if current_jd >= end_jd:
+                    if in_match:
+                        valid_blocks.append({"start_jd": match_start, "end_jd": end_jd})
+                    break
+                    
                 current_jd += step
-                
-            if in_match:
-                valid_blocks.append({"start_jd": match_start, "end_jd": end_jd})
                 
         final_blocks = []
         for vb in valid_blocks:
@@ -570,12 +591,23 @@ class RectificationController:
             if not blocks:
                 QMessageBox.warning(self.app, "Warning", "Search completed but no matching blocks were returned.")
                 return
-                
+
+            def format_dt(dt_dict):
+                """Helper to format datetime dictionaries nicely with exact time."""
+                month_str = datetime.date(2000, dt_dict['month'], 1).strftime('%B')
+                return f"{dt_dict['day']} {month_str} {dt_dict['year']} at {dt_dict['hour']:02d}:{dt_dict['minute']:02d}:{int(dt_dict['second']):02d}"
+
             if len(blocks) == 1:
                 b = blocks[0]
-                msg = f"Found exactly 1 precise match window.\nJumping to:\n{b['start']['day']} {datetime.date(2000, b['start']['month'], 1).strftime('%B')} {b['start']['year']}"
+                mid_dt = astro_engine.utc_jd_to_dt_dict(b["mid_jd"], self.app.current_tz)
+                
+                msg = f"Found exactly 1 precise match window.\n\n"
+                msg += f"Window Start: {format_dt(b['start'])}\n"
+                msg += f"Window End: {format_dt(b['end'])}\n\n"
+                msg += f"Jumping to target exact Midpoint:\n{format_dt(mid_dt)}"
+                
                 QMessageBox.information(self.app, "Rectification Success", msg)
-                self.app.time_ctrl.set_time(astro_engine.utc_jd_to_dt_dict(b["mid_jd"], self.app.current_tz))
+                self.app.time_ctrl.set_time(mid_dt)
                 return
                 
             elif len(blocks) > 20:
@@ -584,32 +616,35 @@ class RectificationController:
                 today_jd = swe.julday(now.year, now.month, now.day, now.hour + now.minute/60.0 + now.second/3600.0)
                 
                 closest_block = min(blocks, key=lambda b: abs(b["mid_jd"] - today_jd))
+                mid_dt = astro_engine.utc_jd_to_dt_dict(closest_block["mid_jd"], self.app.current_tz)
                 
                 msg = f"Found {len(blocks)} matches (More than 20).\nAutomatically jumping to the date closest to TODAY:\n\n"
-                msg += f"{closest_block['start']['day']} {datetime.date(2000, closest_block['start']['month'], 1).strftime('%B')} {closest_block['start']['year']}"
+                msg += f"Window Start: {format_dt(closest_block['start'])}\n"
+                msg += f"Window End: {format_dt(closest_block['end'])}\n\n"
+                msg += f"Jumping to target exact Midpoint:\n{format_dt(mid_dt)}"
                 
                 QMessageBox.information(self.app, "Rectification Success", msg)
-                self.app.time_ctrl.set_time(astro_engine.utc_jd_to_dt_dict(closest_block["mid_jd"], self.app.current_tz))
+                self.app.time_ctrl.set_time(mid_dt)
                 return
                 
             else:
                 # Between 2 and 20 matches, allow user to choose
                 msg = f"Found {len(blocks)} match windows:\n\n"
                 for i, b in enumerate(blocks):
-                    s_month = datetime.date(2000, b['start']['month'], 1).strftime('%B')
-                    e_month = datetime.date(2000, b['end']['month'], 1).strftime('%B')
-                    msg += f"{i+1}. {b['start']['day']} {s_month} {b['start']['year']} to {b['end']['day']} {e_month} {b['end']['year']}\n"
+                    mid_dt = astro_engine.utc_jd_to_dt_dict(b["mid_jd"], self.app.current_tz)
+                    msg += f"{i+1}. {format_dt(b['start'])} to {format_dt(b['end'])}\n    (Target Midpoint: {format_dt(mid_dt)})\n\n"
                     
                 num, ok = QInputDialog.getInt(
                     self.app, 
                     "Select Match", 
-                    msg + "\nEnter the number of the match to jump to:", 
+                    msg + "Enter the number of the match to jump to:", 
                     1, 1, len(blocks), 1
                 )
                 
                 if ok:
                     selected_block = blocks[num - 1]
-                    self.app.time_ctrl.set_time(astro_engine.utc_jd_to_dt_dict(selected_block["mid_jd"], self.app.current_tz))
+                    mid_dt = astro_engine.utc_jd_to_dt_dict(selected_block["mid_jd"], self.app.current_tz)
+                    self.app.time_ctrl.set_time(mid_dt)
             
         elif res["status"] == "phase1_failed":
             current_range = res.get("last_range", 1000)
