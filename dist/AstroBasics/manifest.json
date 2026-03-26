@@ -1,7 +1,7 @@
 {
-    "version": "0.3.3",
+    "version": "0.3.4",
     "files": {
-        "AstroBasics.exe": "de527075714a93b3d6ee27bd86bfb8cf082e8e62c0cbf356888a7074789a2ba9",
+        "AstroBasics.exe": "55c9400da33b45d1b49b17ae09a9b49acc81e43d2540388e1004419c7f32b0ce",
         "_internal/api-ms-win-core-console-l1-1-0.dll": "f0f7cb2a9ffccb43400db88d6bf99f2fcc3161de1ac96c48501d4d522c48c2ca",
         "_internal/api-ms-win-core-datetime-l1-1-0.dll": "55e5f10d0dd9c85ff1c6dc7798e46b3a4422fb7ebc583bb00d06a7df2494397b",
         "_internal/api-ms-win-core-debug-l1-1-0.dll": "092b72832c47f9c4edcde61f1a111c20eb73452984e0a6109482de74eb03c34d",
@@ -42,7 +42,7 @@
         "_internal/api-ms-win-crt-string-l1-1-0.dll": "44ddab31c182235ac5405d31c1cba048316cc230698e392a732ac941ec683bad",
         "_internal/api-ms-win-crt-time-l1-1-0.dll": "a409e25a9d3c252cc0a5af9df85d3733e946087b06cd1fb2cf1bf640eb0d49ba",
         "_internal/api-ms-win-crt-utility-l1-1-0.dll": "cfb2ee4e426bb00b76163c1a66cf8cfef8d7450cbf9bbce3bc9eb2053f51e0e5",
-        "_internal/base_library.zip": "54ea9c9db8b6b289f0768983da8885a2cc0f9d6891c11bbb61d2ff23581764c2",
+        "_internal/base_library.zip": "143d7a4f140687e9e9255423037d7e17669d45e6ff871d4fd3295c1f6cda655a",
         "_internal/libcrypto-3.dll": "e03dd02fdcfb791981c9962827cfcf495f2a47a514c1526efb57f847a9df514a",
         "_internal/libffi-8.dll": "eff52743773eb550fcc6ce3efc37c85724502233b6b002a35496d828bd7b280a",
         "_internal/libssl-3.dll": "1e4bc0638682bfcbb36f4465d6a2e9944d917a60f05ecc8ddf9e96847e05e13f",
@@ -77,7 +77,7 @@
         "_internal/charset_normalizer/md__mypyc.cp314-win_amd64.pyd": "7d28dad4be5242b16e17e75d94bb1117451754f95c8749aae554caa6973d1c6f",
         "_internal/dateutil/zoneinfo/dateutil-zoneinfo.tar.gz": "d3ea52e7b6e968de0d884df1288193596fa95b803db4f92a18279a7398004475",
         "_internal/dynamic_settings_modules/a_transit_mod.py": "0d35c23060c407f1d42c0fcc2083b4d75c73e9bd3c3db59ae1a00325ba08ccd7",
-        "_internal/dynamic_settings_modules/chart_rectification_plugin.py": "b8ff35c781318b6042b14d401d09edeccf4ab923a998ef5ed03a8468bc4a9809",
+        "_internal/dynamic_settings_modules/chart_rectification_plugin.py": "9911c0e3c2de75f529235bd9460de4561b1f13e9d24cb8679a68df069826ac08",
         "_internal/dynamic_settings_modules/composite_strength_mod.py": "0cb64c91a13813db5942ce21ed1d67dfadf9ec2569dfbf4554ae9e3540757a66",
         "_internal/dynamic_settings_modules/research_plugin.py": "225069ada84f9d17cec82d25353e41b261ce753689ee7f2adea06b5236155a5f",
         "_internal/dynamic_settings_modules/shadbal_mod.py": "95b50975a0492d7c719fde028d0e62bff069565b3ce85d426f012b9329bf155a",

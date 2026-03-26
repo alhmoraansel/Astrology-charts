@@ -275,22 +275,15 @@ def perform_rectification_search(params, result_queue, stop_event):
         engine.set_ayanamsa(params['ayanamsa'])
         engine.set_custom_vargas(params.get('custom_vargas', {}))
         
-        # Map selected ayanamsa
-        ayanamsa_modes = {
-            "Lahiri": swe.SIDM_LAHIRI, 
-            "True Lahiri (Chitrapaksha)": swe.SIDM_TRUE_CHITRA,
-            "Raman": swe.SIDM_RAMAN, 
-            "Fagan/Bradley": swe.SIDM_FAGAN_BRADLEY,
-            "Krishnamurti (KP)": swe.SIDM_KRISHNAMURTI,
-            "True Revati": swe.SIDM_TRUE_REVATI,
-            "True Pushya": swe.SIDM_TRUE_PUSHYA,
-            "Suryasiddhanta": swe.SIDM_SURYASIDDHANTA,
-            "Yukteshwar": swe.SIDM_YUKTESHWAR,
-            "Usha/Shashi": swe.SIDM_USHA_SHASHI,
-            "Bhasin": getattr(swe, 'SIDM_JN_BHASIN', getattr(swe, 'SIDM_BHASIN', 20))
-        }
-        if params['ayanamsa'] in ayanamsa_modes: 
-            swe.set_sid_mode(ayanamsa_modes[params['ayanamsa']])
+        # Safely pull modes from the unified engine dictionary to avoid duplication/typos
+        try:
+            if params['ayanamsa'] in engine.ayanamsa_modes:
+                swe.set_sid_mode(engine.ayanamsa_modes[params['ayanamsa']])
+            else:
+                raise ValueError(f"Ayanamsa '{params['ayanamsa']}' is not mapped in astro_engine.")
+        except Exception as e:
+            result_queue.put({"status": "error", "message": f"CRITICAL ERROR: Ayanamsa '{params['ayanamsa']}' was not properly set. Check astro_engine configuration. Details: {str(e)}"})
+            return
             
         calc_flag = swe.FLG_SWIEPH | swe.FLG_SIDEREAL
         body_map = {
@@ -448,18 +441,21 @@ def perform_rectification_search(params, result_queue, stop_event):
 class EphemerisEngine:
     def __init__(self):
         swe.set_ephe_path('ephe')
+        
+        # Safely wrap internal swisseph constants in getattr to completely prevent
+        # AttributeError crashes on module instantiation regardless of swisseph version.
         self.ayanamsa_modes = {
-            "Lahiri": swe.SIDM_LAHIRI, 
-            "True Lahiri (Chitrapaksha)": swe.SIDM_TRUE_CITRA,
-            "Raman": swe.SIDM_RAMAN, 
-            "Fagan/Bradley": swe.SIDM_FAGAN_BRADLEY,
-            "Krishnamurti (KP)": swe.SIDM_KRISHNAMURTI,
-            "True Revati": swe.SIDM_TRUE_REVATI,
-            "True Pushya": swe.SIDM_TRUE_PUSHYA,
-            "Suryasiddhanta": swe.SIDM_SURYASIDDHANTA,
-            "Yukteshwar": swe.SIDM_YUKTESHWAR,
-            "Usha/Shashi": swe.SIDM_USHASHASHI,
-            "Bhasin": getattr(swe, 'SIDM_JN_BHASIN', getattr(swe, 'SIDM_BHASIN', 20)) # Safe fallback
+            "Lahiri": getattr(swe, 'SIDM_LAHIRI', 1), 
+            "True Lahiri (Chitrapaksha)": getattr(swe, 'SIDM_TRUE_CITRA', 27),
+            "Raman": getattr(swe, 'SIDM_RAMAN', 3), 
+            "Fagan/Bradley": getattr(swe, 'SIDM_FAGAN_BRADLEY', 0),
+            "Krishnamurti (KP)": getattr(swe, 'SIDM_KRISHNAMURTI', 5),
+            "True Revati": getattr(swe, 'SIDM_TRUE_REVATI', 28),
+            "True Pushya": getattr(swe, 'SIDM_TRUE_PUSHYA', 29),
+            "Suryasiddhanta": getattr(swe, 'SIDM_SURYASIDDHANTA', 0),
+            "Yukteshwar": getattr(swe, 'SIDM_YUKTESHWAR', 7),
+            "Usha/Shashi": getattr(swe, 'SIDM_USHASHASHI', getattr(swe, 'SIDM_USHA_SHASHI', 21)),
+            "Bhasin": getattr(swe, 'SIDM_JN_BHASIN', getattr(swe, 'SIDM_BHASIN', 20))
         }
         self.current_ayanamsa = "True Lahiri (Chitrapaksha)"
         self.custom_vargas = {}

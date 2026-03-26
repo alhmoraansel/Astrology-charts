@@ -550,7 +550,9 @@ class RectificationController:
         self.rectify_dialog.setLayout(layout)
         
         self.rectify_worker.progress.connect(lambda msg: self.rectify_lbl.setText(msg))
-        self.rectify_worker.error.connect(lambda err: QMessageBox.warning(self.app, "Error", err))
+        
+        # Display Critical UI Message Box for severe backend setup failures
+        self.rectify_worker.error.connect(lambda err: QMessageBox.critical(self.app, "Critical Error", err) if "CRITICAL" in err else QMessageBox.warning(self.app, "Error", err))
         self.rectify_worker.finished.connect(self.on_rectify_finished)
         
         if auto_start: 
