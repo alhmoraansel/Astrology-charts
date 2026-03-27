@@ -13,7 +13,6 @@ from geopy.geocoders import Nominatim
 from timezonefinder import TimezoneFinder
 
 import dynamic_settings_modules
-from dynamic_settings_modules.zzlogger_mod import info_print
 import save_prefs,animation,astro_engine
 import help_content
 from chart_renderer import ChartRenderer
@@ -1795,19 +1794,19 @@ class AstroApp(QMainWindow):
 
 
     def update_settings(self):
-        print(f"\n[DEBUG - UI] update_settings triggered! is_updating_ui flag: {self.is_updating_ui}")
+        #print(f"\n[UI] update_settings triggered! is_updating_ui flag: {self.is_updating_ui}")
         if self.is_updating_ui: 
-            print("[DEBUG - UI] Bailing out because is_updating_ui is True. (Wait, is it stuck?)")
+            #print("[UI] Bailing out because is_updating_ui is True. (Is it stuck?)")
             return
             
         self.ephemeris.set_ayanamsa(self.cb_ayanamsa.currentText())
         
         if hasattr(self, 'chk_true_pos'):
             is_checked = self.chk_true_pos.isChecked()
-            print(f"[DEBUG - UI] Sending True Pos checkbox state: {is_checked} to Ephemeris Engine.")
+            #print(f"[UI] Sending True Pos checkbox state: {is_checked} to Ephemeris Engine.")
             self.ephemeris.set_true_positions(is_checked)
         else:
-            print("[DEBUG - UI] ERROR! chk_true_pos attribute is MISSING in update_settings!")
+            print("[UI] ERROR! chk_true_pos attribute is MISSING in update_settings!")
         
         for r in self.renderers.values(): 
             r.outline_mode = self.cb_outline_mode.currentText()
@@ -1824,9 +1823,9 @@ class AstroApp(QMainWindow):
         self.recalculate()
 
     def recalculate(self):
-        print(f"[DEBUG - UI] recalculate called! is_loading_settings flag: {getattr(self, 'is_loading_settings', False)}")
+        #print(f"[UI] recalculate called! is_loading_settings flag: {getattr(self, 'is_loading_settings', False)}")
         if getattr(self, 'is_loading_settings', False): 
-            print("[DEBUG - UI] Bailing out of recalculate because settings are still loading.")
+            #print("[UI] Bailing out of recalculate because settings are still loading.")
             return
             
         try:
@@ -1837,7 +1836,7 @@ class AstroApp(QMainWindow):
             selected_planet = getattr(self, 'cb_transit_planet', None) and self.cb_transit_planet.currentText() or "Sun"
             active_divs = getattr(self, 'active_charts_order', []).copy()
             
-            print(f"[DEBUG - UI] Dispatching calculation request to background worker thread...")
+            #print(f"[UI] Dispatching calculation request to background worker thread...")
             self.calc_worker.request_calc(
                 self.time_ctrl.current_time.copy(), 
                 self.current_lat, 
@@ -1850,7 +1849,7 @@ class AstroApp(QMainWindow):
                 copy.deepcopy(self.frozen_planets)
             )
         except Exception as e: 
-            print(f"[DEBUG - UI] Recalculation dispatch error: {e}")
+            print(f"[UI] Recalculation dispatch error: {e}")
 
     def toggle_aspects(self): 
         self.aspects_group.setVisible(self.chk_aspects.isChecked())

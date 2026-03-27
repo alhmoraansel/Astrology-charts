@@ -10,6 +10,7 @@ from astro_engine import (
     safe_calc_ut,
     safe_houses_ex
 )
+from dynamic_settings_modules.zzlogger_mod import error_print
 
 # ==========================================
 # RESOURCE / PATH RESOLVER FOR PYINSTALLER
@@ -214,8 +215,8 @@ def perform_rectification_search(params, result_queue, stop_event):
         pytz.timezone(params['tz'])
         print(f"[DEBUG - RECTIFICATION] PYTZ Audit: Database contains '{params['tz']}' successfully.")
     except Exception as e:
-        print(f"[CRITICAL ERROR] PYTZ Audit FAILED for '{params['tz']}': {e}")
-        print(f"[CRITICAL ERROR] The exported app is MISSING TIMEZONE DATA! Timezones defaulting strictly to UTC!")
+        error_print(f"[CRITICAL ERROR] PYTZ Audit FAILED for '{params['tz']}': {e}")
+        error_print(f"[CRITICAL ERROR] The exported app is MISSING TIMEZONE DATA! Timezones defaulting strictly to UTC!")
 
     with swe_lock:
         ephe_path = get_standalone_resource_path('ephe')

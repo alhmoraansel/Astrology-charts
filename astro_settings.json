@@ -46,11 +46,12 @@
         "D30": false,
         "D40": false,
         "D45": false,
-        "D60": false
+        "D60": true
     },
     "active_charts_order": [
         "D1",
         "D9",
-        "D20"
+        "D20",
+        "D60"
     ]
 }

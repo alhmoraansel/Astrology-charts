@@ -2,6 +2,7 @@
 
 import swisseph as swe, datetime, pytz, time, math, copy, os, sys, threading
 import custom_vargas
+from dynamic_settings_modules.zzlogger_mod import debug_print, error_print
 
 swe_lock = threading.Lock()
 
@@ -81,7 +82,7 @@ def get_resource_path(relative_path):
         # 3. Fallback for normal terminal execution (.py script)
         return os.path.join(os.path.dirname(os.path.abspath(__file__)), relative_path)
     except Exception as e:
-        print(f"[DEBUG - ASTRO_ENGINE] Error resolving resource path for {relative_path}: {e}")
+        error_print(f"[ASTRO_ENGINE] Error resolving resource path for {relative_path}: {e}")
         return relative_path
 
 # Cache the path string so we aren't resolving it thousands of times per second
@@ -134,36 +135,36 @@ def safe_calc_ut(jd, body, flag):
             
             # Silent Drop Detector: Swisseph didn't throw an error, but it used Moshier instead of Se1!
             if (flag & swe.FLG_SWIEPH) and not (res[1] & swe.FLG_SWIEPH):
-                print(f"[WARNING - ASTRO_ENGINE] Swisseph SILENTLY fell back to Moshier for body {body}. Ephe files might be missing or unreadable.")
+                debug_print(f"[WARNING - ASTRO_ENGINE] Swisseph SILENTLY fell back to Moshier for body {body}. Ephe files might be missing or unreadable.")
                 
             return res
         except Exception as e:
-            print(f"\n[CRITICAL ERROR - ASTRO_ENGINE] SWISSEPH PRECISION FAILURE for body {body}.")
-            print(f"[CRITICAL ERROR - ASTRO_ENGINE] Error details: {e}")
+            error_print(f"\n[CRITICAL ERROR - ASTRO_ENGINE] SWISSEPH PRECISION FAILURE for body {body}.")
+            error_print(f"[CRITICAL ERROR - ASTRO_ENGINE] Error details: {e}")
             
             abs_ephe_dir = os.path.abspath(GLOBAL_EPHE_PATH)
-            print(f"[CRITICAL ERROR - ASTRO_ENGINE] Looked for ephemeris folder at: {abs_ephe_dir}")
+            error_print(f"[CRITICAL ERROR - ASTRO_ENGINE] Looked for ephemeris folder at: {abs_ephe_dir}")
             
             if not os.path.exists(abs_ephe_dir):
-                print(f"[CRITICAL ERROR - ASTRO_ENGINE] The 'ephe' folder DOES NOT EXIST at the specified path.")
+                error_print(f"[CRITICAL ERROR - ASTRO_ENGINE] The 'ephe' folder DOES NOT EXIST at the specified path.")
             else:
                 files_in_dir = os.listdir(abs_ephe_dir)
                 se1_files = [f for f in files_in_dir if f.endswith('.se1')]
-                print(f"[CRITICAL ERROR - ASTRO_ENGINE] Folder exists. Found {len(se1_files)} .se1 files: {se1_files}")
-                print(f"[CRITICAL ERROR - ASTRO_ENGINE] Swisseph expected highly precise .se1 files (like sepl_18.se1, semo_18.se1) for JD {jd} which are MISSING.")
+                error_print(f"[CRITICAL ERROR - ASTRO_ENGINE] Folder exists. Found {len(se1_files)} .se1 files: {se1_files}")
+                error_print(f"[CRITICAL ERROR - ASTRO_ENGINE] Swisseph expected highly precise .se1 files (like sepl_18.se1, semo_18.se1) for JD {jd} which are MISSING.")
 
-            print("[CRITICAL ERROR - ASTRO_ENGINE] Falling back to MOSEPH emulator. STRICT PRECISION WILL BE LOST!")
+            error_print("[CRITICAL ERROR - ASTRO_ENGINE] Falling back to MOSEPH emulator. STRICT PRECISION WILL BE LOST!")
             
             eval_body = swe.MEAN_NODE if body == swe.TRUE_NODE else body
             if body == swe.TRUE_NODE:
-                print(f"[CRITICAL ERROR - ASTRO_ENGINE] TRUE_NODE (Rahu) not supported by Moshier. Force-swapping to MEAN_NODE.")
+                error_print(f"[CRITICAL ERROR - ASTRO_ENGINE] TRUE_NODE (Rahu) not supported by Moshier. Force-swapping to MEAN_NODE.")
             
             try: 
                 fallback_flag = (flag & ~swe.FLG_SWIEPH) | swe.FLG_MOSEPH
                 res = swe.calc_ut(jd, eval_body, fallback_flag)
                 return res
             except Exception as e2:
-                print(f"[CRITICAL ERROR - ASTRO_ENGINE] MOSEPH fallback completely failed: {e2}. Attempting pure Python math fallback...")
+                error_print(f"[CRITICAL ERROR - ASTRO_ENGINE] MOSEPH fallback completely failed: {e2}. Attempting pure Python math fallback...")
                 
                 body_name = SWE_BODY_MAP_REV.get(body)
                 if body_name:
@@ -180,14 +181,14 @@ def safe_houses_ex(jd, lat, lon, hsys, flag):
         try: 
             return swe.houses_ex(jd, lat, lon, hsys, flag)
         except Exception as e:
-            print(f"\n[CRITICAL ERROR - ASTRO_ENGINE] SWISSEPH HOUSES PRECISION FAILURE.")
-            print(f"[CRITICAL ERROR - ASTRO_ENGINE] Error details: {e}")
-            print(f"[CRITICAL ERROR - ASTRO_ENGINE] Falling back to MOSEPH house calculations. PRECISION WILL BE LOST!")
+            error_print(f"\n[CRITICAL ERROR - ASTRO_ENGINE] SWISSEPH HOUSES PRECISION FAILURE.")
+            error_print(f"[CRITICAL ERROR - ASTRO_ENGINE] Error details: {e}")
+            error_print(f"[CRITICAL ERROR - ASTRO_ENGINE] Falling back to MOSEPH house calculations. PRECISION WILL BE LOST!")
             try: 
                 fallback_flag = (flag & ~swe.FLG_SWIEPH) | swe.FLG_MOSEPH
                 return swe.houses_ex(jd, lat, lon, hsys, fallback_flag)
             except Exception as e2:
-                print(f"[CRITICAL ERROR - ASTRO_ENGINE] MOSEPH house fallback failed: {e2}. Attempting pure python ascendant math...")
+                error_print(f"[CRITICAL ERROR - ASTRO_ENGINE] MOSEPH house fallback failed: {e2}. Attempting pure python ascendant math...")
                 pass
                 
     # Manual fallback execution (outside the main try block)
@@ -206,15 +207,15 @@ def safe_rise_trans(jd, body, rsmi, geopos):
             # PySwisseph signature drops 'starname' completely for planets
             return swe.rise_trans(jd, body, rsmi, geopos)
         except Exception as e: 
-            print(f"\n[CRITICAL ERROR - ASTRO_ENGINE] SWISSEPH RISE/TRANS PRECISION FAILURE.")
-            print(f"[CRITICAL ERROR - ASTRO_ENGINE] Error details: {e}")
-            print(f"[CRITICAL ERROR - ASTRO_ENGINE] Falling back to MOSEPH rise_trans calculations. PRECISION WILL BE LOST!")
+            error_print(f"\n[CRITICAL ERROR - ASTRO_ENGINE] SWISSEPH RISE/TRANS PRECISION FAILURE.")
+            error_print(f"[CRITICAL ERROR - ASTRO_ENGINE] Error details: {e}")
+            error_print(f"[CRITICAL ERROR - ASTRO_ENGINE] Falling back to MOSEPH rise_trans calculations. PRECISION WILL BE LOST!")
             try:
                 eval_body = swe.MEAN_NODE if body == swe.TRUE_NODE else body
                 # epheflag is the 7th argument natively, so we pass it safely as a kwarg
                 return swe.rise_trans(jd, eval_body, rsmi, geopos, epheflag=swe.FLG_MOSEPH)
             except Exception as e2:
-                print(f"[CRITICAL ERROR - ASTRO_ENGINE] MOSEPH rise_trans failed: {e2}. No fallback available, aborting calculation.")
+                error_print(f"[CRITICAL ERROR - ASTRO_ENGINE] MOSEPH rise_trans failed: {e2}. No fallback available, aborting calculation.")
                 raise e2
 
 # ==========================================
@@ -339,9 +340,9 @@ class EphemerisEngine:
     def __init__(self):
         try:
             swe.set_ephe_path(GLOBAL_EPHE_PATH)
-            print("[DEBUG - ASTRO_ENGINE] Ephemeris path successfully mapped.")
+            #print("[ASTRO_ENGINE] Ephemeris path successfully mapped.")
         except Exception as e:
-            print(f"[DEBUG - ASTRO_ENGINE] Failed to set ephemeris path: {e}")
+            error_print(f"[ASTRO_ENGINE] Failed to set ephemeris path: {e}")
 
         # Safely wrap internal swisseph constants in getattr to completely prevent
         # AttributeError crashes on module instantiation regardless of swisseph version.
@@ -369,13 +370,14 @@ class EphemerisEngine:
             self.transit_cache.clear()
 
     def set_true_positions(self, flag):
-        print(f"\n[DEBUG - TRUE POS] set_true_positions called! New UI flag: {flag} | Current engine state: {self.use_true_positions}")
+        #print(f"\n[TRUE POS] set_true_positions called! New UI flag: {flag} | Current engine state: {self.use_true_positions}")
         if self.use_true_positions != flag:
-            print(f"[DEBUG - TRUE POS] State changed! Updating engine state to {flag} and clearing transit cache.")
+            #print(f"[TRUE POS] State changed! Updating engine state to {flag} and clearing transit cache.")
             self.use_true_positions = flag
             self.transit_cache.clear()
         else:
-            print("[DEBUG - TRUE POS] Engine state is already matched to UI. Ignoring cache clear.")
+            pass
+            #print("[TRUE POS] Engine state is already matched to UI. Ignoring cache clear.")
 
     def calculate_chart(self, dt, lat: float, lon: float, tz_name: str, real_now_jd: float = None, transit_div: str = "D1", transit_planet: str = "Sun"):
         if isinstance(dt, dict) and 'year' in dt: jd_utc = dt_dict_to_utc_jd(dt, tz_name)
@@ -392,14 +394,15 @@ class EphemerisEngine:
         # Base flags: Swisseph | Sidereal | Speed
         calc_flag = swe.FLG_SWIEPH | swe.FLG_SIDEREAL | swe.FLG_SPEED
         
-        print(f"\n[DEBUG - TRUE POS] --- BEGINNING CHART CALCULATION ---")
-        print(f"[DEBUG - TRUE POS] Checking engine state... use_true_positions = {getattr(self, 'use_true_positions', False)}")
+        #info_print(f"\n\n\n[TRUE POS] ======== BEGINNING CHART CALCULATION  ========")
+        #info_print(f"[TRUE POS] Checking engine state... use_true_positions = {getattr(self, 'use_true_positions', False)}")
         
         if getattr(self, 'use_true_positions', False):
             calc_flag |= swe.FLG_TRUEPOS
-            print(f"[DEBUG - TRUE POS] TRUE POSITIONS ENABLED. Appended swe.FLG_TRUEPOS (16). Final calc_flag integer: {calc_flag}")
+            ##info_print(f"[TRUE POS] TRUE POSITIONS ENABLED. Appended swe.FLG_TRUEPOS (16). Final calc_flag integer: {calc_flag}")
         else:
-            print(f"[DEBUG - TRUE POS] TRUE POSITIONS DISABLED. Using Default/Apparent. Final calc_flag integer: {calc_flag}")
+            pass
+            ##info_print(f"[TRUE POS] TRUE POSITIONS DISABLED. Using Default/Apparent. Final calc_flag integer: {calc_flag}")
         
         houses_res = safe_houses_ex(jd_utc, lat, lon, b'P', calc_flag)
         asc_deg = houses_res[1][0]
@@ -428,7 +431,8 @@ class EphemerisEngine:
             
             # Print specifically the Sun and Moon, as they are most visibly affected by True Pos
             if name in ["Sun", "Moon"]:
-                print(f"[DEBUG - TRUE POS] Calculated {name} -> Longitude: {lon_deg:.7f}°")
+                pass
+                #info_print(f"[TRUE POS] Calculated {name} -> Longitude: {lon_deg:.7f}°")
 
             p_sign_idx = int(lon_deg / 30)
             nak_name, nak_lord, nak_pada = get_nakshatra(lon_deg)
@@ -488,7 +492,7 @@ class EphemerisEngine:
         else: panchang["sunset_str"] = "N/A"
             
         chart_data["panchang"] = panchang
-        print(f"[DEBUG - TRUE POS] --- CHART CALCULATION COMPLETE ---\n")
+        #info_print(f"[TRUE POS] ========CHART CALCULATION COMPLETE ========\n")
         return chart_data
 
     def set_custom_vargas(self, vargas):
@@ -684,7 +688,7 @@ class EphemerisEngine:
                 all_charts[div] = self.build_divisional_chart_from_raw(asc_lon, planets_raw, div, base_chart["ascendant"]["sign_index"])
             return all_charts
         except Exception as e: 
-            print(f"[DEBUG - ASTRO_ENGINE] Error processing JSON: {e}")
+            print(f"[ASTRO_ENGINE] Error processing JSON: {e}")
             return None
 
     def search_transit_core(self, jd_start, lat, lon, body_name, direction, div_type, frozen_planets, target_sign_name="Any Rashi", stop_event=None):
@@ -1032,7 +1036,7 @@ class EphemerisEngine:
             res_set = safe_rise_trans(sunrise_jd, swe.SUN, 2+256, (lon, lat, 0.0))
             sunset_jd = res_set[1][0] if len(res_set) > 1 and type(res_set[1]) is tuple else res_set[0]
         except Exception as e: 
-            print(f"[DEBUG - ASTRO_ENGINE] Panchang rise/set logic issue: {e}")
+            print(f"[ASTRO_ENGINE] Panchang rise/set logic issue: {e}")
 
         return {"nakshatra": nak_name, "nakshatra_lord": nak_lord, "nakshatra_pada": nak_pada, "tithi": tithi_name, "paksha": paksha, "sunrise_jd": sunrise_jd, "sunset_jd": sunset_jd, "moon_lon": moon_lon, "sun_lon": sun_lon}
 
