@@ -433,7 +433,7 @@ class VimshottariDialog(QDialog):
                 self._load_queue.append(root)
 
             cur_md_start = md_end
-            if (cur_md_start - self.birth_date).days / 365.256364 > 120.0:
+            if (cur_md_start - self.birth_date).days / 365.256364 > 120.0:  #changed from 365.2425 to 365.256364
                 break
 
         self.tree.setUpdatesEnabled(True)

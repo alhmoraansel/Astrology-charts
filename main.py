@@ -4,7 +4,7 @@ import pkgutil, sys,datetime,json,os,math,pytz,swisseph as swe,time,multiprocess
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QLabel, QLineEdit, QPushButton, QComboBox, QTimeEdit, QTableWidget, QTableWidgetItem, QCheckBox,QHeaderView, QMessageBox, QGroupBox, QFileDialog,QScrollArea, QGridLayout, QSpinBox, QDialog, QTextBrowser,QDoubleSpinBox, QTabWidget, QSizePolicy, QAbstractItemView, QMenu)
 from PyQt6.QtGui import QPainter, QPen, QColor, QFont, QBrush, QPolygonF, QCursor, QIcon, QPainterPath, QPixmap
 from PyQt6.QtCore import Qt, QDate, QTime, QThread, pyqtSignal, QRectF, QPointF, QObject, QTimer, QEvent, QFileSystemWatcher
-from PyQt6.QtGui import QDrag
+from PyQt6.QtGui import QDrag, QKeySequence
 from PyQt6.QtCore import QMimeData, QPoint
 
 from astral import LocationInfo
@@ -12,7 +12,6 @@ from astral.sun import sun
 from geopy.geocoders import Nominatim
 from timezonefinder import TimezoneFinder
 
-#own file dependencies, need not to be changed
 import dynamic_settings_modules
 from dynamic_settings_modules.zzlogger_mod import info_print
 import save_prefs,animation,astro_engine
@@ -168,6 +167,43 @@ class SmoothScroller(QObject):
         self._hbar.setValue(int(round(new_h)))
         self._is_animating_step = False
 
+
+class CopyableTableWidget(QTableWidget):
+    def keyPressEvent(self, event):
+        if event.matches(QKeySequence.StandardKey.Copy):
+            self.copy_selection()
+        else:
+            super().keyPressEvent(event)
+
+    def copy_selection(self):
+        selection = self.selectedIndexes()
+        if not selection: return
+        
+        rows = sorted(list(set(idx.row() for idx in selection)))
+        cols = sorted(list(set(idx.column() for idx in selection)))
+        
+        text_rows = []
+        for row in rows:
+            row_text = []
+            for col in cols:
+                idx = self.model().index(row, col)
+                if idx in selection:
+                    item = self.item(row, col)
+                    if item:
+                        row_text.append(item.text())
+                    else:
+                        widget = self.cellWidget(row, col)
+                        if widget and (cb := widget.findChild(QCheckBox)):
+                            row_text.append("Yes" if cb.isChecked() else "No")
+                        else:
+                            row_text.append("")
+                else:
+                    row_text.append("")
+            text_rows.append("\t".join(row_text))
+            
+        QApplication.clipboard().setText("\n".join(text_rows))
+
+
 class VisualGuideDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -316,12 +352,13 @@ class ButtonTimeWorker(QThread):
     partial_result = pyqtSignal(str, object)
     results_ready = pyqtSignal(dict)
     
-    def __init__(self, jd_utc, lat, lon, frozen_planets, transit_div, transit_planet, ayanamsa, custom_vargas):
+    def __init__(self, jd_utc, lat, lon, frozen_planets, transit_div, transit_planet, ayanamsa, custom_vargas, use_true_positions):
         super().__init__()
         self.jd_utc, self.lat, self.lon = jd_utc, lat, lon
         self.frozen_planets = copy.deepcopy(frozen_planets)
         self.transit_div, self.transit_planet = transit_div, transit_planet
         self.ayanamsa, self.custom_vargas = ayanamsa, custom_vargas
+        self.use_true_positions = use_true_positions
         self.stop_flag = False
 
     def run(self):
@@ -330,6 +367,7 @@ class ButtonTimeWorker(QThread):
             engine = astro_engine.EphemerisEngine()
             engine.set_ayanamsa(self.ayanamsa)
             engine.set_custom_vargas(self.custom_vargas)
+            engine.set_true_positions(self.use_true_positions)
             
             class DummyStop:
                 def __init__(self, worker): self.worker = worker
@@ -367,6 +405,7 @@ class ButtonTimeWorker(QThread):
         finally:
             if not self.stop_flag:
                 self.results_ready.emit(res)
+
 
 class JumpSearchWorker(QThread):
     finished = pyqtSignal(object)
@@ -901,7 +940,8 @@ class AstroApp(QMainWindow):
                 ("show_aspects", self.chk_aspects),
                 ("show_details", self.chk_details),
                 ("use_circular", self.chk_circular),
-                ("show_tooltips", self.show_tooltips)
+                ("show_tooltips", self.show_tooltips),
+                ("use_true_positions", self.chk_true_pos)
             ]
             for k, w in checkboxes:
                 if k in prefs:
@@ -954,6 +994,7 @@ class AstroApp(QMainWindow):
                 "show_details": self.chk_details.isChecked(),
                 "use_circular": self.chk_circular.isChecked(),
                 "show_tooltips": self.show_tooltips.isChecked(),
+                "use_true_positions": self.chk_true_pos.isChecked(),
                 "aspect_planets": {p: cb.isChecked() for p, cb in self.aspect_cb.items()},
                 "div_charts": {k: v.isChecked() for k, v in self.div_cbs.items()} if hasattr(self, 'div_cbs') else {},
                 "active_charts_order": getattr(self, "active_charts_order", [])
@@ -1165,7 +1206,7 @@ class AstroApp(QMainWindow):
         transit_layout.setContentsMargins(4, 4, 4, 4)
         transit_layout.setSpacing(4)
 
-        transit_layout.addWidget(QLabel("Lagna (Asc.):"), 0, 0)
+        transit_layout.addWidget(QLabel("Lagna:"), 0, 0)
         self.btn_prev_lagna = QPushButton("<")
         self.btn_next_lagna = QPushButton(">")
         transit_layout.addWidget(self.btn_prev_lagna, 0, 1)
@@ -1232,6 +1273,7 @@ class AstroApp(QMainWindow):
         self.chk_details = QCheckBox("Table")
         self.chk_circular = QCheckBox("Circ UI")
         self.show_tooltips = QCheckBox("Tooltips")
+        self.chk_true_pos = QCheckBox("True Pos")
 
         self.chk_rahu.setChecked(True)
         self.chk_arrows.setChecked(True)
@@ -1239,6 +1281,7 @@ class AstroApp(QMainWindow):
         self.chk_details.setChecked(True)
         self.chk_circular.setChecked(False)
         self.show_tooltips.setChecked(True)
+        self.chk_true_pos.setChecked(False)
 
         self.chk_aspects = QCheckBox("Aspects")
 
@@ -1263,6 +1306,7 @@ class AstroApp(QMainWindow):
         chk_grid.addWidget(self.chk_circular, 5, 1)
         chk_grid.addWidget(self.chk_details, 6, 0)
         chk_grid.addWidget(self.show_tooltips, 6, 1)
+        chk_grid.addWidget(self.chk_true_pos, 7, 0)
         set_layout.addLayout(chk_grid)
 
         file_btns = QHBoxLayout()
@@ -1388,7 +1432,7 @@ class AstroApp(QMainWindow):
         tc_top.addStretch()
         tc_layout.addLayout(tc_top)
 
-        self.table = QTableWidget()
+        self.table = CopyableTableWidget()
         self.table.setColumnCount(6)
         self.table.setHorizontalHeaderLabels(
             ["Planet", "Sign", "Degree", "House", "Retrograde", "Freeze Rashi"])
@@ -1548,6 +1592,7 @@ class AstroApp(QMainWindow):
             if div in self.renderers:
                 self.renderers[div].setMinimumHeight(min_h)
 
+
     def _connect_signals(self):
         self.loc_btn.clicked.connect(self.search_location)
         self.loc_input.returnPressed.connect(self.search_location)
@@ -1583,7 +1628,10 @@ class AstroApp(QMainWindow):
         self.cb_ayanamsa.currentTextChanged.connect(self.update_settings)
         self.cb_outline_mode.currentIndexChanged.connect(self.update_settings)
 
-        for chk in [self.chk_symbols, self.chk_rahu, self.chk_arrows, self.chk_tint, self.chk_circular, self.show_tooltips]:
+        # ==========================================
+        # CRITICAL FIX: self.chk_true_pos IS NOW IN THIS LIST
+        # ==========================================
+        for chk in [self.chk_symbols, self.chk_rahu, self.chk_arrows, self.chk_tint, self.chk_circular, self.show_tooltips, self.chk_true_pos]:
             chk.stateChanged.connect(self.update_settings)
 
         self.chk_aspects.stateChanged.connect(self.toggle_aspects)
@@ -1596,10 +1644,10 @@ class AstroApp(QMainWindow):
         self.btn_visual_guide.clicked.connect(self.show_visual_guide)
 
         if HAS_CUSTOM_VARGAS and hasattr(self, 'btn_add_custom_varga'):
-            self.btn_add_custom_varga.clicked.connect(
-                self.open_custom_varga_dialog)
+            self.btn_add_custom_varga.clicked.connect(self.open_custom_varga_dialog)
 
         self.btn_stop_transit.clicked.connect(self.stop_transit_worker)
+
 
     def open_custom_varga_dialog(self):
         if not HAS_CUSTOM_VARGAS:
@@ -1744,12 +1792,22 @@ class AstroApp(QMainWindow):
     def change_speed(self): 
         speeds = [1.0, 10.0, 60.0, 120.0, 300.0, 600.0, 1800.0, 3600.0, 14400.0, 86400.0, 604800.0]
         self.time_ctrl.set_speed(speeds[self.speed_combo.currentIndex()])
-        
+
+
     def update_settings(self):
+        print(f"\n[DEBUG - UI] update_settings triggered! is_updating_ui flag: {self.is_updating_ui}")
         if self.is_updating_ui: 
+            print("[DEBUG - UI] Bailing out because is_updating_ui is True. (Wait, is it stuck?)")
             return
             
         self.ephemeris.set_ayanamsa(self.cb_ayanamsa.currentText())
+        
+        if hasattr(self, 'chk_true_pos'):
+            is_checked = self.chk_true_pos.isChecked()
+            print(f"[DEBUG - UI] Sending True Pos checkbox state: {is_checked} to Ephemeris Engine.")
+            self.ephemeris.set_true_positions(is_checked)
+        else:
+            print("[DEBUG - UI] ERROR! chk_true_pos attribute is MISSING in update_settings!")
         
         for r in self.renderers.values(): 
             r.outline_mode = self.cb_outline_mode.currentText()
@@ -1764,7 +1822,36 @@ class AstroApp(QMainWindow):
             
         self.save_settings()
         self.recalculate()
-        
+
+    def recalculate(self):
+        print(f"[DEBUG - UI] recalculate called! is_loading_settings flag: {getattr(self, 'is_loading_settings', False)}")
+        if getattr(self, 'is_loading_settings', False): 
+            print("[DEBUG - UI] Bailing out of recalculate because settings are still loading.")
+            return
+            
+        try:
+            real_now = datetime.datetime.now(datetime.timezone.utc)
+            real_now_jd = swe.julday(real_now.year, real_now.month, real_now.day, real_now.hour + real_now.minute/60.0 + real_now.second/3600.0)
+            
+            selected_div = getattr(self, 'cb_transit_div', None) and self.cb_transit_div.currentText() or "D1"
+            selected_planet = getattr(self, 'cb_transit_planet', None) and self.cb_transit_planet.currentText() or "Sun"
+            active_divs = getattr(self, 'active_charts_order', []).copy()
+            
+            print(f"[DEBUG - UI] Dispatching calculation request to background worker thread...")
+            self.calc_worker.request_calc(
+                self.time_ctrl.current_time.copy(), 
+                self.current_lat, 
+                self.current_lon, 
+                self.current_tz, 
+                real_now_jd, 
+                selected_div, 
+                selected_planet, 
+                active_divs, 
+                copy.deepcopy(self.frozen_planets)
+            )
+        except Exception as e: 
+            print(f"[DEBUG - UI] Recalculation dispatch error: {e}")
+
     def toggle_aspects(self): 
         self.aspects_group.setVisible(self.chk_aspects.isChecked())
         self.chk_arrows.setVisible(self.chk_aspects.isChecked())
@@ -2112,7 +2199,8 @@ class AstroApp(QMainWindow):
         self.btn_worker = ButtonTimeWorker(
             jd_utc, self.current_lat, self.current_lon, 
             copy.deepcopy(self.frozen_planets), selected_div, selected_planet, 
-            self.cb_ayanamsa.currentText(), self.ephemeris.custom_vargas
+            self.cb_ayanamsa.currentText(), self.ephemeris.custom_vargas,
+            self.chk_true_pos.isChecked()
         )
         self.btn_worker.partial_result.connect(self.on_btn_partial_ready)
         self.btn_worker.results_ready.connect(self.on_btn_times_ready)
@@ -2226,32 +2314,6 @@ class AstroApp(QMainWindow):
             
         self.update_btn_labels()
 
-    def recalculate(self):
-        if getattr(self, 'is_loading_settings', False): 
-            return
-            
-        try:
-            real_now = datetime.datetime.now(datetime.timezone.utc)
-            real_now_jd = swe.julday(real_now.year, real_now.month, real_now.day, real_now.hour + real_now.minute/60.0 + real_now.second/3600.0)
-            
-            selected_div = getattr(self, 'cb_transit_div', None) and self.cb_transit_div.currentText() or "D1"
-            selected_planet = getattr(self, 'cb_transit_planet', None) and self.cb_transit_planet.currentText() or "Sun"
-            active_divs = getattr(self, 'active_charts_order', []).copy()
-            
-            self.calc_worker.request_calc(
-                self.time_ctrl.current_time.copy(), 
-                self.current_lat, 
-                self.current_lon, 
-                self.current_tz, 
-                real_now_jd, 
-                selected_div, 
-                selected_planet, 
-                active_divs, 
-                copy.deepcopy(self.frozen_planets)
-            )
-        except Exception as e: 
-            print(f"Recalculation dispatch error: {e}")
-
     def on_calc_finished(self, chart_data, div_charts, violation, violating_planet, violating_div):
         self.current_base_chart = chart_data
         
@@ -2299,20 +2361,24 @@ class AstroApp(QMainWindow):
         
         v_scroll = self.table.verticalScrollBar().value()
         
-        bodies = [("Lagna (Asc.)", chart["ascendant"])] + [(p["name"], p) for p in chart["planets"]]
+        bodies = [("Lagna", chart["ascendant"])] + [(p["name"], p) for p in chart["planets"]]
         
         if self.table.rowCount() != len(bodies):
             self.table.setRowCount(len(bodies))
 
         for row, (b_name, b_data) in enumerate(bodies):
             s_idx = b_data["sign_index"]
-            is_asc = (b_name == "Lagna (Asc.)")
+            is_asc = (b_name == "Lagna")
             actual_name = "Ascendant" if is_asc else b_name
             deg = b_data.get("degree", 0.0) % 30.0 if is_asc else b_data['deg_in_sign']
             house = "1" if is_asc else str(b_data["house"])
             retro = "No" if is_asc else ("Yes" if b_data.get("retro") else "No")
-            
-            deg_str = f"{int(deg)}° {int((deg % 1) * 60):02d}'"
+
+            total_seconds = int(round(deg * 3600))
+            d = total_seconds // 3600
+            m = (total_seconds % 3600) // 60
+            s = total_seconds % 60
+            deg_str = f"{d:02d}° {m:02d}' {s:02d}\""
             columns_data = [b_name, ZODIAC_NAMES[s_idx], deg_str, house, retro]
             
             for col, text in enumerate(columns_data):

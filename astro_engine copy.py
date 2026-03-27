@@ -334,7 +334,6 @@ def get_nakshatra(lon_deg):
 # ==========================================
 # EPHEMERIS CHART CALCULATOR ENGINE (FORWARD ONLY)
 # ==========================================
-
 class EphemerisEngine:
     def __init__(self):
         try:
@@ -359,7 +358,6 @@ class EphemerisEngine:
             "Bhasin": getattr(swe, 'SIDM_JN_BHASIN', getattr(swe, 'SIDM_BHASIN', 20))
         }
         self.current_ayanamsa = "True Lahiri (Chitrapaksha)"
-        self.use_true_positions = False
         self.custom_vargas = {}
         self.transit_cache = {}
 
@@ -368,134 +366,15 @@ class EphemerisEngine:
             self.current_ayanamsa = name
             self.transit_cache.clear()
 
-    def set_true_positions(self, flag):
-        print(f"\n[DEBUG - TRUE POS] set_true_positions called! New UI flag: {flag} | Current engine state: {self.use_true_positions}")
-        if self.use_true_positions != flag:
-            print(f"[DEBUG - TRUE POS] State changed! Updating engine state to {flag} and clearing transit cache.")
-            self.use_true_positions = flag
-            self.transit_cache.clear()
-        else:
-            print("[DEBUG - TRUE POS] Engine state is already matched to UI. Ignoring cache clear.")
-
-    def calculate_chart(self, dt, lat: float, lon: float, tz_name: str, real_now_jd: float = None, transit_div: str = "D1", transit_planet: str = "Sun"):
-        if isinstance(dt, dict) and 'year' in dt: jd_utc = dt_dict_to_utc_jd(dt, tz_name)
-        elif isinstance(dt, dict) and 'jd' in dt: jd_utc = float(dt['jd'])
-        else:
-            try:
-                local_tz = pytz.timezone(tz_name)
-                dt_utc = (local_tz.localize(dt) if dt.tzinfo is None else dt).astimezone(pytz.utc)
-                jd_utc = swe.julday(dt_utc.year, dt_utc.month, dt_utc.day, dt_utc.hour + dt_utc.minute / 60.0 + dt_utc.second / 3600.0)
-            except Exception: jd_utc = dt_dict_to_utc_jd({'year': 2000, 'month': 1, 'day': 1}, tz_name)
-
-        swe.set_sid_mode(self.ayanamsa_modes[self.current_ayanamsa])
-        
-        # Base flags: Swisseph | Sidereal | Speed
-        calc_flag = swe.FLG_SWIEPH | swe.FLG_SIDEREAL | swe.FLG_SPEED
-        
-        print(f"\n[DEBUG - TRUE POS] --- BEGINNING CHART CALCULATION ---")
-        print(f"[DEBUG - TRUE POS] Checking engine state... use_true_positions = {getattr(self, 'use_true_positions', False)}")
-        
-        if getattr(self, 'use_true_positions', False):
-            calc_flag |= swe.FLG_TRUEPOS
-            print(f"[DEBUG - TRUE POS] TRUE POSITIONS ENABLED. Appended swe.FLG_TRUEPOS (16). Final calc_flag integer: {calc_flag}")
-        else:
-            print(f"[DEBUG - TRUE POS] TRUE POSITIONS DISABLED. Using Default/Apparent. Final calc_flag integer: {calc_flag}")
-        
-        houses_res = safe_houses_ex(jd_utc, lat, lon, b'P', calc_flag)
-        asc_deg = houses_res[1][0]
-        asc_sign_index = int(asc_deg / 30)
-        asc_nak_name, asc_nak_lord, asc_nak_pada = get_nakshatra(asc_deg)
-        
-        chart_data = {
-            "ascendant": {"degree": asc_deg, "sign_index": asc_sign_index, "sign_num": asc_sign_index + 1, "nakshatra": asc_nak_name, "nakshatra_lord": asc_nak_lord, "nakshatra_pada": asc_nak_pada}, 
-            "planets": []
-        }
-        
-        chart_data["prev_asc_jd"], chart_data["next_asc_jd"] = self.find_adjacent_ascendant_transits(jd_utc, lat, lon, transit_div)
-        chart_data["prev_p_jd"], chart_data["next_p_jd"] = self.find_adjacent_planet_transits(jd_utc, transit_planet, transit_div)
-        chart_data["current_jd"] = jd_utc
-
-        planet_lordships = {p: [] for p in ["Sun", "Moon", "Mars", "Mercury", "Jupiter", "Venus", "Saturn"]}
-        for h in range(1, 13):
-            ruler = SIGN_RULERS.get((asc_sign_index + h - 1) % 12 + 1)
-            if ruler: planet_lordships[ruler].append(h)
-
-        body_list = [("Sun", "Su", swe.SUN), ("Moon", "Mo", swe.MOON), ("Mars", "Ma", swe.MARS), ("Mercury", "Me", swe.MERCURY), ("Jupiter", "Ju", swe.JUPITER), ("Venus", "Ve", swe.VENUS), ("Saturn", "Sa", swe.SATURN), ("Rahu", "Ra", swe.TRUE_NODE)]
-        
-        for name, sym, body_id in body_list:
-            res, _ = safe_calc_ut(jd_utc, body_id, calc_flag)
-            lon_deg, speed = res[0], res[3]
-            
-            # Print specifically the Sun and Moon, as they are most visibly affected by True Pos
-            if name in ["Sun", "Moon"]:
-                print(f"[DEBUG - TRUE POS] Calculated {name} -> Longitude: {lon_deg:.7f}°")
-
-            p_sign_idx = int(lon_deg / 30)
-            nak_name, nak_lord, nak_pada = get_nakshatra(lon_deg)
-            is_ex, is_ow, is_deb = get_dignities(name, p_sign_idx + 1, lon_deg % 30.0)
-            
-            is_retro = True if name == "Rahu" else (speed < 0 if name not in ["Sun", "Moon", "Ketu"] else False)
-            chart_data["planets"].append({
-                "name": name, "sym": sym, "lon": lon_deg, "sign_index": p_sign_idx, "sign_num": p_sign_idx + 1, "deg_in_sign": lon_deg % 30.0, 
-                "house": (p_sign_idx - asc_sign_index) % 12 + 1, "retro": is_retro, "exalted": is_ex, "debilitated": is_deb, "own_sign": is_ow, 
-                "lord_of": planet_lordships.get(name, []), "nakshatra": nak_name, "nakshatra_lord": nak_lord, "nakshatra_pada": nak_pada
-            })
-
-        rahu_lon = next((p["lon"] for p in chart_data["planets"] if p["name"] == "Rahu"), 0.0)
-        ketu_lon = (rahu_lon + 180.0) % 360.0
-        ketu_sign_idx = int(ketu_lon / 30)
-        ketu_nak_name, ketu_nak_lord, ketu_nak_pada = get_nakshatra(ketu_lon)
-        is_ex, is_ow, is_deb = get_dignities("Ketu", ketu_sign_idx + 1, ketu_lon % 30)
-        
-        chart_data["planets"].append({
-            "name": "Ketu", "sym": "Ke", "lon": ketu_lon, "sign_index": ketu_sign_idx, "sign_num": ketu_sign_idx + 1, "deg_in_sign": ketu_lon % 30, 
-            "house": (ketu_sign_idx - asc_sign_index) % 12 + 1, "retro": True, "exalted": is_ex, "debilitated": is_deb, "own_sign": is_ow, "lord_of": [],
-            "nakshatra": ketu_nak_name, "nakshatra_lord": ketu_nak_lord, "nakshatra_pada": ketu_nak_pada
-        })
-
-        sun_lon = next((p["lon"] for p in chart_data["planets"] if p["name"] == "Sun"), None)
-        combust_rules = {"Moon": {"dir": 12, "retro": 12}, "Mars": {"dir": 17, "retro": 17}, "Mercury": {"dir": 14, "retro": 12}, "Jupiter": {"dir": 11, "retro": 11}, "Venus": {"dir": 10, "retro": 8}, "Saturn": {"dir": 15, "retro": 15}}
-        
-        for p in chart_data["planets"]:
-            p["combust"] = False
-            if sun_lon is not None and p["name"] in combust_rules:
-                dist = abs(sun_lon - p["lon"])
-                if dist > 180.0: dist = 360.0 - dist
-                if dist <= combust_rules[p["name"]]["retro" if p.get("retro") else "dir"]:
-                    p["combust"] = True
-
-        valid_ak = [p for p in chart_data["planets"] if p["name"] not in ["Rahu", "Ketu"]]
-        if valid_ak:
-            ak_name = max(valid_ak, key=lambda x: x["deg_in_sign"])["name"]
-            for p in chart_data["planets"]: p["is_ak"] = (p["name"] == ak_name)
-
-        moon_p = next((p for p in chart_data["planets"] if p["name"] == "Moon"), None)
-        if moon_p:
-            dasha_calc = self.calculate_vimshottari_dasha(jd_utc, moon_p["lon"], real_now_jd if real_now_jd else jd_utc)
-            chart_data["dasha_sequence"] = dasha_calc["current_sequence"] or []
-
-        chart_data["aspects"] = self.calculate_vedic_aspects(chart_data["planets"])
-        
-        panchang = self.get_panchang(jd_utc, lat, lon)
-        if panchang["sunrise_jd"]:
-            dt_dict = utc_jd_to_dt_dict(panchang['sunrise_jd'], tz_name)
-            panchang["sunrise_str"] = f"{dt_dict['hour']:02d}:{dt_dict['minute']:02d}"
-        else: panchang["sunrise_str"] = "N/A"
-            
-        if panchang["sunset_jd"]:
-            dt_dict = utc_jd_to_dt_dict(panchang['sunset_jd'], tz_name)
-            panchang["sunset_str"] = f"{dt_dict['hour']:02d}:{dt_dict['minute']:02d}"
-        else: panchang["sunset_str"] = "N/A"
-            
-        chart_data["panchang"] = panchang
-        print(f"[DEBUG - TRUE POS] --- CHART CALCULATION COMPLETE ---\n")
-        return chart_data
-
     def set_custom_vargas(self, vargas):
         self.custom_vargas = vargas
         self.transit_cache.clear()
 
     def get_div_sign_and_lon(self, lon_deg, div_type):
+        """
+        Converts a D1 Longitude into a target Varga (Divisional) sign index and longitude.
+        Strictly follows BPHS and pure float math boundaries.
+        """
         lon_deg = lon_deg % 360.0
         
         sign_index = int(lon_deg / 30.0)
@@ -697,9 +576,6 @@ class EphemerisEngine:
                 return nx if direction == 1 else pr
 
         calc_flag = swe.FLG_SWIEPH | swe.FLG_SIDEREAL
-        if self.use_true_positions:
-            calc_flag |= swe.FLG_TRUEPOS
-            
         swe.set_sid_mode(self.ayanamsa_modes[self.current_ayanamsa])
         
         body_map = {
@@ -825,16 +701,12 @@ class EphemerisEngine:
 
     def get_ascendant_sign(self, jd_utc, lat, lon, div_type="D1"):
         swe.set_sid_mode(self.ayanamsa_modes[self.current_ayanamsa])
-        calc_flag = swe.FLG_SWIEPH | swe.FLG_SIDEREAL
-        if self.use_true_positions:
-            calc_flag |= swe.FLG_TRUEPOS
-            
-        houses_res = safe_houses_ex(jd_utc, lat, lon, b'P', calc_flag)
+        houses_res = safe_houses_ex(jd_utc, lat, lon, b'P', swe.FLG_SWIEPH | swe.FLG_SIDEREAL)
         return self.get_div_sign_and_lon(houses_res[1][0], div_type)[0]
 
     def find_adjacent_ascendant_transits(self, jd_utc, lat, lon, div_type="D1"):
         orig_sign = self.get_ascendant_sign(jd_utc, lat, lon, div_type)
-        cache_key = ('asc', lat, lon, div_type, self.current_ayanamsa, self.use_true_positions)
+        cache_key = ('asc', lat, lon, div_type, self.current_ayanamsa)
         
         if cache_key in self.transit_cache:
             c = self.transit_cache[cache_key]
@@ -877,20 +749,17 @@ class EphemerisEngine:
         if planet_name not in body_map: return jd_utc, jd_utc
             
         swe.set_sid_mode(self.ayanamsa_modes[self.current_ayanamsa])
-        calc_flag = swe.FLG_SWIEPH | swe.FLG_SIDEREAL
-        if self.use_true_positions:
-            calc_flag |= swe.FLG_TRUEPOS
         
         def get_s(j): 
             if planet_name != "Ketu":
-                res = safe_calc_ut(j, body_map[planet_name], calc_flag)
+                res = safe_calc_ut(j, body_map[planet_name], swe.FLG_SWIEPH | swe.FLG_SIDEREAL)
                 return self.get_div_sign_and_lon(res[0][0], div_type)[0]
             else:
-                res = safe_calc_ut(j, swe.TRUE_NODE, calc_flag)
+                res = safe_calc_ut(j, swe.TRUE_NODE, swe.FLG_SWIEPH | swe.FLG_SIDEREAL)
                 return self.get_div_sign_and_lon((res[0][0] + 180.0) % 360.0, div_type)[0]
         
         orig_sign = get_s(jd_utc)
-        cache_key = ('planet', planet_name, div_type, self.current_ayanamsa, self.use_true_positions)
+        cache_key = ('planet', planet_name, div_type, self.current_ayanamsa)
         
         if cache_key in self.transit_cache:
             c = self.transit_cache[cache_key]
@@ -1009,8 +878,6 @@ class EphemerisEngine:
     def get_panchang(self, jd_utc, lat, lon):
         swe.set_sid_mode(self.ayanamsa_modes[self.current_ayanamsa])
         calc_flag = swe.FLG_SWIEPH | swe.FLG_SIDEREAL
-        if self.use_true_positions:
-            calc_flag |= swe.FLG_TRUEPOS
 
         moon_res = safe_calc_ut(jd_utc, swe.MOON, calc_flag)
         sun_res = safe_calc_ut(jd_utc, swe.SUN, calc_flag)
@@ -1026,15 +893,114 @@ class EphemerisEngine:
 
         sunrise_jd, sunset_jd = None, None
         try:
+            # FIX: Removed the empty string. Passed exactly 4 arguments: jd, body, rsmi, geopos.
             res_rise = safe_rise_trans(jd_utc - 0.5, swe.SUN, 1+256, (lon, lat, 0.0))
             sunrise_jd = res_rise[1][0] if len(res_rise) > 1 and type(res_rise[1]) is tuple else res_rise[0]
             
+            # FIX: Removed the empty string. Passed exactly 4 arguments: jd, body, rsmi, geopos.
             res_set = safe_rise_trans(sunrise_jd, swe.SUN, 2+256, (lon, lat, 0.0))
             sunset_jd = res_set[1][0] if len(res_set) > 1 and type(res_set[1]) is tuple else res_set[0]
         except Exception as e: 
             print(f"[DEBUG - ASTRO_ENGINE] Panchang rise/set logic issue: {e}")
 
         return {"nakshatra": nak_name, "nakshatra_lord": nak_lord, "nakshatra_pada": nak_pada, "tithi": tithi_name, "paksha": paksha, "sunrise_jd": sunrise_jd, "sunset_jd": sunset_jd, "moon_lon": moon_lon, "sun_lon": sun_lon}
+
+    def calculate_chart(self, dt, lat: float, lon: float, tz_name: str, real_now_jd: float = None, transit_div: str = "D1", transit_planet: str = "Sun"):
+        if isinstance(dt, dict) and 'year' in dt: jd_utc = dt_dict_to_utc_jd(dt, tz_name)
+        elif isinstance(dt, dict) and 'jd' in dt: jd_utc = float(dt['jd'])
+        else:
+            try:
+                local_tz = pytz.timezone(tz_name)
+                dt_utc = (local_tz.localize(dt) if dt.tzinfo is None else dt).astimezone(pytz.utc)
+                jd_utc = swe.julday(dt_utc.year, dt_utc.month, dt_utc.day, dt_utc.hour + dt_utc.minute / 60.0 + dt_utc.second / 3600.0)
+            except Exception: jd_utc = dt_dict_to_utc_jd({'year': 2000, 'month': 1, 'day': 1}, tz_name)
+
+        swe.set_sid_mode(self.ayanamsa_modes[self.current_ayanamsa])
+        calc_flag = swe.FLG_SWIEPH | swe.FLG_SIDEREAL | swe.FLG_SPEED
+        
+        houses_res = safe_houses_ex(jd_utc, lat, lon, b'P', calc_flag)
+        asc_deg = houses_res[1][0]
+        asc_sign_index = int(asc_deg / 30)
+        asc_nak_name, asc_nak_lord, asc_nak_pada = get_nakshatra(asc_deg)
+        
+        chart_data = {
+            "ascendant": {"degree": asc_deg, "sign_index": asc_sign_index, "sign_num": asc_sign_index + 1, "nakshatra": asc_nak_name, "nakshatra_lord": asc_nak_lord, "nakshatra_pada": asc_nak_pada}, 
+            "planets": []
+        }
+        
+        chart_data["prev_asc_jd"], chart_data["next_asc_jd"] = self.find_adjacent_ascendant_transits(jd_utc, lat, lon, transit_div)
+        chart_data["prev_p_jd"], chart_data["next_p_jd"] = self.find_adjacent_planet_transits(jd_utc, transit_planet, transit_div)
+        chart_data["current_jd"] = jd_utc
+
+        planet_lordships = {p: [] for p in ["Sun", "Moon", "Mars", "Mercury", "Jupiter", "Venus", "Saturn"]}
+        for h in range(1, 13):
+            ruler = SIGN_RULERS.get((asc_sign_index + h - 1) % 12 + 1)
+            if ruler: planet_lordships[ruler].append(h)
+
+        body_list = [("Sun", "Su", swe.SUN), ("Moon", "Mo", swe.MOON), ("Mars", "Ma", swe.MARS), ("Mercury", "Me", swe.MERCURY), ("Jupiter", "Ju", swe.JUPITER), ("Venus", "Ve", swe.VENUS), ("Saturn", "Sa", swe.SATURN), ("Rahu", "Ra", swe.TRUE_NODE)]
+        
+        for name, sym, body_id in body_list:
+            res, _ = safe_calc_ut(jd_utc, body_id, calc_flag)
+            lon_deg, speed = res[0], res[3]
+            p_sign_idx = int(lon_deg / 30)
+            nak_name, nak_lord, nak_pada = get_nakshatra(lon_deg)
+            is_ex, is_ow, is_deb = get_dignities(name, p_sign_idx + 1, lon_deg % 30.0)
+            
+            is_retro = True if name == "Rahu" else (speed < 0 if name not in ["Sun", "Moon", "Ketu"] else False)
+            chart_data["planets"].append({
+                "name": name, "sym": sym, "lon": lon_deg, "sign_index": p_sign_idx, "sign_num": p_sign_idx + 1, "deg_in_sign": lon_deg % 30.0, 
+                "house": (p_sign_idx - asc_sign_index) % 12 + 1, "retro": is_retro, "exalted": is_ex, "debilitated": is_deb, "own_sign": is_ow, 
+                "lord_of": planet_lordships.get(name, []), "nakshatra": nak_name, "nakshatra_lord": nak_lord, "nakshatra_pada": nak_pada
+            })
+
+        rahu_lon = next((p["lon"] for p in chart_data["planets"] if p["name"] == "Rahu"), 0.0)
+        ketu_lon = (rahu_lon + 180.0) % 360.0
+        ketu_sign_idx = int(ketu_lon / 30)
+        ketu_nak_name, ketu_nak_lord, ketu_nak_pada = get_nakshatra(ketu_lon)
+        is_ex, is_ow, is_deb = get_dignities("Ketu", ketu_sign_idx + 1, ketu_lon % 30)
+        
+        chart_data["planets"].append({
+            "name": "Ketu", "sym": "Ke", "lon": ketu_lon, "sign_index": ketu_sign_idx, "sign_num": ketu_sign_idx + 1, "deg_in_sign": ketu_lon % 30, 
+            "house": (ketu_sign_idx - asc_sign_index) % 12 + 1, "retro": True, "exalted": is_ex, "debilitated": is_deb, "own_sign": is_ow, "lord_of": [],
+            "nakshatra": ketu_nak_name, "nakshatra_lord": ketu_nak_lord, "nakshatra_pada": ketu_nak_pada
+        })
+
+        sun_lon = next((p["lon"] for p in chart_data["planets"] if p["name"] == "Sun"), None)
+        combust_rules = {"Moon": {"dir": 12, "retro": 12}, "Mars": {"dir": 17, "retro": 17}, "Mercury": {"dir": 14, "retro": 12}, "Jupiter": {"dir": 11, "retro": 11}, "Venus": {"dir": 10, "retro": 8}, "Saturn": {"dir": 15, "retro": 15}}
+        
+        for p in chart_data["planets"]:
+            p["combust"] = False
+            if sun_lon is not None and p["name"] in combust_rules:
+                dist = abs(sun_lon - p["lon"])
+                if dist > 180.0: dist = 360.0 - dist
+                if dist <= combust_rules[p["name"]]["retro" if p.get("retro") else "dir"]:
+                    p["combust"] = True
+
+        valid_ak = [p for p in chart_data["planets"] if p["name"] not in ["Rahu", "Ketu"]]
+        if valid_ak:
+            ak_name = max(valid_ak, key=lambda x: x["deg_in_sign"])["name"]
+            for p in chart_data["planets"]: p["is_ak"] = (p["name"] == ak_name)
+
+        moon_p = next((p for p in chart_data["planets"] if p["name"] == "Moon"), None)
+        if moon_p:
+            dasha_calc = self.calculate_vimshottari_dasha(jd_utc, moon_p["lon"], real_now_jd if real_now_jd else jd_utc)
+            chart_data["dasha_sequence"] = dasha_calc["current_sequence"] or []
+
+        chart_data["aspects"] = self.calculate_vedic_aspects(chart_data["planets"])
+        
+        panchang = self.get_panchang(jd_utc, lat, lon)
+        if panchang["sunrise_jd"]:
+            dt_dict = utc_jd_to_dt_dict(panchang['sunrise_jd'], tz_name)
+            panchang["sunrise_str"] = f"{dt_dict['hour']:02d}:{dt_dict['minute']:02d}"
+        else: panchang["sunrise_str"] = "N/A"
+            
+        if panchang["sunset_jd"]:
+            dt_dict = utc_jd_to_dt_dict(panchang['sunset_jd'], tz_name)
+            panchang["sunset_str"] = f"{dt_dict['hour']:02d}:{dt_dict['minute']:02d}"
+        else: panchang["sunset_str"] = "N/A"
+            
+        chart_data["panchang"] = panchang
+        return chart_data
 
     def compute_divisional_chart(self, base_chart, div_type):
         chart = copy.deepcopy(base_chart)

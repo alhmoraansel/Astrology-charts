@@ -1,7 +1,7 @@
 {
-    "location": "sultanpur",
-    "lat": 26.2604732,
-    "lon": 82.2380532,
+    "location": "27.6000, 76.6000",
+    "lat": 27.6,
+    "lon": 76.6,
     "tz": "Asia/Kolkata",
     "ayanamsa": "True Lahiri (Chitrapaksha)",
     "outline_mode": "Vitality (Lords)",
@@ -14,6 +14,7 @@
     "show_details": true,
     "use_circular": false,
     "show_tooltips": true,
+    "use_true_positions": true,
     "aspect_planets": {
         "Sun": false,
         "Moon": false,
