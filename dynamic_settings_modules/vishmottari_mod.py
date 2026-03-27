@@ -1,7 +1,6 @@
 #dunamic_system_modules/vishmottari_mode.py
 
-import datetime
-import main  # NEW: Import main to access the main application namespace
+import datetime, main
 from PyQt6.QtWidgets import (QPushButton, QMessageBox, QLabel, QVBoxLayout, QHBoxLayout,QDialog, QTreeWidget, QTreeWidgetItem, QHeaderView, QLineEdit,QApplication, QAbstractItemView, QDateEdit, QGroupBox)
 from PyQt6.QtCore import Qt, QTimer, QDate
 from PyQt6.QtGui import QColor, QBrush, QFont
@@ -11,24 +10,17 @@ import astro_engine
 PLUGIN_GROUP = "DASHAS"
 PLUGIN_INDEX = 7
 
-# Attempt to load SmoothScroller from the main application namespace
 SmoothScroller = getattr(main, 'SmoothScroller', None)
+
 # --- VIMSHOTTARI CONSTANTS ---
-DASHA_LORDS = ["Ketu", "Venus", "Sun", "Moon",
-               "Mars", "Rahu", "Jupiter", "Saturn", "Mercury"]
-DASHA_YEARS = {
-    "Ketu": 7, "Venus": 20, "Sun": 6, "Moon": 10, "Mars": 7,
-    "Rahu": 18, "Jupiter": 16, "Saturn": 19, "Mercury": 17
-}
 
-PLANET_COLORS = {
-    "Sun": "#d35400", "Moon": "#2980b9", "Mars": "#c0392b",
-    "Mercury": "#27ae60", "Jupiter": "#f39c12", "Venus": "#8e44ad",
-    "Saturn": "#2c3e50", "Rahu": "#7f8c8d", "Ketu": "#8d6e63"
-}
+DASHA_LORDS = ["Ketu", "Venus", "Sun", "Moon","Mars", "Rahu", "Jupiter", "Saturn", "Mercury"]
+DASHA_YEARS = {"Ketu": 7, "Venus": 20, "Sun": 6, "Moon": 10, "Mars": 7,"Rahu": 18, "Jupiter": 16, "Saturn": 19, "Mercury": 17}
 
+PLANET_COLORS = {"Sun": "#d35400", "Moon": "#2980b9", "Mars": "#c0392b","Mercury": "#27ae60", "Jupiter": "#f39c12", "Venus": "#8e44ad","Saturn": "#2c3e50", "Rahu": "#7f8c8d", "Ketu": "#8d6e63"}
 
 class VimshottariDialog(QDialog):
+
     def __init__(self, parent, moon_lon, birth_dt_dict, current_dt):
         super().__init__(parent)
         self.setWindowTitle("Vimshottari Dasha Explorer (Hierarchical)")
@@ -67,20 +59,17 @@ class VimshottariDialog(QDialog):
         # --- Info & Search Header ---
         header_layout = QHBoxLayout()
 
-        info_lbl = QLabel(
-            f"<b>Birth Date:</b> {self.birth_date.strftime('%d %b %Y, %H:%M')}")
+        info_lbl = QLabel(f"<b>Birth Date:</b> {self.birth_date.strftime('%d %b %Y, %H:%M')}")
         info_lbl.setStyleSheet("color: #34495e; font-size: 13px;")
 
         target_date_lbl = QLabel("<b>Target Date:</b>")
-        target_date_lbl.setStyleSheet(
-            "color: #34495e; font-size: 13px; margin-left: 15px;")
+        target_date_lbl.setStyleSheet("color: #34495e; font-size: 13px; margin-left: 15px;")
 
         # Interactive Date Picker for Target Date
         self.target_date_edit = QDateEdit()
         self.target_date_edit.setCalendarPopup(True)
         self.target_date_edit.setDisplayFormat("dd MMM yyyy")
-        self.target_date_edit.setDate(
-            QDate(self.current_date.year, self.current_date.month, self.current_date.day))
+        self.target_date_edit.setDate(QDate(self.current_date.year, self.current_date.month, self.current_date.day))
         self.target_date_edit.setStyleSheet("font-size: 13px; padding: 2px;")
         self.target_date_edit.dateChanged.connect(self.on_target_date_changed)
 
@@ -102,20 +91,17 @@ class VimshottariDialog(QDialog):
             ["Dasha Sequence", "Start Date", "End Date", "Age at Start"])
         self.tree.setAlternatingRowColors(True)
         self.tree.setSelectionMode(QTreeWidget.SelectionMode.SingleSelection)
-        self.tree.setSelectionBehavior(
-            QTreeWidget.SelectionBehavior.SelectRows)
+        self.tree.setSelectionBehavior(QTreeWidget.SelectionBehavior.SelectRows)
 
         # --- NEW: Qt Scrolling Optimizations ---
         self.tree.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.tree.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.tree.setUniformRowHeights(True)
 
-        self.tree.header().setSectionResizeMode(
-            0, QHeaderView.ResizeMode.ResizeToContents)
+        self.tree.header().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         self.tree.header().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self.tree.header().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        self.tree.header().setSectionResizeMode(
-            3, QHeaderView.ResizeMode.ResizeToContents)
+        self.tree.header().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
 
         # Connect manual lazy loading (if user clicks before background loader reaches it)
         self.tree.itemExpanded.connect(self.on_item_expanded)
@@ -127,13 +113,11 @@ class VimshottariDialog(QDialog):
 
         # --- Footer ---
         footer = QHBoxLayout()
-        legend = QLabel(
-            "🟢 Highlighted row indicates the currently active Dasha.")
+        legend = QLabel("🟢 Highlighted row indicates the currently active Dasha.")
         legend.setStyleSheet("color: #27ae60; font-weight: bold;")
 
         self.load_status_lbl = QLabel("")
-        self.load_status_lbl.setStyleSheet(
-            "color: #7f8c8d; font-size: 12px; font-style: italic;")
+        self.load_status_lbl.setStyleSheet("color: #7f8c8d; font-size: 12px; font-style: italic;")
 
         btn_close = QPushButton("Close")
         btn_close.setFixedWidth(100)
@@ -152,7 +136,6 @@ class VimshottariDialog(QDialog):
         # Initialize the interface
         self.populate_tree()
 
-    # --- NEW: Smooth Scroll Applier Method ---
     def apply_smooth_scroll(self, widget):
         if SmoothScroller:
             scroller = SmoothScroller(widget)
@@ -160,8 +143,7 @@ class VimshottariDialog(QDialog):
 
     def on_target_date_changed(self, new_qdate):
         """Triggered when the user picks a new date. Instant O(1) highlighting update."""
-        self.current_date = datetime.datetime(
-            new_qdate.year(), new_qdate.month(), new_qdate.day())
+        self.current_date = datetime.datetime(new_qdate.year(), new_qdate.month(), new_qdate.day())
 
         self.tree.setUpdatesEnabled(False)
 
@@ -244,8 +226,7 @@ class VimshottariDialog(QDialog):
             item.setData(0, Qt.ItemDataRole.UserRole + 1, False)
 
             # Auto-expand flag will naturally build the remainder of the active tree
-            self._build_children(item, data["lord_idx"], data["current_start"],
-                                 data["duration_years"], data["depth"], data["prefix"], auto_expand_active=True)
+            self._build_children(item, data["lord_idx"], data["current_start"],data["duration_years"], data["depth"], data["prefix"], auto_expand_active=True)
             data["loaded"] = True
             item.setData(0, Qt.ItemDataRole.UserRole, data)
         else:
@@ -275,8 +256,7 @@ class VimshottariDialog(QDialog):
                 item.removeChild(dummy)
             item.setData(0, Qt.ItemDataRole.UserRole + 1, False)
 
-        self._build_children(item, data["lord_idx"], data["current_start"],
-                             data["duration_years"], data["depth"], data["prefix"], auto_expand_active=False)
+        self._build_children(item, data["lord_idx"], data["current_start"],data["duration_years"], data["depth"], data["prefix"], auto_expand_active=False)
 
         data["loaded"] = True
         item.setData(0, Qt.ItemDataRole.UserRole, data)
@@ -290,7 +270,7 @@ class VimshottariDialog(QDialog):
 
             sub_dur_years = duration_years * (DASHA_YEARS[sub_lord] / 120.0)
             sub_end = sub_start + \
-                datetime.timedelta(days=sub_dur_years * 365.2425)
+                datetime.timedelta(days=sub_dur_years * 365.256364)
 
             # Skip if branch ended before birth
             if sub_end <= self.birth_date:
@@ -337,8 +317,7 @@ class VimshottariDialog(QDialog):
             }
             item.setData(0, Qt.ItemDataRole.UserRole, data)
 
-            item.setForeground(
-                0, QBrush(QColor(PLANET_COLORS.get(sub_lord, "#000000"))))
+            item.setForeground(0, QBrush(QColor(PLANET_COLORS.get(sub_lord, "#000000"))))
 
             if is_active:
                 self._highlight_item(item, data)
@@ -354,8 +333,7 @@ class VimshottariDialog(QDialog):
                 if auto_expand_active and is_active:
                     item.removeChild(dummy)
                     item.setData(0, Qt.ItemDataRole.UserRole + 1, False)
-                    self._build_children(
-                        item, sub_lord_idx, sub_start, sub_dur_years, depth + 1, seq_name, auto_expand_active=True)
+                    self._build_children(item, sub_lord_idx, sub_start, sub_dur_years, depth + 1, seq_name, auto_expand_active=True)
                     data["loaded"] = True
                     item.setData(0, Qt.ItemDataRole.UserRole, data)
                     item.setExpanded(True)
@@ -380,9 +358,7 @@ class VimshottariDialog(QDialog):
         start_lord_years = DASHA_YEARS[start_lord]
 
         past_fraction = 1.0 - fraction_left
-        md_start_dt = self.birth_date - \
-            datetime.timedelta(
-                days=(past_fraction * start_lord_years * 365.2425))
+        md_start_dt = self.birth_date - datetime.timedelta(days=(past_fraction * start_lord_years * 365.256364))
 
         cur_md_start = md_start_dt
         self.tree.setUpdatesEnabled(False)
@@ -391,14 +367,10 @@ class VimshottariDialog(QDialog):
             md_lord_idx = (start_lord_idx + i) % 9
             md_lord = DASHA_LORDS[md_lord_idx]
             md_dur_years = DASHA_YEARS[md_lord]
-
-            md_end = cur_md_start + \
-                datetime.timedelta(days=md_dur_years * 365.2425)
-
+            md_end = cur_md_start + datetime.timedelta(days=md_dur_years * 365.256364)
             if md_end > self.birth_date:
                 actual_start = max(self.birth_date, cur_md_start)
-                age_years = (
-                    actual_start - self.birth_date).total_seconds() / (365.2425 * 86400.0)
+                age_years = (actual_start - self.birth_date).total_seconds() / (365.256364 * 86400.0)
                 y = int(age_years)
                 m = int(round((age_years - y) * 12))
                 if m == 12:
@@ -461,7 +433,7 @@ class VimshottariDialog(QDialog):
                 self._load_queue.append(root)
 
             cur_md_start = md_end
-            if (cur_md_start - self.birth_date).days / 365.2425 > 120.0:
+            if (cur_md_start - self.birth_date).days / 365.256364 > 120.0:
                 break
 
         self.tree.setUpdatesEnabled(True)
@@ -492,8 +464,7 @@ class VimshottariDialog(QDialog):
                         item.removeChild(dummy)
                     item.setData(0, Qt.ItemDataRole.UserRole + 1, False)
 
-                self._build_children(item, data["lord_idx"], data["current_start"],
-                                     data["duration_years"], data["depth"], data["prefix"], auto_expand_active=False)
+                self._build_children(item, data["lord_idx"], data["current_start"],data["duration_years"], data["depth"], data["prefix"], auto_expand_active=False)
                 data["loaded"] = True
                 item.setData(0, Qt.ItemDataRole.UserRole, data)
 
@@ -531,8 +502,7 @@ class VimshottariDialog(QDialog):
                         item.removeChild(dummy)
                     item.setData(0, Qt.ItemDataRole.UserRole + 1, False)
 
-                self._build_children(item, data["lord_idx"], data["current_start"],
-                                     data["duration_years"], data["depth"], data["prefix"], auto_expand_active=False)
+                self._build_children(item, data["lord_idx"], data["current_start"],data["duration_years"], data["depth"], data["prefix"], auto_expand_active=False)
                 data["loaded"] = True
                 item.setData(0, Qt.ItemDataRole.UserRole, data)
 
@@ -550,8 +520,7 @@ class VimshottariDialog(QDialog):
             self.tree.collapseAll()
             self._re_expand_active()
             if self.active_leaf_item:
-                self.tree.scrollToItem(
-                    self.active_leaf_item, QAbstractItemView.ScrollHint.PositionAtCenter)
+                self.tree.scrollToItem(self.active_leaf_item, QAbstractItemView.ScrollHint.PositionAtCenter)
             return
 
         if not self.is_fully_loaded:
@@ -604,25 +573,24 @@ def setup_ui(app, layout):
 
     btn_show = QPushButton("Open Dasha Tree")
 
-# --- Open Dasha Tree Button (Vimshottari Blue Theme) ---
     btn_show.setStyleSheet("""
-    QPushButton {
-        background-color: #2980b9; 
-        color: white; 
-        font-weight: bold; 
-        padding: 6px 15px;
-        border: 1px solid #1c5982;
-        border-radius: 4px;
-    }
-    QPushButton:hover {
-        background-color: #0d5c91;
-        border-color: #2980b9;
-    }
-    QPushButton:pressed {
-        background-color: #2471a3;
-        border-style: inset;
-    }
-""")
+        QPushButton {
+            background-color: #2980b9; 
+            color: white; 
+            font-weight: bold; 
+            padding: 6px 15px;
+            border: 1px solid #1c5982;
+            border-radius: 4px;
+        }
+        QPushButton:hover {
+            background-color: #0d5c91;
+            border-color: #2980b9;
+        }
+        QPushButton:pressed {
+            background-color: #2471a3;
+            border-style: inset;
+        }
+    """)
     v_layout.addWidget(status_label)
     btn_layout.addWidget(btn_show)
     v_layout.addLayout(btn_layout)
@@ -631,15 +599,13 @@ def setup_ui(app, layout):
 
     def open_dasha():
         if not hasattr(app, 'current_base_chart') or not app.current_base_chart:
-            QMessageBox.warning(
-                app, "No Chart Data", "Please wait for the base chart to calculate first!")
+            QMessageBox.warning(app, "No Chart Data", "Please wait for the base chart to calculate first!")
             return
 
         moon_p = next((p for p in app.current_base_chart.get(
             "planets", []) if p["name"] == "Moon"), None)
         if not moon_p:
-            QMessageBox.warning(
-                app, "Error", "Could not locate Moon in the current chart!")
+            QMessageBox.warning(app, "Error", "Could not locate Moon in the current chart!")
             return
 
         birth_dt_dict = app.time_ctrl.current_time

@@ -1,7 +1,7 @@
 {
-    "version": "0.3.7",
+    "version": "0.3.8",
     "files": {
-        "AstroBasics.exe": "43fb591d9ad203ace3d0555f551cf0d3a4392ae8899e16519e03b9fbfb3365ac",
+        "AstroBasics.exe": "f96fa520daf97111491966880b55d8cd7a97a797457b0be336d109c6cffe6ce7",
         "_internal/api-ms-win-core-console-l1-1-0.dll": "f0f7cb2a9ffccb43400db88d6bf99f2fcc3161de1ac96c48501d4d522c48c2ca",
         "_internal/api-ms-win-core-datetime-l1-1-0.dll": "55e5f10d0dd9c85ff1c6dc7798e46b3a4422fb7ebc583bb00d06a7df2494397b",
         "_internal/api-ms-win-core-debug-l1-1-0.dll": "092b72832c47f9c4edcde61f1a111c20eb73452984e0a6109482de74eb03c34d",
@@ -42,7 +42,7 @@
         "_internal/api-ms-win-crt-string-l1-1-0.dll": "44ddab31c182235ac5405d31c1cba048316cc230698e392a732ac941ec683bad",
         "_internal/api-ms-win-crt-time-l1-1-0.dll": "a409e25a9d3c252cc0a5af9df85d3733e946087b06cd1fb2cf1bf640eb0d49ba",
         "_internal/api-ms-win-crt-utility-l1-1-0.dll": "cfb2ee4e426bb00b76163c1a66cf8cfef8d7450cbf9bbce3bc9eb2053f51e0e5",
-        "_internal/base_library.zip": "a94c184a00bef6e24c88fde0954ea0b489513d779b041eebb4bff077f11352cb",
+        "_internal/base_library.zip": "3e3927ba3c2afa920f81c08fb30e02b1744ef1fcbec202a7057a306c591d7c4b",
         "_internal/libcrypto-3.dll": "e03dd02fdcfb791981c9962827cfcf495f2a47a514c1526efb57f847a9df514a",
         "_internal/libffi-8.dll": "eff52743773eb550fcc6ce3efc37c85724502233b6b002a35496d828bd7b280a",
         "_internal/libssl-3.dll": "1e4bc0638682bfcbb36f4465d6a2e9944d917a60f05ecc8ddf9e96847e05e13f",
@@ -82,7 +82,7 @@
         "_internal/dynamic_settings_modules/research_plugin.py": "1de4072db0ab54dd998bf376e4a884c4ad98b64d6a3732ce527d34ac6701c45c",
         "_internal/dynamic_settings_modules/shadbal_mod.py": "52c3905ed4082f638869661acc93206e698de8f61ca565188fe959df36b7b6c1",
         "_internal/dynamic_settings_modules/strength_mod.py": "3589d264a43e0b2aeff04363e6b41598d956f1e6f951166d38e6fa2f42eb2ef7",
-        "_internal/dynamic_settings_modules/vishmottari_mod.py": "776b74c9e127a0a4bd463ab4c9927b77c16790c4e83dda854177468f79113176",
+        "_internal/dynamic_settings_modules/vishmottari_mod.py": "d84b36e7fd76d01035109e7269e6ad1491f22810326b0efdc48da019a95e9dcd",
         "_internal/dynamic_settings_modules/zupdater.py": "60a687889bd20aa3b3aa412b6eaed175747e1fdf3b4cd0bb031e7ff2c4b2ed58",
         "_internal/dynamic_settings_modules/zzlogger_mod.py": "92c84f3123e8c6d731ceab5a4c2926ec8bf83faef8ca87830b577a5ee2b9e5e6",
         "_internal/dynamic_settings_modules/__init__.py": "9c4596a592e565ca1623e2665e3d0a57f572eaff081b19ee031d80f837fd5f19",
