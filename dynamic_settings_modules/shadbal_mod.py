@@ -4,12 +4,18 @@ import math, datetime, traceback
 from PyQt6.QtWidgets import (QPushButton, QMessageBox, QLabel, QVBoxLayout, QHBoxLayout, QDialog, QTableWidget, QTableWidgetItem, QHeaderView, QProgressBar, QWidget, QTabWidget, QTextEdit, QStyledItemDelegate,QGroupBox)
 from PyQt6.QtGui import QCursor, QFont, QColor, QPen, QBrush, QPainter
 from PyQt6.QtCore import Qt, QTimer, QPoint, QRectF, QPointF
-import __main__
+import main
+
+info_print = getattr(main, 'info_print', print)
+error_print = getattr(main, 'error_print', print)
 
 # Attempt to load SmoothScroller from the main application namespace
-SmoothScroller = getattr(__main__, 'SmoothScroller', None)
+SmoothScroller = getattr(main, 'SmoothScroller', None)
 
 import astro_engine as astro_engine
+
+PLUGIN_GROUP = "STRENGTHS"
+PLUGIN_INDEX = 6
 
 # ==============================================================================
 # CLASSICAL CONSTANTS & CONFIGURATION TABLES
@@ -1321,13 +1327,6 @@ class ShadbalaDetailsDialog(QDialog):
 # ==============================================================================
 # MAIN INTEGRATION HOOK
 # ==============================================================================
-import __main__
-from PyQt6.QtWidgets import QGroupBox, QVBoxLayout, QPushButton, QLabel
-from PyQt6.QtCore import QTimer
-
-info_print = getattr(__main__, 'info_print', print)
-error_print = getattr(__main__, 'error_print', print)
-
 
 def setup_ui(app, layout):
     shared_group_id = "AdvancedAstroGroup"

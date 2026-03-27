@@ -1,6 +1,9 @@
 # astro_engine.py
 
-import swisseph as swe, datetime, pytz, time, math, copy, os
+import swisseph as swe, datetime, pytz, time, math, copy, os, sys, threading
+import custom_vargas
+
+swe_lock = threading.Lock()
 
 # ==========================================
 # GLOBAL ASTROLOGICAL RULES & CONSTANTS
@@ -25,6 +28,13 @@ SIGN_RULERS = {
     9: "Jupiter", 10: "Saturn", 11: "Saturn", 12: "Jupiter"
 }
 
+# Mapping swisseph bodies to strings for fallback calculations
+SWE_BODY_MAP_REV = {
+    swe.SUN: "Sun", swe.MOON: "Moon", swe.MARS: "Mars",
+    swe.MERCURY: "Mercury", swe.JUPITER: "Jupiter", swe.VENUS: "Venus",
+    swe.SATURN: "Saturn", swe.TRUE_NODE: "Rahu", swe.MEAN_NODE: "Rahu"
+}
+
 def get_dignities(p_name, sign_num, deg_in_sign):
     """
     Calculates Exaltation, Own Sign, and Debilitation status for a given planet.
@@ -36,41 +46,53 @@ def get_dignities(p_name, sign_num, deg_in_sign):
     
     # Specific degree-based exceptions in Vedic Astrology
     if p_name == "Moon" and sign_num == 2:
-        # Moon is only truly exalted up to 3 degrees of Taurus
         is_exalted = (deg_in_sign <= 3.0)
         is_own = not is_exalted
     elif p_name == "Mercury" and sign_num == 6:
-        # Mercury is only exalted up to 15 degrees of Virgo
         is_exalted = (deg_in_sign <= 15.0)
         is_own = not is_exalted
         
     if p_name == "Moon" and sign_num == 8:
-        # Moon debilitation deepens up to 3 degrees of Scorpio
         is_debilitated = (deg_in_sign <= 3.0)
     elif p_name == "Mercury" and sign_num == 12:
-        # Mercury debilitation deepens up to 15 degrees of Pisces
         is_debilitated = (deg_in_sign <= 15.0)
         
     return is_exalted, is_own, is_debilitated
-
 
 
 # ==========================================
 # SWISSEPH SAFE WRAPPERS & FALLBACK MATH
 # ==========================================
 def get_resource_path(relative_path):
-    """Get absolute path to resource, works for dev and for PyInstaller frozen apps"""
+    """Safely gets the resource path for Raw Python, Nuitka, and PyInstaller."""
     try:
-        base_path = sys._MEIPASS
-    except Exception:
-        base_path = os.path.abspath(".")
-    return os.path.join(base_path, relative_path)
+        # 1. PyInstaller --onefile / --onedir runtime temp directory
+        if hasattr(sys, '_MEIPASS'):
+            meipass_path = os.path.join(sys._MEIPASS, relative_path)
+            if os.path.exists(meipass_path):
+                return meipass_path
+
+        # 2. Executable root (Nuitka --standalone or PyInstaller fallback)
+        if getattr(sys, 'frozen', False) or '__compiled__' in globals():
+            root_path = os.path.join(os.path.dirname(sys.executable), relative_path)
+            if os.path.exists(root_path):
+                return root_path
+
+        # 3. Fallback for normal terminal execution (.py script)
+        return os.path.join(os.path.dirname(os.path.abspath(__file__)), relative_path)
+    except Exception as e:
+        print(f"[DEBUG - ASTRO_ENGINE] Error resolving resource path for {relative_path}: {e}")
+        return relative_path
+
+# Cache the path string so we aren't resolving it thousands of times per second
+GLOBAL_EPHE_PATH = get_resource_path('ephe')
 
 
 def fallback_ayanamsa(jd):
     """Fallback Ayanamsa calculation if Swiss Ephemeris is missing."""
     T = (jd - 2451545.0) / 36525.0
     return (23.85 + 1.396 * T) % 360.0
+
 
 def fallback_planet_calc(jd, body_name):
     """Hardcoded approximate planetary calculation for emergency fallbacks."""
@@ -84,10 +106,9 @@ def fallback_planet_calc(jd, body_name):
     
     if body_name in elements:
         L0, L1 = elements[body_name]
-        # Return format mimics SWIEPH: (longitude, lat, distance, speed)
         return ((L0 + L1 * T) % 360.0, 0.0, 0.0, L1 / 36525.0)
-        
     return (0.0, 0.0, 0.0, 0.0)
+
 
 def fallback_ascendant(jd, lat, lon):
     """Mathematical fallback for calculating the Ascendant degree."""
@@ -103,58 +124,102 @@ def fallback_ascendant(jd, lat, lon):
     
     return asc + 360.0 if asc < 0 else asc
 
+
 def safe_calc_ut(jd, body, flag):
-    """Safe wrapper for calculating planetary positions with progressive fallbacks."""
-    try: 
-        return swe.calc_ut(jd, body, flag)
-    except Exception:
+    with swe_lock: 
+        # CRITICAL FIX: Re-assert path inside the lock to defeat C-level Thread Local Storage dropping paths
+        swe.set_ephe_path(GLOBAL_EPHE_PATH)
         try: 
-            # Fallback 1: Try Moshier Ephemeris if core SWIEPH fails
-            fallback_flag = (flag & ~swe.FLG_SWIEPH) | swe.FLG_MOSEPH
-            return swe.calc_ut(jd, body, fallback_flag)
-        except Exception:
-            # Fallback 2: Manual internal math
-            body_lookup = {
-                swe.SUN: "Sun", swe.MOON: "Moon", swe.MARS: "Mars", 
-                swe.MERCURY: "Mercury", swe.JUPITER: "Jupiter", 
-                swe.VENUS: "Venus", swe.SATURN: "Saturn", swe.TRUE_NODE: "Rahu"
-            }
-            body_name = body_lookup.get(body, "")
-            res = fallback_planet_calc(jd, body_name)
+            res = swe.calc_ut(jd, body, flag)
             
-            if flag & swe.FLG_SIDEREAL: 
-                adjusted_lon = (res[0] - fallback_ayanamsa(jd)) % 360.0
-                res = (adjusted_lon, res[1], res[2], res[3])
+            # Silent Drop Detector: Swisseph didn't throw an error, but it used Moshier instead of Se1!
+            if (flag & swe.FLG_SWIEPH) and not (res[1] & swe.FLG_SWIEPH):
+                print(f"[WARNING - ASTRO_ENGINE] Swisseph SILENTLY fell back to Moshier for body {body}. Ephe files might be missing or unreadable.")
                 
-            return res, None
+            return res
+        except Exception as e:
+            print(f"\n[CRITICAL ERROR - ASTRO_ENGINE] SWISSEPH PRECISION FAILURE for body {body}.")
+            print(f"[CRITICAL ERROR - ASTRO_ENGINE] Error details: {e}")
+            
+            abs_ephe_dir = os.path.abspath(GLOBAL_EPHE_PATH)
+            print(f"[CRITICAL ERROR - ASTRO_ENGINE] Looked for ephemeris folder at: {abs_ephe_dir}")
+            
+            if not os.path.exists(abs_ephe_dir):
+                print(f"[CRITICAL ERROR - ASTRO_ENGINE] The 'ephe' folder DOES NOT EXIST at the specified path.")
+            else:
+                files_in_dir = os.listdir(abs_ephe_dir)
+                se1_files = [f for f in files_in_dir if f.endswith('.se1')]
+                print(f"[CRITICAL ERROR - ASTRO_ENGINE] Folder exists. Found {len(se1_files)} .se1 files: {se1_files}")
+                print(f"[CRITICAL ERROR - ASTRO_ENGINE] Swisseph expected highly precise .se1 files (like sepl_18.se1, semo_18.se1) for JD {jd} which are MISSING.")
+
+            print("[CRITICAL ERROR - ASTRO_ENGINE] Falling back to MOSEPH emulator. STRICT PRECISION WILL BE LOST!")
+            
+            eval_body = swe.MEAN_NODE if body == swe.TRUE_NODE else body
+            if body == swe.TRUE_NODE:
+                print(f"[CRITICAL ERROR - ASTRO_ENGINE] TRUE_NODE (Rahu) not supported by Moshier. Force-swapping to MEAN_NODE.")
+            
+            try: 
+                fallback_flag = (flag & ~swe.FLG_SWIEPH) | swe.FLG_MOSEPH
+                res = swe.calc_ut(jd, eval_body, fallback_flag)
+                return res
+            except Exception as e2:
+                print(f"[CRITICAL ERROR - ASTRO_ENGINE] MOSEPH fallback completely failed: {e2}. Attempting pure Python math fallback...")
+                
+                body_name = SWE_BODY_MAP_REV.get(body)
+                if body_name:
+                    res = fallback_planet_calc(jd, body_name)
+                    return (res, 0)
+                return ((0.0, 0.0, 0.0, 0.0), 0)
+
 
 def safe_houses_ex(jd, lat, lon, hsys, flag):
     """Safe wrapper for calculating astrological houses and ascendant."""
-    try: 
-        return swe.houses_ex(jd, lat, lon, hsys, flag)
-    except Exception:
+    with swe_lock: 
+        # CRITICAL FIX: Re-assert path for Thread Local Storage
+        swe.set_ephe_path(GLOBAL_EPHE_PATH)
         try: 
-            fallback_flag = (flag & ~swe.FLG_SWIEPH) | swe.FLG_MOSEPH
-            return swe.houses_ex(jd, lat, lon, hsys, fallback_flag)
-        except Exception:
-            asc_lon = fallback_ascendant(jd, lat, lon)
-            if flag & swe.FLG_SIDEREAL:
-                asc_lon = (asc_lon - fallback_ayanamsa(jd)) % 360.0
-            return (tuple([0.0]*13), (asc_lon, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0))
+            return swe.houses_ex(jd, lat, lon, hsys, flag)
+        except Exception as e:
+            print(f"\n[CRITICAL ERROR - ASTRO_ENGINE] SWISSEPH HOUSES PRECISION FAILURE.")
+            print(f"[CRITICAL ERROR - ASTRO_ENGINE] Error details: {e}")
+            print(f"[CRITICAL ERROR - ASTRO_ENGINE] Falling back to MOSEPH house calculations. PRECISION WILL BE LOST!")
+            try: 
+                fallback_flag = (flag & ~swe.FLG_SWIEPH) | swe.FLG_MOSEPH
+                return swe.houses_ex(jd, lat, lon, hsys, fallback_flag)
+            except Exception as e2:
+                print(f"[CRITICAL ERROR - ASTRO_ENGINE] MOSEPH house fallback failed: {e2}. Attempting pure python ascendant math...")
+                pass
+                
+    # Manual fallback execution (outside the main try block)
+    asc_lon = fallback_ascendant(jd, lat, lon)
+    if flag & swe.FLG_SIDEREAL:
+        asc_lon = (asc_lon - fallback_ayanamsa(jd)) % 360.0
+    return (tuple([0.0]*13), (asc_lon, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0))
 
-def safe_rise_trans(jd, body, starname, epheflag, rsmi, geopos, atpress, attemp):
+
+def safe_rise_trans(jd, body, rsmi, geopos):
     """Safe wrapper for Sunrise/Sunset event calculations."""
-    try: 
-        return swe.rise_trans(jd, body, starname, epheflag, rsmi, geopos, atpress, attemp)
-    except Exception: 
-        fallback_flag = (epheflag & ~swe.FLG_SWIEPH) | swe.FLG_MOSEPH
-        return swe.rise_trans(jd, body, starname, fallback_flag, rsmi, geopos, atpress, attemp)
-
+    with swe_lock: 
+        # CRITICAL FIX: Re-assert path for Thread Local Storage
+        swe.set_ephe_path(GLOBAL_EPHE_PATH)
+        try: 
+            # PySwisseph signature drops 'starname' completely for planets
+            return swe.rise_trans(jd, body, rsmi, geopos)
+        except Exception as e: 
+            print(f"\n[CRITICAL ERROR - ASTRO_ENGINE] SWISSEPH RISE/TRANS PRECISION FAILURE.")
+            print(f"[CRITICAL ERROR - ASTRO_ENGINE] Error details: {e}")
+            print(f"[CRITICAL ERROR - ASTRO_ENGINE] Falling back to MOSEPH rise_trans calculations. PRECISION WILL BE LOST!")
+            try:
+                eval_body = swe.MEAN_NODE if body == swe.TRUE_NODE else body
+                # epheflag is the 7th argument natively, so we pass it safely as a kwarg
+                return swe.rise_trans(jd, eval_body, rsmi, geopos, epheflag=swe.FLG_MOSEPH)
+            except Exception as e2:
+                print(f"[CRITICAL ERROR - ASTRO_ENGINE] MOSEPH rise_trans failed: {e2}. No fallback available, aborting calculation.")
+                raise e2
 
 # ==========================================
 # TIME & DATE CONVERSION UTILITIES
 # ==========================================
-
 def ymdhms_to_jd(year, month, day, hour=0, minute=0, second=0.0, gregorian=True):
     """Converts a standard calendar date and time to a Julian Day number."""
     day_frac = (hour + minute / 60.0 + second / 3600.0) / 24.0
@@ -211,13 +276,11 @@ def dt_dict_to_utc_jd(dt_dict, tz_name):
     
     offset_hours = 0.0
     try:
-        # Get UTC offset for the specific local time
         if 1 <= y <= 9999: 
             dt_obj = datetime.datetime(y, m, d, h, mi, int(s))
             localized_dt = pytz.timezone(tz_name).localize(dt_obj)
             offset_hours = localized_dt.utcoffset().total_seconds() / 3600.0
         else: 
-            # Fallback for extreme historical dates using year 2000's offset
             fallback_dt = datetime.datetime(2000, 1, 1)
             localized_dt = pytz.timezone(tz_name).localize(fallback_dt)
             offset_hours = localized_dt.utcoffset().total_seconds() / 3600.0
@@ -269,230 +332,16 @@ def get_nakshatra(lon_deg):
 
 
 # ==========================================
-# RECTIFICATION ENGINE
-# ===========================================
-
-def perform_rectification_search(params, result_queue, stop_event):
-    """Core mathematical lock-pick engine for finding birth times based on constraints."""
-    try:
-        swe.set_ephe_path(get_resource_path('ephe'))
-        div_type = params['div_type']
-        target_asc = params['target_asc']
-        target_planets = params['target_planets']
-        
-        engine = EphemerisEngine()
-        engine.set_ayanamsa(params['ayanamsa'])
-        engine.set_custom_vargas(params.get('custom_vargas', {}))
-        
-        # Safely pull modes from the unified engine dictionary to avoid duplication/typos
-        try:
-            if params['ayanamsa'] in engine.ayanamsa_modes:
-                swe.set_sid_mode(engine.ayanamsa_modes[params['ayanamsa']])
-            else:
-                raise ValueError(f"Ayanamsa '{params['ayanamsa']}' is not mapped in astro_engine.")
-        except Exception as e:
-            result_queue.put({"status": "error", "message": f"CRITICAL ERROR: Ayanamsa '{params['ayanamsa']}' was not properly set. Check astro_engine configuration. Details: {str(e)}"})
-            return
-            
-        calc_flag = swe.FLG_SWIEPH | swe.FLG_SIDEREAL
-        body_map = {
-            "Sun": swe.SUN, "Moon": swe.MOON, "Mars": swe.MARS, 
-            "Mercury": swe.MERCURY, "Jupiter": swe.JUPITER, 
-            "Venus": swe.VENUS, "Saturn": swe.SATURN, 
-            "Rahu": swe.TRUE_NODE, "Ketu": swe.TRUE_NODE
-        }
-
-        # Determine structural division factor dynamically
-        div_factor = 1
-        if div_type in params.get('custom_vargas', {}):
-            div_factor = params['custom_vargas'][div_type].get("parts", 1)
-        elif div_type != "D1":
-            div_factor = int(div_type[1:])
-            
-        window_deg = 30.0 / div_factor
-        
-        # Max speeds in degrees per day roughly used to optimize window jumps
-        max_speeds = {
-            "Saturn": 0.25, "Jupiter": 0.35, "Rahu": 0.2, "Ketu": 0.2, 
-            "Mars": 1.2, "Sun": 1.2, "Venus": 1.8, "Mercury": 3.5, 
-            "Moon": 16.5, "Ascendant": 500.0
-        }
-
-        def get_sign_idx(jd, name):
-            """Internal helper to calculate the sign of a planet at a specific JD."""
-            if name == "Ascendant":
-                asc_res = safe_houses_ex(jd, params['lat'], params['lon'], b'P', calc_flag)
-                return engine.get_div_sign_and_lon(asc_res[1][0], div_type)[0]
-            elif name == "Ketu":
-                res = safe_calc_ut(jd, swe.TRUE_NODE, calc_flag)
-                return engine.get_div_sign_and_lon((res[0][0] + 180.0) % 360.0, div_type)[0]
-            else:
-                res = safe_calc_ut(jd, body_map[name], calc_flag)
-                return engine.get_div_sign_and_lon(res[0][0], div_type)[0]
-
-        # Build list of constraints to evaluate strictly from SLOWEST to FASTEST
-        checks = []
-        for p in ["Saturn", "Rahu", "Ketu", "Jupiter", "Mars", "Sun", "Venus", "Mercury", "Moon", "Ascendant"]:
-            if p == "Ascendant" and target_asc is not None:
-                checks.append((p, target_asc))
-            elif p in target_planets:
-                checks.append((p, target_planets[p]))
-                
-        origin_jd = dt_dict_to_utc_jd({'year': params['base_year'], 'month': 1, 'day': 1}, params['tz'])
-        
-        # --- PHASE 1: SPEED CASCADING WINDOW SEARCH ---
-        if params.get('search_mode', 'speed') == 'speed':
-            search_range = params.get('search_range', 1000)
-            start_range = params.get('start_range', 0)
-            
-            # Radiate outward in expanding symmetrical shells (checking +i and -i simultaneously)
-            # This ensures we search year forward and backward symmetrically so no closer dates are left behind.
-            for i in range(start_range, search_range + 1):
-                offsets = [i, -i] if i != 0 else [0]
-                
-                year_matches = []
-                
-                for offset in offsets:
-                    year = params['base_year'] + offset
-                    if offset % 10 == 0 and offset >= 0: 
-                        result_queue.put({"status": "progress", "msg": f"Cascading Search: Shell +/- {i} Years (Processing {year})..."})
-                    
-                    # Start with the whole year as the valid window
-                    start_win = dt_dict_to_utc_jd({'year': year, 'month': 1, 'day': 1}, params['tz'])
-                    end_win = dt_dict_to_utc_jd({'year': year+1, 'month': 1, 'day': 1}, params['tz'])
-                    windows = [(start_win, end_win)]
-
-                    # Narrow windows down planet by planet (Slowest -> Fastest)
-                    # "fix slowest planet first, then move forward and backward with time of next slowest"
-                    for p_name, t_sign in checks:
-                        if not windows: break 
-                        
-                        # Compute highly sensitive jump sizes to prevent skipping dates
-                        if p_name == "Ascendant":
-                            calc_step = (window_deg / 500.0) * 0.25
-                            safe_step = max(calc_step, 5.0 / 86400.0) # min 5 seconds
-                        else:
-                            calc_step = (window_deg / max_speeds.get(p_name, 1.0)) * 0.25
-                            safe_step = max(calc_step, 60.0 / 86400.0) # min 1 minute
-                            
-                        new_windows = []
-                        for w_start, w_end in windows:
-                            t = w_start
-                            in_match = False
-                            m_start = None
-                            
-                            # Scan forward within the strict valid timeframe of the slower planet
-                            while True:
-                                if stop_event.is_set(): return
-                                check_t = min(t, w_end)
-                                is_match = (get_sign_idx(check_t, p_name) == t_sign)
-                                
-                                if is_match and not in_match: 
-                                    # EXACT START BOUNDARY (Binary Refinement down to the second)
-                                    t0 = max(w_start, check_t - safe_step)
-                                    t1 = check_t
-                                    if get_sign_idx(t0, p_name) == t_sign:
-                                        m_start = t0
-                                    else:
-                                        for _ in range(15):
-                                            tm = (t0 + t1) / 2.0
-                                            if get_sign_idx(tm, p_name) == t_sign: t1 = tm
-                                            else: t0 = tm
-                                        m_start = t1
-                                    in_match = True
-                                    
-                                elif not is_match and in_match: 
-                                    # EXACT END BOUNDARY (Binary Refinement down to the second)
-                                    t0 = check_t - safe_step
-                                    t1 = check_t
-                                    for _ in range(15):
-                                        tm = (t0 + t1) / 2.0
-                                        if get_sign_idx(tm, p_name) == t_sign: t0 = tm
-                                        else: t1 = tm
-                                    m_end = t0
-                                    new_windows.append((m_start, m_end))
-                                    in_match = False
-                                    
-                                if t >= w_end:
-                                    if in_match: 
-                                        new_windows.append((m_start, w_end))
-                                    break
-                                    
-                                t += safe_step
-                                
-                        # Merge contiguous windows caused by float fragmentation
-                        merged_windows = []
-                        for w in new_windows:
-                            if not merged_windows:
-                                merged_windows.append(w)
-                            else:
-                                last = merged_windows[-1]
-                                if w[0] <= last[1] + (10.0 / 86400.0): # Within 10 seconds, merge
-                                    merged_windows[-1] = (last[0], max(last[1], w[1]))
-                                else:
-                                    merged_windows.append(w)
-                        
-                        windows = merged_windows
-
-                    if windows:
-                        for w in windows:
-                            year_matches.append({
-                                "start": utc_jd_to_dt_dict(w[0], params['tz']), 
-                                "end": utc_jd_to_dt_dict(w[1], params['tz']), 
-                                "start_jd": w[0],
-                                "end_jd": w[1],
-                                "mid_jd": (w[0] + w[1]) / 2.0
-                            })
-
-                if year_matches:
-                    # Symmetrical forward/backward sorting to use precise absolute matches 
-                    # ensuring mathematically closer dates are never skipped!
-                    year_matches.sort(key=lambda x: abs(x["mid_jd"] - origin_jd))
-                    result_queue.put({"status": "success", "year": f"+/- {i}", "blocks": year_matches})
-                    return
-                    
-            # Completed range without finding
-            result_queue.put({"status": "phase1_failed", "message": f"Mathematical cascade scan finished +/- {search_range} years. No matches found.", "last_range": search_range})
-            return
-
-        # --- PHASE 2: DEEP BRUTE FORCE (FALLBACK) ---
-        elif params.get('search_mode') == 'brute':
-            result_queue.put({"status": "progress", "msg": "Phase 2: Deep 1-Minute Brute-Force radiating outward..."})
-            for step in range(int(1000 * 365.25 * 1440)):
-                if stop_event.is_set(): return
-                
-                if step % 100000 == 0: 
-                    result_queue.put({"status": "progress", "msg": f"Brute-Force: Scanned +/- {step / (365.25 * 1440):.2f} years radiating from origin..."})
-                    
-                dirs = (1, -1) if step > 0 else (1,)
-                for sign_dir in dirs:
-                    jd = origin_jd + (step * sign_dir / 1440.0)
-                    
-                    # Evaluate all constraints at exactly this minute
-                    match_found = True
-                    for p_name, t_sign in checks:
-                        if get_sign_idx(jd, p_name) != t_sign:
-                            match_found = False
-                            break
-                            
-                    if match_found:
-                        target_dt = utc_jd_to_dt_dict(jd, params['tz'])
-                        result_queue.put({"status": "success", "year": target_dt['year'], "blocks": [{"start": target_dt, "end": target_dt, "mid_jd": jd}]})
-                        return
-                        
-            result_queue.put({"status": "not_found", "message": "No matches found within +/- 1000 years."})
-            
-    except Exception as e: 
-        result_queue.put({"status": "error", "message": str(e)})
-
-
-# ==========================================
-# EPHEMERIS CHART CALCULATOR ENGINE
+# EPHEMERIS CHART CALCULATOR ENGINE (FORWARD ONLY)
 # ==========================================
 class EphemerisEngine:
     def __init__(self):
-        swe.set_ephe_path(get_resource_path('ephe'))
-        
+        try:
+            swe.set_ephe_path(GLOBAL_EPHE_PATH)
+            print("[DEBUG - ASTRO_ENGINE] Ephemeris path successfully mapped.")
+        except Exception as e:
+            print(f"[DEBUG - ASTRO_ENGINE] Failed to set ephemeris path: {e}")
+
         # Safely wrap internal swisseph constants in getattr to completely prevent
         # AttributeError crashes on module instantiation regardless of swisseph version.
         self.ayanamsa_modes = {
@@ -523,76 +372,52 @@ class EphemerisEngine:
 
     def get_div_sign_and_lon(self, lon_deg, div_type):
         """
-        The central mathematical heart of the app.
         Converts a D1 Longitude into a target Varga (Divisional) sign index and longitude.
-        Fixed to strictly follow Brihat Parashara Hora Shastra (BPHS) rules and 
-        use absolute floating point truncation (no rounding) to prevent boundary spillage.
+        Strictly follows BPHS and pure float math boundaries.
         """
-        # Ensure longitude is strictly within [0, 360) and use pure float math
         lon_deg = lon_deg % 360.0
         
         sign_index = int(lon_deg / 30.0)
         deg_in_sign = lon_deg % 30.0
         
-        # --- Handle Custom Injection Vargas ---
         if div_type in self.custom_vargas:
             rule = self.custom_vargas[div_type]
-            
-            # Format 1: Dynamic Python logic format
             if "logic" in rule and "divs" in rule:
-                import custom_vargas
                 parts = rule["divs"]
                 new_sign_idx = custom_vargas.calculate_new_sign(sign_index, deg_in_sign, rule)
-                
                 segment_length = 30.0 / parts
                 part_num = int(deg_in_sign / segment_length)
                 deg_rem = (deg_in_sign - (part_num * segment_length)) * parts
                 return new_sign_idx, (new_sign_idx * 30.0) + deg_rem
                 
-            # Format 2: Old Legacy JSON array format
             parts = rule.get("parts", 1)
             starts = rule.get("starts", [0]*12)
-            
             segment_length = 30.0 / parts
             part_num = int(deg_in_sign / segment_length)
             new_sign_idx = (starts[sign_index] + part_num) % 12
             deg_rem = (deg_in_sign - (part_num * segment_length)) * parts
             return new_sign_idx, (new_sign_idx * 30.0) + deg_rem
             
-        # --- Hardcoded Classical Vargas ---
         if div_type == "D1": 
             return sign_index, lon_deg
             
-        # D30 (Trimshamsha) - Uneven BPHS Divisions
-        # Using pure float limits ensures perfect precision at exact boundaries
         if div_type == "D30":
             deg = deg_in_sign
-            if sign_index % 2 == 0:  # Odd Signs (Aries, Gemini, Leo...)
-                if deg < 5.0:
-                    new_sign, rem_deg = 0, (deg / 5.0) * 30.0
-                elif deg < 10.0:
-                    new_sign, rem_deg = 10, ((deg - 5.0) / 5.0) * 30.0
-                elif deg < 18.0:
-                    new_sign, rem_deg = 8, ((deg - 10.0) / 8.0) * 30.0
-                elif deg < 25.0:
-                    new_sign, rem_deg = 2, ((deg - 18.0) / 7.0) * 30.0
-                else:
-                    new_sign, rem_deg = 6, ((deg - 25.0) / 5.0) * 30.0
-            else:  # Even Signs (Taurus, Cancer, Virgo...)
-                if deg < 5.0:
-                    new_sign, rem_deg = 1, (deg / 5.0) * 30.0
-                elif deg < 12.0:
-                    new_sign, rem_deg = 5, ((deg - 5.0) / 7.0) * 30.0
-                elif deg < 18.0:
-                    new_sign, rem_deg = 11, ((deg - 12.0) / 6.0) * 30.0
-                elif deg < 25.0:
-                    new_sign, rem_deg = 9, ((deg - 18.0) / 7.0) * 30.0
-                else:
-                    new_sign, rem_deg = 7, ((deg - 25.0) / 5.0) * 30.0
+            if sign_index % 2 == 0: 
+                if deg < 5.0: new_sign, rem_deg = 0, (deg / 5.0) * 30.0
+                elif deg < 10.0: new_sign, rem_deg = 10, ((deg - 5.0) / 5.0) * 30.0
+                elif deg < 18.0: new_sign, rem_deg = 8, ((deg - 10.0) / 8.0) * 30.0
+                elif deg < 25.0: new_sign, rem_deg = 2, ((deg - 18.0) / 7.0) * 30.0
+                else: new_sign, rem_deg = 6, ((deg - 25.0) / 5.0) * 30.0
+            else: 
+                if deg < 5.0: new_sign, rem_deg = 1, (deg / 5.0) * 30.0
+                elif deg < 12.0: new_sign, rem_deg = 5, ((deg - 5.0) / 7.0) * 30.0
+                elif deg < 18.0: new_sign, rem_deg = 11, ((deg - 12.0) / 6.0) * 30.0
+                elif deg < 25.0: new_sign, rem_deg = 9, ((deg - 18.0) / 7.0) * 30.0
+                else: new_sign, rem_deg = 7, ((deg - 25.0) / 5.0) * 30.0
                     
             return new_sign, (new_sign * 30.0) + rem_deg
 
-        # Map for equally divided classical vargas
         div_map = {
             "D2": 2, "D3": 3, "D4": 4, "D5": 5, "D6": 6, "D7": 7,
             "D8": 8, "D9": 9, "D10": 10, "D11": 11, "D12": 12,
@@ -603,32 +428,23 @@ class EphemerisEngine:
         if div_type not in div_map:
             return sign_index, (sign_index * 30.0) + deg_in_sign
 
-        # Robust segment parsing using math floor/int (Guards against boundary drifts)
         divs = div_map[div_type]
         segment_length = 30.0 / divs
         
         part = int(deg_in_sign / segment_length)
-        # Prevent any theoretical microscopic float precision overflow bounds
         if part >= divs: part = divs - 1
         
         deg_rem = ((deg_in_sign - (part * segment_length)) / segment_length) * 30.0
         if deg_rem < 0: deg_rem = 0.0
 
         if div_type == "D2":
-            if sign_index % 2 == 0: # Odd signs
-                new_sign_idx = 4 if part == 0 else 3
-            else: # Even signs
-                new_sign_idx = 3 if part == 0 else 4
-        elif div_type == "D3":
-            new_sign_idx = (sign_index + part * 4) % 12
-        elif div_type == "D4":
-            new_sign_idx = (sign_index + part * 3) % 12
+            if sign_index % 2 == 0: new_sign_idx = 4 if part == 0 else 3
+            else: new_sign_idx = 3 if part == 0 else 4
+        elif div_type == "D3": new_sign_idx = (sign_index + part * 4) % 12
+        elif div_type == "D4": new_sign_idx = (sign_index + part * 3) % 12
         elif div_type == "D5":
-            # Exact mapping based on the text for Panchamsa (D-5)
-            if sign_index % 2 == 0: # Odd signs
-                new_sign_idx = [0, 10, 8, 2, 6][part]
-            else: # Even signs
-                new_sign_idx = [1, 5, 11, 9, 7][part]
+            if sign_index % 2 == 0: new_sign_idx = [0, 10, 8, 2, 6][part]
+            else: new_sign_idx = [1, 5, 11, 9, 7][part]
         elif div_type == "D6":
             start_sign = 0 if sign_index % 2 == 0 else 6 
             new_sign_idx = (start_sign + part) % 12
@@ -639,18 +455,15 @@ class EphemerisEngine:
             start_sign = [0, 8, 4][sign_index % 3] 
             new_sign_idx = (start_sign + part) % 12
         elif div_type == "D9":
-            starts_for_d9 = [0, 9, 6, 3] # Fire->0, Earth->9, Air->6, Water->3
-            start_sign = starts_for_d9[sign_index % 4]
+            start_sign = [0, 9, 6, 3][sign_index % 4]
             new_sign_idx = (start_sign + part) % 12
         elif div_type == "D10":
             start_sign = sign_index if sign_index % 2 == 0 else (sign_index + 8) % 12
             new_sign_idx = (start_sign + part) % 12
         elif div_type == "D11":
-            # Count rasis from Ar to the rasi, then count same number anti-zodiacally from Ar
             start_sign = (12 - sign_index) % 12 
             new_sign_idx = (start_sign + part) % 12 
-        elif div_type == "D12":
-            new_sign_idx = (sign_index + part) % 12
+        elif div_type == "D12": new_sign_idx = (sign_index + part) % 12
         elif div_type == "D16":
             start_sign = [0, 4, 8][sign_index % 3]
             new_sign_idx = (start_sign + part) % 12
@@ -669,11 +482,9 @@ class EphemerisEngine:
         elif div_type == "D45":
             start_sign = [0, 4, 8][sign_index % 3]
             new_sign_idx = (start_sign + part) % 12
-        elif div_type == "D60":
-            new_sign_idx = (sign_index + part) % 12
+        elif div_type == "D60": new_sign_idx = (sign_index + part) % 12
 
         return new_sign_idx, (new_sign_idx * 30.0) + deg_rem
-
 
     def calculate_vedic_aspects(self, planets):
         aspects = []
@@ -682,33 +493,23 @@ class EphemerisEngine:
             "Mars": [4, 7, 8], "Jupiter": [5, 7, 9], "Saturn": [3, 7, 10], 
             "Rahu": [7], "Ketu": []
         }
-        
         for p in planets:
             for count in aspect_rules.get(p["name"], []):
                 target_house = (p["house"] + count - 2) % 12 + 1
                 aspects.append({
-                    "aspecting_planet": p["name"], 
-                    "source_house": p["house"], 
-                    "target_house": target_house, 
-                    "aspect_count": count
+                    "aspecting_planet": p["name"], "source_house": p["house"], 
+                    "target_house": target_house, "aspect_count": count
                 })
         return aspects
 
     def build_divisional_chart_from_raw(self, base_asc_lon, base_planets, div_type, d1_asc_sign_idx=None):
-        """Constructs a full divisional chart from raw D1 longitudes."""
         asc_sign_idx, asc_div_lon = self.get_div_sign_and_lon(base_asc_lon, div_type)
-        
-        is_vargottama = False
-        if d1_asc_sign_idx is not None:
-            is_vargottama = (d1_asc_sign_idx == asc_sign_idx)
+        is_vargottama = (d1_asc_sign_idx == asc_sign_idx) if d1_asc_sign_idx is not None else False
             
         chart = {
             "ascendant": {
-                "sign_index": asc_sign_idx, 
-                "sign_num": asc_sign_idx + 1, 
-                "degree": asc_div_lon % 30.0, 
-                "div_lon": asc_div_lon, 
-                "vargottama": is_vargottama
+                "sign_index": asc_sign_idx, "sign_num": asc_sign_idx + 1, 
+                "degree": asc_div_lon % 30.0, "div_lon": asc_div_lon, "vargottama": is_vargottama
             }, 
             "planets": []
         }
@@ -716,35 +517,22 @@ class EphemerisEngine:
         planet_lordships = {p: [] for p in ["Sun", "Moon", "Mars", "Mercury", "Jupiter", "Venus", "Saturn"]}
         for h in range(1, 13):
             ruler = SIGN_RULERS.get((asc_sign_idx + h - 1) % 12 + 1)
-            if ruler:
-                planet_lordships[ruler].append(h)
+            if ruler: planet_lordships[ruler].append(h)
 
         for p_raw in base_planets:
             p_sign_idx, p_div_lon = self.get_div_sign_and_lon(p_raw["lon"], div_type)
             is_ex, is_ow, is_deb = get_dignities(p_raw["name"], p_sign_idx + 1, p_div_lon % 30.0)
-            
-            p_is_varg = False
-            if div_type != "D1":
-                p_is_varg = (int(p_raw["lon"]/30.0) == p_sign_idx)
+            p_is_varg = (int(p_raw["lon"]/30.0) == p_sign_idx) if div_type != "D1" else False
                 
             chart["planets"].append({
-                "name": p_raw["name"], 
-                "sym": p_raw["sym"], 
-                "lon": p_div_lon, 
-                "sign_index": p_sign_idx, 
-                "sign_num": p_sign_idx + 1,
-                "deg_in_sign": p_div_lon % 30.0, 
-                "house": (p_sign_idx - asc_sign_idx) % 12 + 1, 
-                "retro": p_raw["retro"], 
-                "exalted": is_ex, 
-                "debilitated": is_deb, 
-                "own_sign": is_ow, 
-                "lord_of": planet_lordships.get(p_raw["name"], []),
-                "is_ak": p_raw.get("is_ak", False), 
-                "nakshatra": p_raw.get("nakshatra", ""), 
+                "name": p_raw["name"], "sym": p_raw["sym"], "lon": p_div_lon, 
+                "sign_index": p_sign_idx, "sign_num": p_sign_idx + 1,
+                "deg_in_sign": p_div_lon % 30.0, "house": (p_sign_idx - asc_sign_idx) % 12 + 1, 
+                "retro": p_raw["retro"], "exalted": is_ex, "debilitated": is_deb, 
+                "own_sign": is_ow, "lord_of": planet_lordships.get(p_raw["name"], []),
+                "is_ak": p_raw.get("is_ak", False), "nakshatra": p_raw.get("nakshatra", ""), 
                 "nakshatra_lord": p_raw.get("nakshatra_lord", ""),
-                "combust": False, 
-                "vargottama": p_is_varg
+                "combust": False, "vargottama": p_is_varg
             })
 
         chart["aspects"] = self.calculate_vedic_aspects(chart["planets"])
@@ -759,13 +547,10 @@ class EphemerisEngine:
             for p in d1_node["planets"]:
                 sym = p["name"][:2] if p["name"] not in ["Rahu", "Ketu"] else ("Ra" if p["name"]=="Rahu" else "Ke")
                 planets_raw.append({
-                    "name": p["name"], 
-                    "sym": sym, 
+                    "name": p["name"], "sym": sym, 
                     "lon": p["sign_index"] * 30.0 + p.get("degree_in_sign", 0.0), 
-                    "retro": p.get("is_retrograde", False), 
-                    "is_ak": p.get("is_brightest_ak", False), 
-                    "nakshatra": p.get("nakshatra", ""), 
-                    "nakshatra_lord": p.get("nakshatra_lord", "")
+                    "retro": p.get("is_retrograde", False), "is_ak": p.get("is_brightest_ak", False), 
+                    "nakshatra": p.get("nakshatra", ""), "nakshatra_lord": p.get("nakshatra_lord", "")
                 })
                 
             base_chart = self.build_divisional_chart_from_raw(asc_lon, planets_raw, "D1")
@@ -776,14 +561,12 @@ class EphemerisEngine:
             
             for div in vargas_to_build:
                 all_charts[div] = self.build_divisional_chart_from_raw(asc_lon, planets_raw, div, base_chart["ascendant"]["sign_index"])
-                
             return all_charts
         except Exception as e: 
-            print(f"Error processing JSON: {e}")
+            print(f"[DEBUG - ASTRO_ENGINE] Error processing JSON: {e}")
             return None
 
     def search_transit_core(self, jd_start, lat, lon, body_name, direction, div_type, frozen_planets, target_sign_name="Any Rashi", stop_event=None):
-        """Finds the next/prev exact time a planet crosses into a specific sign."""
         if not frozen_planets and target_sign_name == "Any Rashi":
             if body_name == "Ascendant":
                 pr, nx = self.find_adjacent_ascendant_transits(jd_start, lat, lon, div_type)
@@ -820,78 +603,41 @@ class EphemerisEngine:
         if target_sign_name and target_sign_name != "Any Rashi":
             target_sign = zodiac_names.index(target_sign_name)
 
-        constrained_planets = {}
-        for fp, f_info in frozen_planets.items():
-            constrained_planets[fp] = {"target": f_info["sign_idx"], "div": f_info["div"]}
-            
+        constrained_planets = {fp: {"target": f_info["sign_idx"], "div": f_info["div"]} for fp, f_info in frozen_planets.items()}
         if target_sign is not None: 
             constrained_planets[body_name] = {"target": target_sign, "div": div_type}
             
         must_leave_target = (target_sign is not None and original_start_sign == target_sign)
 
         def calc_max_leap(jd_check, d_dir):
-            """Optimization trick to jump forward by large chunks if we are far from the target sign."""
             max_leap = 0
             for p, p_info in constrained_planets.items():
                 curr_s = get_sign(jd_check, p, p_info["div"])
-                if curr_s == p_info["target"]: 
-                    continue
-                    
-                if p in ["Rahu", "Ketu"]:
-                    dist = (curr_s - p_info["target"]) * d_dir % 12
-                else:
-                    dist = (p_info["target"] - curr_s) * d_dir % 12
-                    
-                safe_days_val = {
-                    "Saturn": 750, "Rahu": 450, "Ketu": 450, 
-                    "Jupiter": 300, "Mars": 35, "Sun": 27, 
-                    "Venus": 20, "Mercury": 15, "Moon": 2, "Ascendant": 0.05
-                }.get(p, 0)
-                
-                div_factor = 1
-                if p_info["div"] in self.custom_vargas:
-                    div_factor = self.custom_vargas[p_info["div"]].get("parts", 1)
-                elif p_info["div"] != "D1":
-                    div_factor = int(p_info["div"][1:])
-                    
+                if curr_s == p_info["target"]: continue
+                dist = (curr_s - p_info["target"]) * d_dir % 12 if p in ["Rahu", "Ketu"] else (p_info["target"] - curr_s) * d_dir % 12
+                safe_days_val = {"Saturn": 750, "Rahu": 450, "Ketu": 450, "Jupiter": 300, "Mars": 35, "Sun": 27, "Venus": 20, "Mercury": 15, "Moon": 2, "Ascendant": 0.05}.get(p, 0)
+                div_factor = self.custom_vargas[p_info["div"]].get("parts", 1) if p_info["div"] in self.custom_vargas else (int(p_info["div"][1:]) if p_info["div"] != "D1" else 1)
                 if 2 <= dist <= 11:
                     leap_calc = ((dist - 1.5) * safe_days_val) / div_factor
-                    if leap_calc > max_leap:
-                        max_leap = leap_calc
+                    if leap_calc > max_leap: max_leap = leap_calc
             return max_leap
 
-        step_map = {
-            "Ascendant": 0.01, "Moon": 0.1, "Sun": 1.0, 
-            "Mercury": 1.0, "Venus": 1.0, "Mars": 2.0, 
-            "Jupiter": 5.0, "Saturn": 10.0, "Rahu": 10.0, "Ketu": 10.0
-        }
-        
-        div_factor = 1
-        if div_type in self.custom_vargas:
-            div_factor = self.custom_vargas[div_type].get("parts", 1)
-        elif div_type != "D1":
-            div_factor = int(div_type[1:])
-            
+        step_map = {"Ascendant": 0.01, "Moon": 0.1, "Sun": 1.0, "Mercury": 1.0, "Venus": 1.0, "Mars": 2.0, "Jupiter": 5.0, "Saturn": 10.0, "Rahu": 10.0, "Ketu": 10.0}
+        div_factor = self.custom_vargas[div_type].get("parts", 1) if div_type in self.custom_vargas else (int(div_type[1:]) if div_type != "D1" else 1)
         step = step_map.get(body_name, 10.0) / div_factor
         inner_step = step
         
         for fp, f_info in frozen_planets.items():
             if fp != body_name: 
-                f_div_factor = 1
-                if f_info["div"] in self.custom_vargas:
-                    f_div_factor = self.custom_vargas[f_info["div"]].get("parts", 1)
-                elif f_info["div"] != "D1":
-                    f_div_factor = int(f_info["div"][1:])
+                f_div_factor = self.custom_vargas[f_info["div"]].get("parts", 1) if f_info["div"] in self.custom_vargas else (int(f_info["div"][1:]) if f_info["div"] != "D1" else 1)
                 inner_step = min(inner_step, step_map.get(fp, 10.0) / f_div_factor)
 
         jd = jd_start + (0.001 * direction / div_factor)
         prev_sign = get_sign(jd_start - step * direction, body_name, div_type)
         
         while True:
-            if stop_event and stop_event.is_set(): 
-                return None
-            if jd < -50000000 or jd > 50000000: 
-                return None
+            if stop_event and stop_event.is_set(): return None
+            if jd < -50000000 or jd > 50000000: return None
 
             leap_days = calc_max_leap(jd, direction)
             if leap_days > 15: 
@@ -900,42 +646,24 @@ class EphemerisEngine:
                 continue
 
             current_sign = get_sign(jd, body_name, div_type)
-            if must_leave_target and current_sign != target_sign: 
-                must_leave_target = False
+            if must_leave_target and current_sign != target_sign: must_leave_target = False
             
             transitioned_in = False
             if not must_leave_target:
-                if target_sign is not None:
-                    transitioned_in = (current_sign == target_sign and prev_sign != target_sign)
-                else:
-                    transitioned_in = (current_sign != prev_sign and current_sign != original_start_sign)
+                transitioned_in = (current_sign == target_sign and prev_sign != target_sign) if target_sign is not None else (current_sign != prev_sign and current_sign != original_start_sign)
 
             if transitioned_in:
-                # Binary search to find the exact boundary
-                t1 = jd - step * direction
-                t2 = jd
-                
+                t1, t2 = jd - step * direction, jd
                 for _ in range(20):
                     t_mid = (t1 + t2) / 2.0
                     m_sign = get_sign(t_mid, body_name, div_type)
-                    
-                    if target_sign is not None:
-                        is_mid_match = (m_sign == target_sign)
-                    else:
-                        is_mid_match = (m_sign != prev_sign and m_sign != original_start_sign)
-                        
-                    if is_mid_match:
-                        t2 = t_mid
-                    else:
-                        t1 = t_mid
+                    is_mid_match = (m_sign == target_sign) if target_sign is not None else (m_sign != prev_sign and m_sign != original_start_sign)
+                    if is_mid_match: t2 = t_mid
+                    else: t1 = t_mid
 
-                jd_inner = t2
-                window_match = False
-                
-                # Scan inner window for frozen planet alignment
+                jd_inner, window_match = t2, False
                 for _ in range(15000): 
                     if stop_event and stop_event.is_set(): return None
-                    
                     if target_sign is not None:
                         if get_sign(jd_inner, body_name, div_type) != target_sign: break
                     else:
@@ -943,44 +671,26 @@ class EphemerisEngine:
                         
                     all_frozen_match = True
                     for fp_name, f_info in frozen_planets.items():
-                        if fp_name != body_name:
-                            if get_sign(jd_inner, fp_name, f_info["div"]) != f_info["sign_idx"]:
-                                all_frozen_match = False
-                                break
-                                
+                        if fp_name != body_name and get_sign(jd_inner, fp_name, f_info["div"]) != f_info["sign_idx"]:
+                            all_frozen_match = False
+                            break
                     if all_frozen_match:
-                        found_jd = jd_inner
-                        window_match = True
+                        found_jd, window_match = jd_inner, True
                         break
-                        
                     jd_inner += inner_step * direction
 
                 if window_match:
-                    # Final binary refinement
-                    t1_final = found_jd - inner_step * direction
-                    t2_final = found_jd
-                    
+                    t1_final, t2_final = found_jd - inner_step * direction, found_jd
                     for _ in range(20):
                         t_mid = (t1_final + t2_final) / 2.0
-                        
-                        target_match = False
-                        if target_sign is not None:
-                            target_match = (get_sign(t_mid, body_name, div_type) == target_sign)
-                        else:
-                            target_match = (get_sign(t_mid, body_name, div_type) == current_sign)
-                            
+                        target_match = (get_sign(t_mid, body_name, div_type) == target_sign) if target_sign is not None else (get_sign(t_mid, body_name, div_type) == current_sign)
                         frozen_match = True
                         for fp_name, f_info in frozen_planets.items():
-                            if fp_name != body_name:
-                                if get_sign(t_mid, fp_name, f_info["div"]) != f_info["sign_idx"]:
-                                    frozen_match = False
-                                    break
-                                    
-                        if target_match and frozen_match:
-                            t2_final = t_mid
-                        else: 
-                            t1_final = t_mid
-                            
+                            if fp_name != body_name and get_sign(t_mid, fp_name, f_info["div"]) != f_info["sign_idx"]:
+                                frozen_match = False
+                                break
+                        if target_match and frozen_match: t2_final = t_mid
+                        else: t1_final = t_mid
                     return float(t2_final)
                 else: 
                     jd = jd_inner
@@ -998,17 +708,12 @@ class EphemerisEngine:
         orig_sign = self.get_ascendant_sign(jd_utc, lat, lon, div_type)
         cache_key = ('asc', lat, lon, div_type, self.current_ayanamsa)
         
-        if hasattr(self, 'transit_cache') and cache_key in self.transit_cache:
+        if cache_key in self.transit_cache:
             c = self.transit_cache[cache_key]
             if c['prev'] < jd_utc < c['next'] and c['orig_sign'] == orig_sign:
                 return c['prev'], c['next']
                 
-        div_factor = 1
-        if div_type in self.custom_vargas:
-            div_factor = self.custom_vargas[div_type].get("parts", 1)
-        elif div_type != "D1":
-            div_factor = int(div_type[1:])
-            
+        div_factor = self.custom_vargas[div_type].get("parts", 1) if div_type in self.custom_vargas else (int(div_type[1:]) if div_type != "D1" else 1)
         step = 0.01 / div_factor
         
         jd_next = jd_utc + step * 300
@@ -1020,10 +725,8 @@ class EphemerisEngine:
         t1, t2 = jd_next - step, jd_next
         for _ in range(15):
             tm = (t1 + t2) / 2.0
-            if self.get_ascendant_sign(tm, lat, lon, div_type) == orig_sign: 
-                t1 = tm
-            else: 
-                t2 = tm
+            if self.get_ascendant_sign(tm, lat, lon, div_type) == orig_sign: t1 = tm
+            else: t2 = tm
         jd_next_exact = t2
         
         jd_prev = jd_utc - step * 300
@@ -1035,26 +738,15 @@ class EphemerisEngine:
         t1_prev, t2 = jd_prev, jd_prev + step
         for _ in range(15):
             tm = (t1_prev + t2) / 2.0
-            if self.get_ascendant_sign(tm, lat, lon, div_type) == orig_sign: 
-                t2 = tm
-            else: 
-                t1_prev = tm
+            if self.get_ascendant_sign(tm, lat, lon, div_type) == orig_sign: t2 = tm
+            else: t1_prev = tm
             
-        if not hasattr(self, 'transit_cache'): 
-            self.transit_cache = {}
         self.transit_cache[cache_key] = {'prev': t1_prev, 'next': jd_next_exact, 'orig_sign': orig_sign}
         return t1_prev, jd_next_exact
 
     def find_adjacent_planet_transits(self, jd_utc, planet_name, div_type="D1"):
-        body_map = {
-            "Sun": swe.SUN, "Moon": swe.MOON, "Mars": swe.MARS, 
-            "Mercury": swe.MERCURY, "Jupiter": swe.JUPITER, 
-            "Venus": swe.VENUS, "Saturn": swe.SATURN, 
-            "Rahu": swe.TRUE_NODE, "Ketu": swe.TRUE_NODE
-        }
-        
-        if planet_name not in body_map: 
-            return jd_utc, jd_utc
+        body_map = {"Sun": swe.SUN, "Moon": swe.MOON, "Mars": swe.MARS, "Mercury": swe.MERCURY, "Jupiter": swe.JUPITER, "Venus": swe.VENUS, "Saturn": swe.SATURN, "Rahu": swe.TRUE_NODE, "Ketu": swe.TRUE_NODE}
+        if planet_name not in body_map: return jd_utc, jd_utc
             
         swe.set_sid_mode(self.ayanamsa_modes[self.current_ayanamsa])
         
@@ -1069,22 +761,13 @@ class EphemerisEngine:
         orig_sign = get_s(jd_utc)
         cache_key = ('planet', planet_name, div_type, self.current_ayanamsa)
         
-        if hasattr(self, 'transit_cache') and cache_key in self.transit_cache:
+        if cache_key in self.transit_cache:
             c = self.transit_cache[cache_key]
             if c['prev'] < jd_utc < c['next'] and c['orig_sign'] == orig_sign:
                 return c['prev'], c['next']
                 
-        base_step = {
-            "Moon": 0.05, "Sun": 0.5, "Mercury": 0.5, "Venus": 0.5, 
-            "Mars": 1.0, "Jupiter": 2.0, "Saturn": 5.0, "Rahu": 5.0, "Ketu": 5.0
-        }.get(planet_name, 1.0)
-        
-        div_factor = 1
-        if div_type in self.custom_vargas:
-            div_factor = self.custom_vargas[div_type].get("parts", 1)
-        elif div_type != "D1":
-            div_factor = int(div_type[1:])
-            
+        base_step = {"Moon": 0.05, "Sun": 0.5, "Mercury": 0.5, "Venus": 0.5, "Mars": 1.0, "Jupiter": 2.0, "Saturn": 5.0, "Rahu": 5.0, "Ketu": 5.0}.get(planet_name, 1.0)
+        div_factor = self.custom_vargas[div_type].get("parts", 1) if div_type in self.custom_vargas else (int(div_type[1:]) if div_type != "D1" else 1)
         step = base_step / div_factor
         
         jd_next = jd_utc + step * 4000
@@ -1096,10 +779,8 @@ class EphemerisEngine:
         t1, t2 = jd_next - step, jd_next
         for _ in range(12):
             tm = (t1 + t2) / 2.0
-            if get_s(tm) == orig_sign: 
-                t1 = tm
-            else: 
-                t2 = tm
+            if get_s(tm) == orig_sign: t1 = tm
+            else: t2 = tm
         exact_next = t2
         
         jd_prev = jd_utc - step * 4000
@@ -1111,20 +792,15 @@ class EphemerisEngine:
         t1_prev, t2 = jd_prev, jd_prev + step
         for _ in range(12):
             tm = (t1_prev + t2) / 2.0
-            if get_s(tm) == orig_sign: 
-                t2 = tm
-            else: 
-                t1_prev = tm
+            if get_s(tm) == orig_sign: t2 = tm
+            else: t1_prev = tm
             
-        if not hasattr(self, 'transit_cache'): 
-            self.transit_cache = {}
         self.transit_cache[cache_key] = {'prev': t1_prev, 'next': exact_next, 'orig_sign': orig_sign}
         return t1_prev, exact_next
 
     def calculate_vimshottari_dasha(self, birth_jd, moon_lon, target_jd, forecast_start_jd=None, forecast_end_jd=None):
         lords = ["Ketu", "Venus", "Sun", "Moon", "Mars", "Rahu", "Jupiter", "Saturn", "Mercury"]
         years = [7, 20, 6, 10, 7, 18, 16, 19, 17]
-        
         total_mas = int(round(moon_lon * 3600000.0))
         nak_len = 48000000 
         lord_idx = (total_mas // nak_len) % 9
@@ -1137,16 +813,12 @@ class EphemerisEngine:
             rem = elapsed_years % 120.0
             c_start = dasha_start_jd + (elapsed_years - rem) * 365.2421904
             
-            seq = []
-            c_lord = lord_idx
-            c_dur = 120.0
-            
+            seq, c_lord, c_dur = [], lord_idx, 120.0
             for _ in range(5):
                 y_acc = 0.0
                 for i in range(9):
                     l_idx = (c_lord + i) % 9
                     d = c_dur * years[l_idx] / 120.0
-                    
                     if i == 8 or rem < y_acc + d:
                         seq.append(lords[l_idx])
                         c_start += y_acc * 365.2421904
@@ -1154,32 +826,26 @@ class EphemerisEngine:
                         c_lord = l_idx
                         c_dur = d
                         break
-                        
                     y_acc += d
             return seq, c_start, c_start + c_dur * 365.2421904
 
         current_seq, _, _ = get_node(target_jd)
         pran_list = []
-        
         if forecast_start_jd and forecast_end_jd:
             jd_iter = forecast_start_jd
             while jd_iter < forecast_end_jd:
                 seq, s_jd, e_jd = get_node(jd_iter)
-                if not seq: 
-                    break
+                if not seq: break
                 pran_list.append({"sequence": seq, "start_jd": s_jd, "end_jd": e_jd})
                 jd_iter = e_jd + 0.00069 
-                
         return {"current_sequence": current_seq, "pran_forecast": pran_list}
 
     def get_dasha_export_list(self, birth_jd, moon_lon):
         lords = ["Ketu", "Venus", "Sun", "Moon", "Mars", "Rahu", "Jupiter", "Saturn", "Mercury"]
         years = [7, 20, 6, 10, 7, 18, 16, 19, 17]
-        
         total_mas = int(round(moon_lon * 3600000.0))
         nak_len = 48000000 
         lord_idx = (total_mas // nak_len) % 9
-        
         passed_years = ((total_mas % nak_len) / float(nak_len)) * years[lord_idx]
         dasha_start_jd = birth_jd - (passed_years * 365.2421904)
         
@@ -1189,12 +855,10 @@ class EphemerisEngine:
             l1 = (lord_idx + i) % 9
             d1 = years[l1]
             y_acc2 = 0.0
-            
             for j in range(9):
                 l2 = (l1 + j) % 9
                 d2 = d1 * years[l2] / 120.0
                 y_acc3 = 0.0
-                
                 for k in range(9):
                     l3 = (l2 + k) % 9
                     d3 = d2 * years[l3] / 120.0
@@ -1202,19 +866,13 @@ class EphemerisEngine:
                     pd_end = pd_start + d3 * 365.2421904
                     y_acc3 += d3
                     
-                    if pd_end <= birth_jd: 
-                        continue
-                        
+                    if pd_end <= birth_jd: continue
                     age_start = max(0.0, (pd_start - birth_jd) / 365.2421904)
                     age_end = (pd_end - birth_jd) / 365.2421904
-                    
-                    if age_start > 120.0: 
-                        return export_list
-                        
+                    if age_start > 120.0: return export_list
                     export_list.append(f"age {age_start:.2f}-{age_end:.2f} years dasha influence {lords[l1].lower()} {lords[l2].lower()} {lords[l3].lower()}")
                 y_acc2 += d2
             y_acc1 += d1
-            
         return export_list
 
     def get_panchang(self, jd_utc, lat, lon):
@@ -1230,61 +888,43 @@ class EphemerisEngine:
         paksha = "Shukla" if diff < 180 else "Krishna"
         
         tithi_num = (int(diff / 12.0) % 15) + 1
-        tithi_names = [
-            "Pratipada", "Dwitiya", "Tritiya", "Chaturthi", "Panchami", 
-            "Shashthi", "Saptami", "Ashtami", "Navami", "Dashami", 
-            "Ekadashi", "Dwadashi", "Trayodashi", "Chaturdashi"
-        ]
-        if tithi_num == 15:
-            tithi_name = "Purnima" if paksha == "Shukla" else "Amavasya"
-        else:
-            tithi_name = tithi_names[tithi_num - 1]
+        tithi_names = ["Pratipada", "Dwitiya", "Tritiya", "Chaturthi", "Panchami", "Shashthi", "Saptami", "Ashtami", "Navami", "Dashami", "Ekadashi", "Dwadashi", "Trayodashi", "Chaturdashi"]
+        tithi_name = "Purnima" if paksha == "Shukla" else "Amavasya" if tithi_num == 15 else tithi_names[tithi_num - 1]
 
-        sunrise_jd = None
-        sunset_jd = None
+        sunrise_jd, sunset_jd = None, None
         try:
-            res_rise = safe_rise_trans(jd_utc - 0.5, swe.SUN, b'', swe.FLG_SWIEPH, 1+256, (lon, lat, 0.0), 1013.25, 15.0)
+            # FIX: Removed the empty string. Passed exactly 4 arguments: jd, body, rsmi, geopos.
+            res_rise = safe_rise_trans(jd_utc - 0.5, swe.SUN, 1+256, (lon, lat, 0.0))
             sunrise_jd = res_rise[1][0] if len(res_rise) > 1 and type(res_rise[1]) is tuple else res_rise[0]
             
-            res_set = safe_rise_trans(sunrise_jd, swe.SUN, b'', swe.FLG_SWIEPH, 2+256, (lon, lat, 0.0), 1013.25, 15.0)
+            # FIX: Removed the empty string. Passed exactly 4 arguments: jd, body, rsmi, geopos.
+            res_set = safe_rise_trans(sunrise_jd, swe.SUN, 2+256, (lon, lat, 0.0))
             sunset_jd = res_set[1][0] if len(res_set) > 1 and type(res_set[1]) is tuple else res_set[0]
-        except Exception: 
-            pass
+        except Exception as e: 
+            print(f"[DEBUG - ASTRO_ENGINE] Panchang rise/set logic issue: {e}")
 
-        return {
-            "nakshatra": nak_name, "nakshatra_lord": nak_lord, "nakshatra_pada": nak_pada, 
-            "tithi": tithi_name, "paksha": paksha, "sunrise_jd": sunrise_jd, 
-            "sunset_jd": sunset_jd, "moon_lon": moon_lon, "sun_lon": sun_lon
-        }
+        return {"nakshatra": nak_name, "nakshatra_lord": nak_lord, "nakshatra_pada": nak_pada, "tithi": tithi_name, "paksha": paksha, "sunrise_jd": sunrise_jd, "sunset_jd": sunset_jd, "moon_lon": moon_lon, "sun_lon": sun_lon}
 
     def calculate_chart(self, dt, lat: float, lon: float, tz_name: str, real_now_jd: float = None, transit_div: str = "D1", transit_planet: str = "Sun"):
-        # 1. Date/Time processing
-        if isinstance(dt, dict) and 'year' in dt: 
-            jd_utc = dt_dict_to_utc_jd(dt, tz_name)
-        elif isinstance(dt, dict) and 'jd' in dt: 
-            jd_utc = float(dt['jd'])
+        if isinstance(dt, dict) and 'year' in dt: jd_utc = dt_dict_to_utc_jd(dt, tz_name)
+        elif isinstance(dt, dict) and 'jd' in dt: jd_utc = float(dt['jd'])
         else:
             try:
                 local_tz = pytz.timezone(tz_name)
                 dt_utc = (local_tz.localize(dt) if dt.tzinfo is None else dt).astimezone(pytz.utc)
                 jd_utc = swe.julday(dt_utc.year, dt_utc.month, dt_utc.day, dt_utc.hour + dt_utc.minute / 60.0 + dt_utc.second / 3600.0)
-            except Exception: 
-                jd_utc = dt_dict_to_utc_jd({'year': 2000, 'month': 1, 'day': 1}, tz_name)
+            except Exception: jd_utc = dt_dict_to_utc_jd({'year': 2000, 'month': 1, 'day': 1}, tz_name)
 
         swe.set_sid_mode(self.ayanamsa_modes[self.current_ayanamsa])
         calc_flag = swe.FLG_SWIEPH | swe.FLG_SIDEREAL | swe.FLG_SPEED
         
-        # 2. Base Ascendant calculation
         houses_res = safe_houses_ex(jd_utc, lat, lon, b'P', calc_flag)
         asc_deg = houses_res[1][0]
         asc_sign_index = int(asc_deg / 30)
         asc_nak_name, asc_nak_lord, asc_nak_pada = get_nakshatra(asc_deg)
         
         chart_data = {
-            "ascendant": {
-                "degree": asc_deg, "sign_index": asc_sign_index, "sign_num": asc_sign_index + 1, 
-                "nakshatra": asc_nak_name, "nakshatra_lord": asc_nak_lord, "nakshatra_pada": asc_nak_pada
-            }, 
+            "ascendant": {"degree": asc_deg, "sign_index": asc_sign_index, "sign_num": asc_sign_index + 1, "nakshatra": asc_nak_name, "nakshatra_lord": asc_nak_lord, "nakshatra_pada": asc_nak_pada}, 
             "planets": []
         }
         
@@ -1295,165 +935,93 @@ class EphemerisEngine:
         planet_lordships = {p: [] for p in ["Sun", "Moon", "Mars", "Mercury", "Jupiter", "Venus", "Saturn"]}
         for h in range(1, 13):
             ruler = SIGN_RULERS.get((asc_sign_index + h - 1) % 12 + 1)
-            if ruler:
-                planet_lordships[ruler].append(h)
+            if ruler: planet_lordships[ruler].append(h)
 
-        # 3. Planet processing
-        body_list = [
-            ("Sun", "Su", swe.SUN), ("Moon", "Mo", swe.MOON), 
-            ("Mars", "Ma", swe.MARS), ("Mercury", "Me", swe.MERCURY), 
-            ("Jupiter", "Ju", swe.JUPITER), ("Venus", "Ve", swe.VENUS), 
-            ("Saturn", "Sa", swe.SATURN), ("Rahu", "Ra", swe.TRUE_NODE)
-        ]
+        body_list = [("Sun", "Su", swe.SUN), ("Moon", "Mo", swe.MOON), ("Mars", "Ma", swe.MARS), ("Mercury", "Me", swe.MERCURY), ("Jupiter", "Ju", swe.JUPITER), ("Venus", "Ve", swe.VENUS), ("Saturn", "Sa", swe.SATURN), ("Rahu", "Ra", swe.TRUE_NODE)]
         
         for name, sym, body_id in body_list:
             res, _ = safe_calc_ut(jd_utc, body_id, calc_flag)
-            lon_deg = res[0]
-            speed = res[3]
+            lon_deg, speed = res[0], res[3]
             p_sign_idx = int(lon_deg / 30)
-            
             nak_name, nak_lord, nak_pada = get_nakshatra(lon_deg)
             is_ex, is_ow, is_deb = get_dignities(name, p_sign_idx + 1, lon_deg % 30.0)
             
-            is_retro = False
-            if name == "Rahu":
-                is_retro = True
-            elif name not in ["Sun", "Moon", "Ketu"]:
-                is_retro = (speed < 0)
-
+            is_retro = True if name == "Rahu" else (speed < 0 if name not in ["Sun", "Moon", "Ketu"] else False)
             chart_data["planets"].append({
-                "name": name, "sym": sym, "lon": lon_deg, "sign_index": p_sign_idx, 
-                "sign_num": p_sign_idx + 1, "deg_in_sign": lon_deg % 30.0, 
-                "house": (p_sign_idx - asc_sign_index) % 12 + 1, "retro": is_retro,
-                "exalted": is_ex, "debilitated": is_deb, "own_sign": is_ow, 
-                "lord_of": planet_lordships.get(name, []), "nakshatra": nak_name, 
-                "nakshatra_lord": nak_lord, "nakshatra_pada": nak_pada
+                "name": name, "sym": sym, "lon": lon_deg, "sign_index": p_sign_idx, "sign_num": p_sign_idx + 1, "deg_in_sign": lon_deg % 30.0, 
+                "house": (p_sign_idx - asc_sign_index) % 12 + 1, "retro": is_retro, "exalted": is_ex, "debilitated": is_deb, "own_sign": is_ow, 
+                "lord_of": planet_lordships.get(name, []), "nakshatra": nak_name, "nakshatra_lord": nak_lord, "nakshatra_pada": nak_pada
             })
 
-        # 4. Ketu processing (Always 180 degrees from true node Rahu)
-        rahu_lon = None
-        for p in chart_data["planets"]:
-            if p["name"] == "Rahu":
-                rahu_lon = p["lon"]
-                break
-                
+        rahu_lon = next((p["lon"] for p in chart_data["planets"] if p["name"] == "Rahu"), 0.0)
         ketu_lon = (rahu_lon + 180.0) % 360.0
         ketu_sign_idx = int(ketu_lon / 30)
         ketu_nak_name, ketu_nak_lord, ketu_nak_pada = get_nakshatra(ketu_lon)
         is_ex, is_ow, is_deb = get_dignities("Ketu", ketu_sign_idx + 1, ketu_lon % 30)
         
         chart_data["planets"].append({
-            "name": "Ketu", "sym": "Ke", "lon": ketu_lon, "sign_index": ketu_sign_idx, 
-            "sign_num": ketu_sign_idx + 1, "deg_in_sign": ketu_lon % 30, 
-            "house": (ketu_sign_idx - asc_sign_index) % 12 + 1, "retro": True,
-            "exalted": is_ex, "debilitated": is_deb, "own_sign": is_ow, "lord_of": [],
+            "name": "Ketu", "sym": "Ke", "lon": ketu_lon, "sign_index": ketu_sign_idx, "sign_num": ketu_sign_idx + 1, "deg_in_sign": ketu_lon % 30, 
+            "house": (ketu_sign_idx - asc_sign_index) % 12 + 1, "retro": True, "exalted": is_ex, "debilitated": is_deb, "own_sign": is_ow, "lord_of": [],
             "nakshatra": ketu_nak_name, "nakshatra_lord": ketu_nak_lord, "nakshatra_pada": ketu_nak_pada
         })
 
-        # 5. Combust Status Check (Proximity to Sun)
-        sun_lon = None
-        for p in chart_data["planets"]:
-            if p["name"] == "Sun":
-                sun_lon = p["lon"]
-                break
-                
-        combust_rules = {
-            "Moon": {"dir": 12, "retro": 12}, "Mars": {"dir": 17, "retro": 17}, 
-            "Mercury": {"dir": 14, "retro": 12}, "Jupiter": {"dir": 11, "retro": 11}, 
-            "Venus": {"dir": 10, "retro": 8}, "Saturn": {"dir": 15, "retro": 15}
-        }
+        sun_lon = next((p["lon"] for p in chart_data["planets"] if p["name"] == "Sun"), None)
+        combust_rules = {"Moon": {"dir": 12, "retro": 12}, "Mars": {"dir": 17, "retro": 17}, "Mercury": {"dir": 14, "retro": 12}, "Jupiter": {"dir": 11, "retro": 11}, "Venus": {"dir": 10, "retro": 8}, "Saturn": {"dir": 15, "retro": 15}}
         
         for p in chart_data["planets"]:
             p["combust"] = False
             if sun_lon is not None and p["name"] in combust_rules:
                 dist = abs(sun_lon - p["lon"])
-                if dist > 180.0:
-                    dist = 360.0 - dist
-                
-                rule_type = "retro" if p.get("retro") else "dir"
-                if dist <= combust_rules[p["name"]][rule_type]:
+                if dist > 180.0: dist = 360.0 - dist
+                if dist <= combust_rules[p["name"]]["retro" if p.get("retro") else "dir"]:
                     p["combust"] = True
 
-        # 6. Atmakaraka Selection (Highest degree planet excluding nodes)
         valid_ak = [p for p in chart_data["planets"] if p["name"] not in ["Rahu", "Ketu"]]
         if valid_ak:
-            ak_planet = max(valid_ak, key=lambda x: x["deg_in_sign"])
-            ak_name = ak_planet["name"]
-            for p in chart_data["planets"]: 
-                p["is_ak"] = (p["name"] == ak_name)
+            ak_name = max(valid_ak, key=lambda x: x["deg_in_sign"])["name"]
+            for p in chart_data["planets"]: p["is_ak"] = (p["name"] == ak_name)
 
-        # 7. Add Dasha Timeline
-        moon_p = None
-        for p in chart_data["planets"]:
-            if p["name"] == "Moon":
-                moon_p = p
-                break
-                
+        moon_p = next((p for p in chart_data["planets"] if p["name"] == "Moon"), None)
         if moon_p:
-            dasha_target = real_now_jd if real_now_jd else jd_utc
-            dasha_calc = self.calculate_vimshottari_dasha(jd_utc, moon_p["lon"], dasha_target)
+            dasha_calc = self.calculate_vimshottari_dasha(jd_utc, moon_p["lon"], real_now_jd if real_now_jd else jd_utc)
             chart_data["dasha_sequence"] = dasha_calc["current_sequence"] or []
 
-        # 8. Metdata Attachments
         chart_data["aspects"] = self.calculate_vedic_aspects(chart_data["planets"])
         
         panchang = self.get_panchang(jd_utc, lat, lon)
         if panchang["sunrise_jd"]:
             dt_dict = utc_jd_to_dt_dict(panchang['sunrise_jd'], tz_name)
             panchang["sunrise_str"] = f"{dt_dict['hour']:02d}:{dt_dict['minute']:02d}"
-        else:
-            panchang["sunrise_str"] = "N/A"
+        else: panchang["sunrise_str"] = "N/A"
             
         if panchang["sunset_jd"]:
             dt_dict = utc_jd_to_dt_dict(panchang['sunset_jd'], tz_name)
             panchang["sunset_str"] = f"{dt_dict['hour']:02d}:{dt_dict['minute']:02d}"
-        else:
-            panchang["sunset_str"] = "N/A"
+        else: panchang["sunset_str"] = "N/A"
             
         chart_data["panchang"] = panchang
-
         return chart_data
 
     def compute_divisional_chart(self, base_chart, div_type):
-        """Constructs a derived Divisional Chart layout from the Base D1 calculations."""
         chart = copy.deepcopy(base_chart)
-
         asc_d1_sign = chart["ascendant"]["sign_index"]
         d1_lon = (asc_d1_sign * 30.0) + (chart["ascendant"]["degree"] % 30.0)
-        
         new_asc_sign_index, new_asc_div_lon = self.get_div_sign_and_lon(d1_lon, div_type)
         
-        chart["ascendant"]["sign_index"] = new_asc_sign_index
-        chart["ascendant"]["sign_num"] = new_asc_sign_index + 1
-        chart["ascendant"]["degree"] = new_asc_div_lon    # <--- Added this to fix the Ascendant visually
-        chart["ascendant"]["div_lon"] = new_asc_div_lon
-        chart["ascendant"]["vargottama"] = (asc_d1_sign == new_asc_sign_index) and (div_type != "D1")
+        chart["ascendant"].update({"sign_index": new_asc_sign_index, "sign_num": new_asc_sign_index + 1, "degree": new_asc_div_lon, "div_lon": new_asc_div_lon, "vargottama": (asc_d1_sign == new_asc_sign_index) and (div_type != "D1")})
         
         planet_lordships = {p: [] for p in ["Sun", "Moon", "Mars", "Mercury", "Jupiter", "Venus", "Saturn"]}
         for h in range(1, 13):
             ruler = SIGN_RULERS.get((new_asc_sign_index + h - 1) % 12 + 1)
-            if ruler:
-                planet_lordships[ruler].append(h)
+            if ruler: planet_lordships[ruler].append(h)
 
         for p in chart["planets"]:
             p_d1_sign = p["sign_index"]
             new_sign_idx, new_div_lon = self.get_div_sign_and_lon(p["lon"], div_type)
             is_ex, is_ow, is_deb = get_dignities(p["name"], new_sign_idx + 1, new_div_lon % 30.0)
             
-            p["sign_index"] = new_sign_idx
-            p["sign_num"] = new_sign_idx + 1
-            p["lon"] = new_div_lon            # <--- Added this to fix the planets visually
-            p["div_lon"] = new_div_lon
-            p["deg_in_sign"] = new_div_lon % 30.0
-            p["house"] = (new_sign_idx - new_asc_sign_index) % 12 + 1
-            p["exalted"] = is_ex
-            p["debilitated"] = is_deb
-            p["own_sign"] = is_ow
-            p["lord_of"] = planet_lordships.get(p["name"], [])
-            p["vargottama"] = (p_d1_sign == new_sign_idx) and (div_type != "D1")
-            
-            if div_type != "D1": 
-                p["combust"] = False
+            p.update({"sign_index": new_sign_idx, "sign_num": new_sign_idx + 1, "lon": new_div_lon, "div_lon": new_div_lon, "deg_in_sign": new_div_lon % 30.0, "house": (new_sign_idx - new_asc_sign_index) % 12 + 1, "exalted": is_ex, "debilitated": is_deb, "own_sign": is_ow, "lord_of": planet_lordships.get(p["name"], []), "vargottama": (p_d1_sign == new_sign_idx) and (div_type != "D1")})
+            if div_type != "D1": p["combust"] = False
             
         chart["aspects"] = self.calculate_vedic_aspects(chart["planets"])
         return chart

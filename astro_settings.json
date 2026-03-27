@@ -11,7 +11,7 @@
     "show_arrows": true,
     "use_tint": true,
     "show_aspects": true,
-    "show_details": false,
+    "show_details": true,
     "use_circular": false,
     "show_tooltips": true,
     "aspect_planets": {

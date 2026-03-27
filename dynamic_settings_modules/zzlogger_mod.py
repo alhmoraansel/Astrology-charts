@@ -5,9 +5,8 @@ from PyQt6.QtWidgets import (QPushButton, QVBoxLayout, QTextBrowser, QWidget, QM
 from PyQt6.QtCore import qInstallMessageHandler, QtMsgType, QObject, pyqtSignal, Qt, QEvent
 from PyQt6.QtGui import QFont
 
-import __main__
-# Attempt to load SmoothScroller from the main application namespace
-SmoothScroller = getattr(__main__, 'SmoothScroller', None)
+PLUGIN_GROUP = "UTILS"
+PLUGIN_INDEX = 9
 
 # -------------------------------------------------------------------------
 # 1. CORE LOGGER ENGINE (QObject for thread-safe signals)
@@ -203,7 +202,9 @@ class LiveLoggerWindow(QMainWindow):
 
         # Slight performance + UX upgrades
         self.tb.setUndoRedoEnabled(False)
-        
+        import main
+        # Attempt to load SmoothScroller from the main application namespace
+        SmoothScroller = getattr(main, 'SmoothScroller', None)
         if SmoothScroller:
             self.scroller = SmoothScroller(self.tb)
             

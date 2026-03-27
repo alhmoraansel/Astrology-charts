@@ -8,6 +8,10 @@ from PyQt6.QtGui import QPainter, QColor, QPen, QFont, QBrush
 
 import astro_engine, chart_renderer
 
+PLUGIN_GROUP = "Astrology Tools"
+PLUGIN_INDEX = 1
+
+
 class TransitPluginUI(QWidget):
     def __init__(self, app_ref, parent=None):
         super().__init__(parent)

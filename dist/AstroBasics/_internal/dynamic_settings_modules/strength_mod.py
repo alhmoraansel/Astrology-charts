@@ -5,10 +5,17 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QDi
 from PyQt6.QtGui import QPainter, QColor, QFont, QPen, QBrush, QPainterPath
 from PyQt6.QtCore import Qt, QRectF, QPointF, QTimer
 import swisseph as swe
-import __main__
+import main
+
+info_print = getattr(main, 'info_print', print)
+debug_print = getattr(main, 'debug_print', print)
+error_print = getattr(main, 'error_print', print)
 
 # Attempt to load SmoothScroller from the main application namespace
-SmoothScroller = getattr(__main__, 'SmoothScroller', None)
+SmoothScroller = getattr(main, 'SmoothScroller', None)
+
+PLUGIN_GROUP = "STRENGTHS"
+PLUGIN_INDEX = 5
 
 # ==========================================
 # CUSTOM UI COMPONENTS FOR INSTANT TOOLTIPS
@@ -954,13 +961,7 @@ class BPHSAdvancedDialog(QDialog):
 # ==========================================
 # PLUGIN ENTRY POINT
 # ==========================================
-import __main__
-from PyQt6.QtWidgets import QGroupBox, QVBoxLayout, QPushButton, QLabel, QFrame
-from PyQt6.QtCore import QTimer
 
-info_print = getattr(__main__, 'info_print', print)
-debug_print = getattr(__main__, 'debug_print', print)
-error_print = getattr(__main__, 'error_print', print)
 def setup_ui(app, layout):
     shared_group_id = "AdvancedAstroGroup"
     

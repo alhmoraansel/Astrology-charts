@@ -3,16 +3,47 @@
 import sys, os, json, datetime, queue, threading
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,QDialog, QGridLayout, QComboBox, QSpinBox, QCheckBox,QMessageBox, QFileDialog, QInputDialog,QGroupBox)
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
+from astro_engine import swe_lock, get_resource_path
 
-# Explicitly map the parent folder so it finds astro_engine and main.py
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+# Determine the base directory of the main application
+if getattr(sys, 'frozen', False) or '__compiled__' in globals():
+    base_dir = os.path.dirname(sys.executable)
+else:
+    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+if base_dir not in sys.path:
+    sys.path.insert(0, base_dir)
 
 import swisseph as swe, astro_engine
+import rectification_engine
 from timezonefinder import TimezoneFinder
 from main import ChartRenderer  # Safely inject the renderer
 
+PLUGIN_GROUP = "CHART RECTIFICATION"
+PLUGIN_INDEX = 2
+
 class NoScrollComboBox(QComboBox):
     def wheelEvent(self, event): event.ignore()
+
+def plugin_get_dignities(p_name, sign_num, deg_in_sign):
+    EXALTATION_RULES = {"Sun": 1, "Moon": 2, "Mars": 10, "Mercury": 6, "Jupiter": 4, "Venus": 12, "Saturn": 7, "Rahu": 2, "Ketu": 8}
+    DEBILITATION_RULES = {"Sun": 7, "Moon": 8, "Mars": 4, "Mercury": 12, "Jupiter": 10, "Venus": 6, "Saturn": 1, "Rahu": 8, "Ketu": 2}
+    SIGN_RULERS = {1: "Mars", 2: "Venus", 3: "Mercury", 4: "Moon", 5: "Sun", 6: "Mercury", 7: "Venus", 8: "Mars", 9: "Jupiter", 10: "Saturn", 11: "Saturn", 12: "Jupiter"}
+    
+    is_own = (SIGN_RULERS.get(sign_num) == p_name)
+    is_debilitated = (sign_num == DEBILITATION_RULES.get(p_name))
+    is_exalted = (sign_num == EXALTATION_RULES.get(p_name))
+    if p_name == "Moon" and sign_num == 2:
+        is_exalted = (deg_in_sign <= 3.0)
+        is_own = not is_exalted
+    elif p_name == "Mercury" and sign_num == 6:
+        is_exalted = (deg_in_sign <= 15.0)
+        is_own = not is_exalted
+    if p_name == "Moon" and sign_num == 8:
+        is_debilitated = (deg_in_sign <= 3.0)
+    elif p_name == "Mercury" and sign_num == 12:
+        is_debilitated = (deg_in_sign <= 15.0)
+        
+    return is_exalted, is_own, is_debilitated
 
 def setup_ui(app, layout):
     controller = RectificationController(app)
@@ -28,50 +59,12 @@ def setup_ui(app, layout):
     btn_layout.setSpacing(6)
         
     btn_load_json_rectify = QPushButton("Load JSON")
-
-    # --- Load JSON Button (Purple Theme) ---
-    btn_load_json_rectify.setStyleSheet("""
-    QPushButton {
-        font-weight: bold; 
-        color: #8E44AD; 
-        border: 1px solid #D2B4DE; 
-        background-color: #F5EEF8;
-        padding: 4px;
-        border-radius: 4px;
-    }
-    QPushButton:hover {
-        background-color: #EBDEF0;
-        border-color: #8E44AD;
-    }
-    QPushButton:pressed {
-        background-color: #D7BDE2;
-        border-style: inset;
-    }
-""")
+    btn_load_json_rectify.setStyleSheet("QPushButton { font-weight: bold; color: #8E44AD; border: 1px solid #D2B4DE; background-color: #F5EEF8; padding: 4px; border-radius: 4px; } QPushButton:hover { background-color: #EBDEF0; border-color: #8E44AD; } QPushButton:pressed { background-color: #D7BDE2; border-style: inset; }")
     btn_load_json_rectify.clicked.connect(controller.load_json_rectify_dialog)
 
     btn_build_chart_rectify = QPushButton("Build Target Chart...")
     btn_build_chart_rectify.clicked.connect(controller.open_chart_builder_dialog)
-
-# --- Build Target Chart Button (Blue Theme) ---
-    btn_build_chart_rectify.setStyleSheet("""
-    QPushButton {
-        font-weight: bold; 
-        color: #2980B9; 
-        border: 1px solid #AED6F1; 
-        background-color: #EAF2F8;
-        padding: 4px;
-        border-radius: 4px;
-    }
-    QPushButton:hover {
-        background-color: #D6EAF8;
-        border-color: #2980B9;
-    }
-    QPushButton:pressed {
-        background-color: #AED6F1;
-        border-style: inset;
-    }
-""")
+    btn_build_chart_rectify.setStyleSheet("QPushButton { font-weight: bold; color: #2980B9; border: 1px solid #AED6F1; background-color: #EAF2F8; padding: 4px; border-radius: 4px; } QPushButton:hover { background-color: #D6EAF8; border-color: #2980B9; } QPushButton:pressed { background-color: #AED6F1; border-style: inset; }")
 
     btn_layout.addWidget(btn_load_json_rectify)
     btn_layout.addWidget(btn_build_chart_rectify)
@@ -79,9 +72,7 @@ def setup_ui(app, layout):
     v_layout.addLayout(btn_layout)
     group.setLayout(v_layout)
     layout.addWidget(group)
-    
     layout.controller = controller
-
 
 # ==========================================
 # CHART BUILDER DIALOG
@@ -97,9 +88,7 @@ class ChartBuilderDialog(QDialog):
         left_panel = QWidget(); layout = QGridLayout(left_panel)
 
         self.div_cb = NoScrollComboBox()
-        for k in div_keys:
-            self.div_cb.addItem(self.app.div_titles.get(k, k), k)
-        
+        for k in div_keys: self.div_cb.addItem(self.app.div_titles.get(k, k), k)
         d1_idx = self.div_cb.findData("D1") if self.app else self.div_cb.findText("D1")
         if d1_idx >= 0: self.div_cb.setCurrentIndex(d1_idx)
         
@@ -166,7 +155,7 @@ class ChartBuilderDialog(QDialog):
             val = self.planet_spins[p_name].value()
             if val == 0: continue
             s_idx = val - 1; sign_num = val
-            is_ex, is_ow, is_deb = astro_engine.get_dignities(p_name, sign_num, 15.0)
+            is_ex, is_ow, is_deb = plugin_get_dignities(p_name, sign_num, 15.0) 
             is_retro = self.planet_retros[p_name].isChecked() if self.planet_retros.get(p_name) else False
 
             synthetic_chart["planets"].append({
@@ -189,46 +178,41 @@ class ChartBuilderDialog(QDialog):
 # RECTIFICATION WORKERS
 # ==========================================
 def custom_rectification_search_wrapper(params, result_queue, stop_event):
+    is_compiled = getattr(sys, 'frozen', False) or '__compiled__' in globals()
+    mode_str = "EXPORTED" if is_compiled else "DEBUG"
+    
+    print(f"\n[DEBUG - PLUGIN] [{mode_str}] Initializing thread wrapper.")
     try:
-        # Ensure ephemeris files are mapped correctly for the thread
-        ephe_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'ephe'))
-        swe.set_ephe_path(ephe_path)
+        with rectification_engine.swe_lock: 
+            ephe_path = rectification_engine.get_standalone_resource_path('ephe')
+            swe.set_ephe_path(ephe_path)
 
         target_planets = params.get("target_planets", {})
         target_asc = params.get("target_asc")
         target_retro = params.get("target_retro", {})
         
-        # Avoid Multiprocessing queues to prevent WinError 5
         dummy_q = queue.Queue()
         base_year = params.get("base_year", 2024)
         s_range = params.get("search_range", 1000) 
         
-        # -------------------------------------------------------------
-        # IF NO POSITIONAL CONSTRAINTS: Build dummy blocks mimicking lock-pick behavior
-        # -------------------------------------------------------------
         if not target_planets and target_asc is None:
             start_range = params.get("start_range", 0) 
             blocks = []
             if start_range > 0:
-                # Handles Phase 2 Expansion (e.g., +/- 11000 years jump)
                 blocks.append({"start_jd": swe.julday(base_year - s_range, 1, 1, 0.0), "end_jd": swe.julday(base_year - start_range, 12, 31, 23.99)})
                 blocks.append({"start_jd": swe.julday(base_year + start_range, 1, 1, 0.0), "end_jd": swe.julday(base_year + s_range, 12, 31, 23.99)})
             else:
-                # Handles Standard Phase 1 search bounds (+/- 1000 years)
                 blocks.append({"start_jd": swe.julday(base_year - s_range, 1, 1, 0.0), "end_jd": swe.julday(base_year + s_range, 12, 31, 23.99)})
                 
             res = {"status": "success", "blocks": blocks, "year": f"Range +/- {s_range}", "last_range": s_range}
             
-        # -------------------------------------------------------------
-        # OTHERWISE: Run normal positional backend search first
-        # -------------------------------------------------------------
         else:
             def run_backend():
-                try: astro_engine.perform_rectification_search(params, dummy_q, stop_event)
+                try: rectification_engine.perform_rectification_search(params, dummy_q, stop_event)
                 except Exception as e: dummy_q.put({"status": "error", "message": str(e)})
                 finally: dummy_q.put({"__done__": True})
                     
-            t = threading.Thread(target=run_backend)
+            t = threading.Thread(target=run_backend, daemon=True)
             t.start()
             
             res = None
@@ -237,15 +221,16 @@ def custom_rectification_search_wrapper(params, result_queue, stop_event):
                 try:
                     msg = dummy_q.get(timeout=0.1)
                     if msg.get("__done__"): break
-                    if msg["status"] == "progress": result_queue.put(msg)
+                    status = msg.get("status", "unknown")
+                    if status == "progress": result_queue.put(msg)
                     else: res = msg
                 except queue.Empty: continue
                     
             if res is None or res.get("status") not in ["success", "phase1_failed", "not_found"]:
-                result_queue.put({"status": "error", "message": res.get("message", "Backend search failed.") if res else "Backend search aborted."})
+                err_msg = res.get("message", "Backend search aborted or returned None.") if res else "Backend search aborted."
+                result_queue.put({"status": "error", "message": err_msg})
                 return
                 
-            # Intercept 'not_found' or 'phase1_failed' to enable infinite incremental expansion
             if res.get("status") in ["not_found", "phase1_failed"]:
                 result_queue.put({"status": "phase1_failed", "last_range": s_range})
                 return
@@ -254,73 +239,45 @@ def custom_rectification_search_wrapper(params, result_queue, stop_event):
                 result_queue.put(res)
                 return
                 
-        # If no retro requirements, we're completely done.
         if not target_retro:
             result_queue.put(res)
             return
             
-        # -------------------------------------------------------------
-        # LIGHTNING JUMP ALGORITHM: Sweeps blocks explicitly for retrograde overlaps
-        # -------------------------------------------------------------
-        result_queue.put({"status": "progress", "msg": "Evaluating valid positional windows for Retrograde status..."})
-        
         swe_map = {"Sun": swe.SUN, "Moon": swe.MOON, "Mars": swe.MARS, "Mercury": swe.MERCURY, "Jupiter": swe.JUPITER, "Venus": swe.VENUS, "Saturn": swe.SATURN}
         target_swe = {swe_map[p]: want_retro for p, want_retro in target_retro.items() if p in swe_map}
-        
         valid_blocks = []
         
         def check_retro(jd_val):
             for sp, want_retro in target_swe.items():
-                calc_res, _ = astro_engine.safe_calc_ut(jd_val, sp, swe.FLG_SWIEPH | swe.FLG_SPEED | swe.FLG_SIDEREAL)
-                speed = calc_res[3]
-                if (speed < 0) != want_retro:
-                    return False
+                try:
+                    with rectification_engine.swe_lock: calc_res, _ = swe.calc_ut(jd_val, sp, swe.FLG_SWIEPH | swe.FLG_SPEED | swe.FLG_SIDEREAL)
+                    if (calc_res[3] < 0) != want_retro: return False
+                except Exception:
+                    try:
+                        with rectification_engine.swe_lock: calc_res, _ = swe.calc_ut(jd_val, sp, swe.FLG_MOSEPH | swe.FLG_SPEED | swe.FLG_SIDEREAL)
+                        if (calc_res[3] < 0) != want_retro: return False
+                    except Exception: return False
             return True
 
         for b in res["blocks"]:
-            start_jd = b.get("start_jd")
-            if start_jd is None:
-                start_jd = astro_engine.dt_dict_to_utc_jd(b["start"], params.get("tz", "UTC"))
-                
-            end_jd = b.get("end_jd")
-            if end_jd is None:
-                end_jd = astro_engine.dt_dict_to_utc_jd(b["end"], params.get("tz", "UTC"))
+            start_jd = b.get("start_jd") or rectification_engine.dt_dict_to_utc_jd(b["start"], params.get("tz", "UTC"))
+            end_jd = b.get("end_jd") or rectification_engine.dt_dict_to_utc_jd(b["end"], params.get("tz", "UTC"))
             
-            # ----------------------------------------------------------
-            # JUMP MECHANIC (FIXED)
-            # Tightly constraints search to avoid expanding precise 
-            # Ascendant blocks backwards and forwards accidentally.
-            # ----------------------------------------------------------
             duration = end_jd - start_jd
-            step = 2.0 if duration > 365 else min(0.5, duration / 4.0)
-            if step <= (1.0 / 1440.0): 
-                step = 1.0 / 1440.0 # Min 1 minute limit
+            step = max(1.0 / 1440.0, 2.0 if duration > 365 else min(0.5, duration / 4.0))
 
             current_jd = start_jd
             in_match = False
             match_start = None
-            last_year_reported = None
             
             while True:
                 if stop_event.is_set(): return
-                
                 check_t = min(current_jd, end_jd)
-                
-                # Sub-sampled reporting logic (fires ~1 time per year max for massive blocks)
-                if (check_t - start_jd) % 365 < step and duration > 365:
-                    year = astro_engine.utc_jd_to_dt_dict(check_t, params.get("tz", "UTC"))['year']
-                    if year != last_year_reported:
-                        last_year_reported = year
-                        result_queue.put({"status": "progress", "msg": f"Fast-scanning Retrograde alignments in {year}..."})
-                        
                 match = check_retro(check_t)
                         
-                # Precise Boundary Refinement heavily CLAMPED inside [start_jd, end_jd]
                 if match and not in_match:
-                    t0 = max(start_jd, check_t - step)
-                    t1 = check_t
-                    if check_retro(t0):
-                        match_start = t0
+                    t0, t1 = max(start_jd, check_t - step), check_t
+                    if check_retro(t0): match_start = t0
                     else:
                         for _ in range(15):
                             tm = (t0 + t1) / 2.0
@@ -330,8 +287,7 @@ def custom_rectification_search_wrapper(params, result_queue, stop_event):
                     in_match = True
                     
                 elif not match and in_match:
-                    t0 = max(start_jd, check_t - step)
-                    t1 = check_t
+                    t0, t1 = max(start_jd, check_t - step), check_t
                     for _ in range(15):
                         tm = (t0 + t1) / 2.0
                         if check_retro(tm): t0 = tm
@@ -340,34 +296,22 @@ def custom_rectification_search_wrapper(params, result_queue, stop_event):
                     in_match = False
                 
                 if current_jd >= end_jd:
-                    if in_match:
-                        valid_blocks.append({"start_jd": match_start, "end_jd": end_jd})
+                    if in_match: valid_blocks.append({"start_jd": match_start, "end_jd": end_jd})
                     break
                     
                 current_jd += step
                 
         final_blocks = []
         for vb in valid_blocks:
-            s_jd = vb["start_jd"]
-            e_jd = vb["end_jd"]
-            final_blocks.append({
-                "start": astro_engine.utc_jd_to_dt_dict(s_jd, params.get("tz", "UTC")), 
-                "end": astro_engine.utc_jd_to_dt_dict(e_jd, params.get("tz", "UTC")), 
-                "start_jd": s_jd, 
-                "end_jd": e_jd, 
-                "mid_jd": (s_jd + e_jd)/2
-            })
+            final_blocks.append({"start": rectification_engine.utc_jd_to_dt_dict(vb["start_jd"], params.get("tz", "UTC")), "end": rectification_engine.utc_jd_to_dt_dict(vb["end_jd"], params.get("tz", "UTC")), "start_jd": vb["start_jd"], "end_jd": vb["end_jd"], "mid_jd": (vb["start_jd"] + vb["end_jd"])/2})
             
         if final_blocks:
             res["blocks"] = final_blocks
             result_queue.put(res)
         else:
-            # Allows infinite expansion of +/- 10,000 years continuously
             result_queue.put({"status": "phase1_failed", "last_range": s_range})
 
     except Exception as e:
-        import traceback
-        traceback.print_exc()
         result_queue.put({"status": "error", "message": f"Search Error: {str(e)}"})
 
 class RectificationWorkerThread(QThread):
@@ -385,7 +329,6 @@ class RectificationWorkerThread(QThread):
     def run(self):
         self.thread = threading.Thread(target=custom_rectification_search_wrapper, args=(self.params, self.result_queue, self.stop_event))
         self.thread.start()
-        
         while self.thread.is_alive():
             if self.isInterruptionRequested():
                 self.stop_event.set()
@@ -396,14 +339,12 @@ class RectificationWorkerThread(QThread):
                 if res["status"] in ["success", "not_found", "phase1_failed"]: 
                     self.finished.emit(res)
                     return
-                elif res["status"] == "progress": 
-                    self.progress.emit(res["msg"])
+                elif res["status"] == "progress": self.progress.emit(res["msg"])
                 elif res["status"] == "error": 
                     self.error.emit(res["message"])
                     return
             except queue.Empty: continue
             
-        # Ensure we catch any final messages if the thread exits simultaneously
         while not self.result_queue.empty():
             res = self.result_queue.get()
             if res["status"] in ["success", "not_found", "phase1_failed"]: 
@@ -416,7 +357,6 @@ class RectificationWorkerThread(QThread):
     def stop(self): 
         self.requestInterruption()
         self.stop_event.set()
-
 
 # ==========================================
 # LOGIC CONTROLLER
@@ -438,10 +378,18 @@ class RectificationController:
                 os.makedirs("created chart exports", exist_ok=True)
                 all_p = set(target[2].keys()).union(target[3].keys())
                 p_list = [{"name": p, **({"sign_index": target[2][p]} if p in target[2] else {}), **({"retro": target[3][p]} if p in target[3] else {})} for p in all_p]
+                
+                # We dynamically inject the APP's current lat/lon so it explicitly locks these coordinates into the saved JSON!
+                export_metadata = {
+                    "latitude": self.app.current_lat,
+                    "longitude": self.app.current_lon,
+                    "ayanamsa": self.app.cb_ayanamsa.currentText()
+                }
+                
                 with open(os.path.join("created chart exports", f"tmp_created_{target[0]}_chart.json"), 'w') as f: 
-                    json.dump({"divisional_charts": {target[0]: {"ascendant": {"sign_index": target[1]} if target[1] is not None else {}, "planets": p_list}}}, f, indent=4)
+                    json.dump({"divisional_charts": {target[0]: {"ascendant": {"sign_index": target[1]} if target[1] is not None else {}, "planets": p_list}}, "metadata": export_metadata}, f, indent=4)
             except Exception as e: print(f"Failed to auto-save built chart: {e}")
-            self.initiate_rectification_flow(*target, metadata=None, auto_start=True)
+            self.initiate_rectification_flow(*target, metadata=export_metadata, auto_start=True)
 
     def load_json_rectify_dialog(self):
         if path := QFileDialog.getOpenFileName(self.app, "Load JSON for Rectification", getattr(self.app, "last_load_dir", ""), "JSON Files (*.json);;All Files (*)")[0]:
@@ -471,11 +419,23 @@ class RectificationController:
             except Exception as e: QMessageBox.critical(self.app, "Load Error", f"Failed to parse JSON:\n{str(e)}")
 
     def initiate_rectification_flow(self, target_div, target_asc, target_planets, target_retro=None, metadata=None, auto_start=False):
+        is_compiled = getattr(sys, 'frozen', False) or '__compiled__' in globals()
+        env_str = "EXPORTED APP" if is_compiled else "DEBUG MODE"
+        
+        # Pull coordinates from metadata if they exist, otherwise use app state.
         rectify_lat = metadata.get("latitude", self.app.current_lat) if metadata else self.app.current_lat
         rectify_lon = metadata.get("longitude", self.app.current_lon) if metadata else self.app.current_lon
         rectify_tz = TimezoneFinder().timezone_at(lng=rectify_lon, lat=rectify_lat) or "UTC" if metadata else self.app.current_tz
         rectify_ayanamsa = metadata["ayanamsa"] if metadata and "ayanamsa" in metadata else self.app.cb_ayanamsa.currentText()
         
+        print(f"\n{'='*50}")
+        print(f"[DEBUG - PLUGIN] RECTIFICATION JOB INITIATED")
+        print(f"[DEBUG - PLUGIN] ENVIRONMENT: {env_str}")
+        print(f"[DEBUG - PLUGIN] Target Div: {target_div}")
+        print(f"[DEBUG - PLUGIN] LAT/LON Locked: {rectify_lat:.4f}, {rectify_lon:.4f}")
+        print(f"[DEBUG - PLUGIN] Timezone String being passed: {rectify_tz}")
+        print(f"{'='*50}")
+
         if metadata and "ayanamsa" in metadata: 
             self.app.cb_ayanamsa.setCurrentText(rectify_ayanamsa) 
             
@@ -483,7 +443,7 @@ class RectificationController:
 
         for p_name, s_idx in target_planets.items():
             is_retro = target_retro.get(p_name, False) if target_retro else False
-            is_ex, is_ow, is_deb = astro_engine.get_dignities(p_name, s_idx + 1, 15.0)
+            is_ex, is_ow, is_deb = plugin_get_dignities(p_name, s_idx + 1, 15.0)
             synthetic_chart["planets"].append({"name": p_name, "sym": p_name[:2], "lon": s_idx * 30 + 15.0, "div_lon": s_idx * 30 + 15.0, "sign_index": s_idx, "sign_num": s_idx + 1, "deg_in_sign": 15.0, "house": ((s_idx - (target_asc if target_asc is not None else 0)) % 12) + 1, "retro": is_retro, "exalted": is_ex, "debilitated": is_deb, "combust": False, "own_sign": is_ow, "vargottama": False, "is_ak": False})
 
         self.rectify_dialog = QDialog(self.app)
@@ -493,6 +453,9 @@ class RectificationController:
         info_text = f"Searching for hypothetical {target_div} chart.\nPlease wait..." if auto_start else f"Please verify the hypothetical {target_div} chart.\nClick 'Search Birth Time' to find the exact timestamp."
         if target_retro and not target_planets and target_asc is None:
             info_text = f"Searching for Retrograde periods only ({', '.join(target_retro.keys())}).\nPlease wait..." if auto_start else f"Please verify Retrograde constraints ({', '.join(target_retro.keys())}).\nClick 'Search Birth Time' to find."
+            
+        # Display the explicit coordinates in the UI!
+        info_text += f"\n\nLocked Coordinates:\n{rectify_lat:.4f}, {rectify_lon:.4f} ({rectify_tz})"
             
         layout = QVBoxLayout()
         info_lbl = QLabel(info_text)
@@ -522,7 +485,6 @@ class RectificationController:
         btn_layout = QHBoxLayout()
         self.rectify_btn_search = QPushButton("Search Birth Time")
         self.rectify_btn_search.setStyleSheet("background-color: #27ae60; color: white; font-weight: bold; padding: 8px;")
-        
         export_btn = QPushButton("Export JSON")
         cancel_btn = QPushButton("Cancel")
         export_btn.setStyleSheet("font-weight: bold; color: #8e44ad; padding: 8px;")
@@ -538,7 +500,8 @@ class RectificationController:
             "lon": rectify_lon, 
             "tz": rectify_tz, 
             "ayanamsa": rectify_ayanamsa, 
-            "search_mode": "speed"
+            "search_mode": "speed",
+            "custom_vargas": self.app.ephemeris.custom_vargas
         })
         
         def start_search(): 
@@ -552,27 +515,30 @@ class RectificationController:
                 try:
                     all_p = set(target_planets.keys()).union(target_retro.keys()) if target_retro else set(target_planets.keys())
                     p_list = [{"name": p, **({"sign_index": target_planets[p]} if p in target_planets else {}), **({"retro": target_retro[p]} if target_retro and p in target_retro else {})} for p in all_p]
-                    with open(path, 'w') as f: json.dump({"divisional_charts": {target_div: {"ascendant": {"sign_index": target_asc} if target_asc is not None else {}, "planets": p_list}}, **({"metadata": metadata} if metadata else {})}, f, indent=4)
+                    
+                    # Hard-bake the accurate coordinates into the JSON export!
+                    save_metadata = metadata.copy() if metadata else {}
+                    save_metadata["latitude"] = rectify_lat
+                    save_metadata["longitude"] = rectify_lon
+                    save_metadata["ayanamsa"] = rectify_ayanamsa
+                    
+                    with open(path, 'w') as f: json.dump({"divisional_charts": {target_div: {"ascendant": {"sign_index": target_asc} if target_asc is not None else {}, "planets": p_list}}, "metadata": save_metadata}, f, indent=4)
                     QMessageBox.information(self.rectify_dialog, "Export Successful", f"Chart saved successfully to:\n{path}")
                 except Exception as e: QMessageBox.critical(self.rectify_dialog, "Export Error", f"Failed to save JSON:\n{str(e)}")
                 
         def cancel_rect(): 
-            if self.rectify_worker.isRunning():
-                self.rectify_worker.stop()
+            if self.rectify_worker.isRunning(): self.rectify_worker.stop()
             self.rectify_dialog.reject()
             
         self.rectify_btn_search.clicked.connect(start_search)
         export_btn.clicked.connect(export_target_chart)
         cancel_btn.clicked.connect(cancel_rect)
         
-        for btn in [self.rectify_btn_search, export_btn, cancel_btn]: 
-            btn_layout.addWidget(btn)
+        for btn in [self.rectify_btn_search, export_btn, cancel_btn]: btn_layout.addWidget(btn)
         layout.addLayout(btn_layout)
         self.rectify_dialog.setLayout(layout)
         
         self.rectify_worker.progress.connect(lambda msg: self.rectify_lbl.setText(msg))
-        
-        # Display Critical UI Message Box for severe backend setup failures
         self.rectify_worker.error.connect(lambda err: QMessageBox.critical(self.app, "Critical Error", err) if "CRITICAL" in err else QMessageBox.warning(self.app, "Error", err))
         self.rectify_worker.finished.connect(self.on_rectify_finished)
         
@@ -593,57 +559,37 @@ class RectificationController:
                 return
 
             def format_dt(dt_dict):
-                """Helper to format datetime dictionaries nicely with exact time."""
                 month_str = datetime.date(2000, dt_dict['month'], 1).strftime('%B')
                 return f"{dt_dict['day']} {month_str} {dt_dict['year']} at {dt_dict['hour']:02d}:{dt_dict['minute']:02d}:{int(dt_dict['second']):02d}"
 
             if len(blocks) == 1:
                 b = blocks[0]
-                mid_dt = astro_engine.utc_jd_to_dt_dict(b["mid_jd"], self.app.current_tz)
-                
-                msg = f"Found exactly 1 precise match window.\n\n"
-                msg += f"Window Start: {format_dt(b['start'])}\n"
-                msg += f"Window End: {format_dt(b['end'])}\n\n"
-                msg += f"Jumping to target exact Midpoint:\n{format_dt(mid_dt)}"
-                
+                mid_dt = rectification_engine.utc_jd_to_dt_dict(b["mid_jd"], self.app.current_tz)
+                msg = f"Found exactly 1 precise match window.\n\nWindow Start: {format_dt(b['start'])}\nWindow End: {format_dt(b['end'])}\n\nJumping to target exact Midpoint:\n{format_dt(mid_dt)}"
                 QMessageBox.information(self.app, "Rectification Success", msg)
                 self.app.time_ctrl.set_time(mid_dt)
                 return
                 
             elif len(blocks) > 20:
-                # Find the block closest to today's date
                 now = datetime.datetime.now(datetime.timezone.utc)
                 today_jd = swe.julday(now.year, now.month, now.day, now.hour + now.minute/60.0 + now.second/3600.0)
-                
                 closest_block = min(blocks, key=lambda b: abs(b["mid_jd"] - today_jd))
-                mid_dt = astro_engine.utc_jd_to_dt_dict(closest_block["mid_jd"], self.app.current_tz)
-                
-                msg = f"Found {len(blocks)} matches (More than 20).\nAutomatically jumping to the date closest to TODAY:\n\n"
-                msg += f"Window Start: {format_dt(closest_block['start'])}\n"
-                msg += f"Window End: {format_dt(closest_block['end'])}\n\n"
-                msg += f"Jumping to target exact Midpoint:\n{format_dt(mid_dt)}"
-                
+                mid_dt = rectification_engine.utc_jd_to_dt_dict(closest_block["mid_jd"], self.app.current_tz)
+                msg = f"Found {len(blocks)} matches (More than 20).\nAutomatically jumping to the date closest to TODAY:\n\nWindow Start: {format_dt(closest_block['start'])}\nWindow End: {format_dt(closest_block['end'])}\n\nJumping to target exact Midpoint:\n{format_dt(mid_dt)}"
                 QMessageBox.information(self.app, "Rectification Success", msg)
                 self.app.time_ctrl.set_time(mid_dt)
                 return
                 
             else:
-                # Between 2 and 20 matches, allow user to choose
                 msg = f"Found {len(blocks)} match windows:\n\n"
                 for i, b in enumerate(blocks):
-                    mid_dt = astro_engine.utc_jd_to_dt_dict(b["mid_jd"], self.app.current_tz)
+                    mid_dt = rectification_engine.utc_jd_to_dt_dict(b["mid_jd"], self.app.current_tz)
                     msg += f"{i+1}. {format_dt(b['start'])} to {format_dt(b['end'])}\n    (Target Midpoint: {format_dt(mid_dt)})\n\n"
                     
-                num, ok = QInputDialog.getInt(
-                    self.app, 
-                    "Select Match", 
-                    msg + "Enter the number of the match to jump to:", 
-                    1, 1, len(blocks), 1
-                )
-                
+                num, ok = QInputDialog.getInt(self.app, "Select Match", msg + "Enter the number of the match to jump to:", 1, 1, len(blocks), 1)
                 if ok:
                     selected_block = blocks[num - 1]
-                    mid_dt = astro_engine.utc_jd_to_dt_dict(selected_block["mid_jd"], self.app.current_tz)
+                    mid_dt = rectification_engine.utc_jd_to_dt_dict(selected_block["mid_jd"], self.app.current_tz)
                     self.app.time_ctrl.set_time(mid_dt)
             
         elif res["status"] == "phase1_failed":
@@ -665,8 +611,7 @@ class RectificationController:
                 if msg_box.clickedButton() == btn_next:
                     params["search_range"] = next_range
                     params["start_range"] = current_range + 1
-                else:
-                    params["search_mode"] = "brute"
+                else: params["search_mode"] = "brute"
                 self.rectify_worker = RectificationWorkerThread(params)
                 self.rectify_worker.progress.connect(lambda msg: self.rectify_lbl.setText(msg))
                 self.rectify_worker.error.connect(lambda err: QMessageBox.warning(self.app, "Error", err))
@@ -674,6 +619,7 @@ class RectificationController:
                 self.rectify_worker.start()
             else: 
                 self.rectify_dialog.accept()
-        elif res["status"] == "not_found": 
+                
+        elif res["status"] == "not_found":
             self.rectify_dialog.accept()
             QMessageBox.warning(self.app, "Not Found", res["message"])

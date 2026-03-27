@@ -1,6 +1,7 @@
 #dynamic_settings_module/zupdater.py
 
 import os
+from pickle import FALSE
 import sys
 import json
 import hashlib
@@ -14,6 +15,10 @@ from PyQt6.QtWidgets import (
     QMessageBox, QProgressBar, QApplication, QCheckBox
 )
 from PyQt6.QtCore import QThread, pyqtSignal, Qt, QTimer
+
+
+PLUGIN_GROUP = "UTILS"
+PLUGIN_INDEX = 8
 
 # --- CONFIGURATION ---
 UPDATE_SERVER_URL = "https://raw.githubusercontent.com/alhmoraansel/Astrology-charts/main/dist/AstroBasics/"
@@ -269,7 +274,7 @@ def setup_ui(app, layout):
     
     # --- Load Updater Configurations ---
     config_path = os.path.join(get_base_dir(), "updater_config.json")
-    auto_update_enabled = True
+    auto_update_enabled = False
     if os.path.exists(config_path):
         try:
             with open(config_path, 'r') as f:
@@ -495,5 +500,5 @@ rm -rf "{cache_dir}"
     btn_full.clicked.connect(lambda: on_check_clicked(is_full=True))
 
     if auto_update_enabled and not getattr(app, '_has_auto_checked_updates', False):
-        app._has_auto_checked_updates = True
-        QTimer.singleShot(1000, lambda: on_check_clicked(is_full=False, is_auto=True))
+        app._has_auto_checked_updates = False
+        QTimer.singleShot(1000, lambda: on_check_clicked(is_full=False, is_auto=False))

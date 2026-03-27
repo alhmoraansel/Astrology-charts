@@ -6,10 +6,10 @@ from PyQt6.QtWidgets import (QPushButton, QMessageBox, QLabel, QVBoxLayout, QHBo
                              QDialog, QTableWidget, QTableWidgetItem, QHeaderView, QProgressBar, QWidget, QTabWidget, QTextEdit, QStyledItemDelegate,QGroupBox)
 from PyQt6.QtGui import QCursor, QFont, QColor, QPen, QBrush, QPainter
 from PyQt6.QtCore import Qt, QTimer, QPoint, QRectF, QPointF
-import __main__
+import main
 
 # Attempt to load SmoothScroller from the main application namespace
-SmoothScroller = getattr(__main__, 'SmoothScroller', None)
+SmoothScroller = getattr(main, 'SmoothScroller', None)
 
 import astro_engine as astro_engine
 
@@ -1152,14 +1152,14 @@ class ShadbalaDetailsDialog(QDialog):
 # ==============================================================================
 # MAIN INTEGRATION HOOK
 # ==============================================================================
-import __main__
+import main
 from PyQt6.QtWidgets import QGroupBox, QVBoxLayout, QPushButton, QLabel
 from PyQt6.QtCore import QTimer
 
 # Safely hook into your app's custom print functions, fallback to standard print
-info_print = getattr(__main__, 'info_print', print)
-debug_print = getattr(__main__, 'debug_print', print)
-error_print = getattr(__main__, 'error_print', print)
+info_print = getattr(main, 'info_print', print)
+debug_print = getattr(main, 'debug_print', print)
+error_print = getattr(main, 'error_print', print)
 
 
 def setup_ui(app, layout):

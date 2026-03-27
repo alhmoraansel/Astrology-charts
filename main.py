@@ -1,6 +1,5 @@
 #main.py
-
-import sys,datetime,json,os,math,pytz,swisseph as swe,time,multiprocessing,queue,glob,copy,importlib.util
+import pkgutil, sys,datetime,json,os,math,pytz,swisseph as swe,time,multiprocessing,queue,glob,copy,importlib.util
 
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QLabel, QLineEdit, QPushButton, QComboBox, QTimeEdit, QTableWidget, QTableWidgetItem, QCheckBox,QHeaderView, QMessageBox, QGroupBox, QFileDialog,QScrollArea, QGridLayout, QSpinBox, QDialog, QTextBrowser,QDoubleSpinBox, QTabWidget, QSizePolicy, QAbstractItemView, QMenu)
 from PyQt6.QtGui import QPainter, QPen, QColor, QFont, QBrush, QPolygonF, QCursor, QIcon, QPainterPath, QPixmap
@@ -14,6 +13,7 @@ from geopy.geocoders import Nominatim
 from timezonefinder import TimezoneFinder
 
 #own file dependencies, need not to be changed
+import dynamic_settings_modules
 from dynamic_settings_modules.zzlogger_mod import info_print
 import save_prefs,animation,astro_engine
 import help_content
@@ -55,9 +55,19 @@ GLOBAL_FONT_SCALE_MULTIPLIER = 1.0
 GLOBAL_PRIMARY_COLOR = "#0026ff"
 
 def resource_path(relative_path):
-    try: base_path = sys._MEIPASS
-    except Exception: base_path = os.path.abspath(".")
-    return os.path.join(base_path, relative_path)
+    """Robust path resolution for PyInstaller, Nuitka, and standard Python."""
+    try: 
+        # PyInstaller temp folder
+        base_path = sys._MEIPASS
+        mode = "PyInstaller"
+    except AttributeError:
+        # Nuitka and standard Python
+        base_path = os.path.dirname(os.path.abspath(__file__))
+        mode = "Standard/Nuitka"
+        
+    final_path = os.path.join(base_path, relative_path)
+    #print(f"[DEBUG] resource_path ({mode}): {final_path}")
+    return final_path
 
 # ==========================================
 # CUSTOM UI WIDGETS & DIALOGS
@@ -718,65 +728,118 @@ class AstroApp(QMainWindow):
         self.autosave_timer.timeout.connect(self.do_autosave)
         self.autosave_timer.start()
 
-    # --- DYNAMIC MODULE METHODS ---
+
+
+
     def _setup_module_watcher(self):
         modules_dir = resource_path("dynamic_settings_modules")
         os.makedirs(modules_dir, exist_ok=True)
+        
         if modules_dir not in self.module_watcher.directories():
             self.module_watcher.addPath(modules_dir)
-        self.module_watcher.directoryChanged.connect(
-            self._trigger_module_reload)
+            #print(f"[DEBUG] Watcher activated on: {modules_dir}")
+            
+        self.module_watcher.directoryChanged.connect(self._trigger_module_reload)
         self.module_watcher.fileChanged.connect(self._trigger_module_reload)
+
+    def _load_dynamic_modules(self):
+            import importlib
+            import sys
+            import os
+            
+            # 1. Clear out old UI
+            while self.dynamic_modules_layout.count():
+                item = self.dynamic_modules_layout.takeAt(0)
+                if item.widget():
+                    item.widget().deleteLater()
+                elif item.layout():
+                    while item.layout().count():
+                        sub = item.layout().takeAt(0)
+                        if sub.widget(): sub.widget().deleteLater()
+                    item.layout().deleteLater()
+
+            modules_dir = resource_path("dynamic_settings_modules")
+            discovered_modules = set()
+
+            # 2. Discover Baked-in Modules via __init__.py mapping
+            try:
+                import dynamic_settings_modules
+                if hasattr(dynamic_settings_modules, '__all__'):
+                    for baked_mod in dynamic_settings_modules.__all__:
+                        discovered_modules.add(baked_mod)
+            except Exception as e:
+                print(f"[DEBUG] Failed to read baked-in map: {e}")
+
+            # 3. Discover loose files (Allows users to drop in new plugins later)
+            if os.path.exists(modules_dir):
+                for f in os.listdir(modules_dir):
+                    name, ext = os.path.splitext(f)
+                    if ext in ('.py', '.pyc', '.pyd', '.so') and not name.startswith("__"):
+                        discovered_modules.add(name)
+
+            # 4. Pre-load and Extract Metadata
+            loaded_mods = {}
+            for mod_name in discovered_modules:
+                full_name = f"dynamic_settings_modules.{mod_name}"
+                try:
+                    if full_name in sys.modules:
+                        mod = importlib.reload(sys.modules[full_name])
+                    else:
+                        mod = importlib.import_module(full_name)
+                    
+                    if hasattr(mod, "setup_ui"):
+                        # Extract variables, fallback to defaults if absent
+                        group = getattr(mod, "PLUGIN_GROUP", "Ungrouped")
+                        index = getattr(mod, "PLUGIN_INDEX", 999)
+                        loaded_mods[mod_name] = {
+                            "mod": mod, 
+                            "group": str(group), 
+                            "index": int(index)
+                        }
+                    else:
+                        print(f"[DEBUG] Skipped (No setup_ui): {mod_name}")
+                        
+                except Exception as e:
+                    print(f"[DEBUG] ERROR importing {mod_name}: {e}")
+
+            # 5. Sorting Logic
+            # Determine the lowest index claimed by any plugin in each group
+            group_master_index = {}
+            for data in loaded_mods.values():
+                g = data["group"]
+                idx = data["index"]
+                if g not in group_master_index or idx < group_master_index[g]:
+                    group_master_index[g] = idx
+
+            # Sort strictly by Group Priority -> Group Name -> Plugin Priority -> Plugin Name
+            sorted_mod_names = sorted(
+                loaded_mods.keys(),
+                key=lambda k: (
+                    group_master_index[loaded_mods[k]["group"]], 
+                    loaded_mods[k]["group"],                      
+                    loaded_mods[k]["index"],                      
+                    k                                             
+                )
+            )
+
+            # 6. Inject into UI sequentially
+            added_modules = 0
+            for mod_name in sorted_mod_names:
+                data = loaded_mods[mod_name]
+                mod = data["mod"]
+                try:
+                    mod.setup_ui(self, self.dynamic_modules_layout)
+                    added_modules += 1
+                    #print(f"[DEBUG] UI Setup: {mod_name} (Group: '{data['group']}', Index: {data['index']})")
+                except Exception as e:
+                    print(f"[DEBUG] ERROR in setup_ui for {mod_name}: {e}")
+
+            self.dynamic_modules_group.setVisible(added_modules > 0)
 
     def _trigger_module_reload(self, path=None):
         self.module_reload_timer.start()
 
-    def _load_dynamic_modules(self):
-        # 1. Clear out the old UI elements generated by plugins
-        while self.dynamic_modules_layout.count():
-            item = self.dynamic_modules_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
-            elif item.layout():
-                while item.layout().count():
-                    sub = item.layout().takeAt(0)
-                    if sub.widget():
-                        sub.widget().deleteLater()
-                item.layout().deleteLater()
-
-        modules_dir = resource_path("dynamic_settings_modules")
-        os.makedirs(modules_dir, exist_ok=True)
-
-        # Unwatch old specific files (we'll re-watch what exists now)
-        if self.module_watcher.files():
-            self.module_watcher.removePaths(self.module_watcher.files())
-
-        added_modules = 0
-        for filename in os.listdir(modules_dir):
-            if filename.endswith(".py") and not filename.startswith("__"):
-                module_name = filename[:-3]
-                file_path = os.path.join(modules_dir, filename)
-
-                # Monitor specifically for content edits
-                self.module_watcher.addPath(file_path)
-                try:
-                    spec = importlib.util.spec_from_file_location(
-                        module_name, file_path)
-                    mod = importlib.util.module_from_spec(spec)
-                    spec.loader.exec_module(mod)
-
-                    # Contract: Target module MUST have `setup_ui(app, layout)`
-                    if hasattr(mod, "setup_ui"):
-                        mod.setup_ui(self, self.dynamic_modules_layout)
-                        added_modules += 1
-                except Exception as e:
-                    print(f"Failed to load dynamic module {filename}: {e}")
-
-        # Hide the box entirely if no modules are valid
-        self.dynamic_modules_group.setVisible(added_modules > 0)
-    # ------------------------------
-
-    # --- API FOR DYNAMIC PLUGINS ---
+    
     def get_current_location(self):
         """Returns the current location info dictionary for plugins."""
         return {

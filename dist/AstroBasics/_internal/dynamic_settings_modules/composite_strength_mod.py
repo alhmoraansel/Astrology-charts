@@ -3,14 +3,17 @@ import sys, math, json, os
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QDialog, QTabWidget, QTableWidget, QTableWidgetItem, QHeaderView, QLabel, QScrollArea, QGroupBox, QFrame, QCheckBox, QSizePolicy, QDoubleSpinBox, QGridLayout)
 from PyQt6.QtGui import QPainter, QColor, QFont, QPen, QBrush, QPolygonF, QPainterPath
 from PyQt6.QtCore import Qt, QRectF, QPointF, QTimer
-import __main__
+import main
 
 # Attempt to load SmoothScroller from the main application namespace safely
-SmoothScroller = getattr(__main__, 'SmoothScroller', None)
-info_print = getattr(__main__, 'info_print', print)
-error_print = getattr(__main__, 'error_print', print)
+SmoothScroller = getattr(main, 'SmoothScroller', None)
+info_print = getattr(main, 'info_print', print)
+error_print = getattr(main, 'error_print', print)
 
 import astro_engine
+
+PLUGIN_GROUP = "STRENGTHS"
+PLUGIN_INDEX = 4
 
 # ==============================================================================
 # GLOBAL WEIGHTS & PERSISTENCE

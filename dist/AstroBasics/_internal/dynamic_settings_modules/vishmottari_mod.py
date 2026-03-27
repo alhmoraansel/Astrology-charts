@@ -1,15 +1,18 @@
 #dunamic_system_modules/vishmottari_mode.py
 
 import datetime
-import __main__  # NEW: Import __main__ to access the main application namespace
+import main  # NEW: Import main to access the main application namespace
 from PyQt6.QtWidgets import (QPushButton, QMessageBox, QLabel, QVBoxLayout, QHBoxLayout,QDialog, QTreeWidget, QTreeWidgetItem, QHeaderView, QLineEdit,QApplication, QAbstractItemView, QDateEdit, QGroupBox)
 from PyQt6.QtCore import Qt, QTimer, QDate
 from PyQt6.QtGui import QColor, QBrush, QFont
 
 import astro_engine
 
+PLUGIN_GROUP = "DASHAS"
+PLUGIN_INDEX = 7
+
 # Attempt to load SmoothScroller from the main application namespace
-SmoothScroller = getattr(__main__, 'SmoothScroller', None)
+SmoothScroller = getattr(main, 'SmoothScroller', None)
 # --- VIMSHOTTARI CONSTANTS ---
 DASHA_LORDS = ["Ketu", "Venus", "Sun", "Moon",
                "Mars", "Rahu", "Jupiter", "Saturn", "Mercury"]

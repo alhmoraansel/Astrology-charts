@@ -10,15 +10,23 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
 from PyQt6.QtGui import QFont, QColor
 from PyQt6.QtCore import Qt, QTimer, QDate, QThread, pyqtSignal
 import swisseph as swe
-import __main__
+import main
 
-# Add parent dir to path to import the dictionary and engine
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+# Determine the base directory of the main application
+if getattr(sys, 'frozen', False) or '__compiled__' in globals():
+    # In a compiled Nuitka app, the executable is already at the root directory
+    base_dir = os.path.dirname(sys.executable)
+else:
+    # In raw Python, we go up one directory from the 'dynamic_settings_modules' folder
+    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+# Explicitly map the parent folder so it finds astro_engine and main.py
+if base_dir not in sys.path:
+    sys.path.insert(0, base_dir)
 import astro_engine
 import advanced_dasha_results
 
-info_print = getattr(__main__, 'info_print', print)
-error_print = getattr(__main__, 'error_print', print)
+info_print = getattr(main, 'info_print', print)
+error_print = getattr(main, 'error_print', print)
 
 # ==============================================================================
 # ASTROLOGICAL CONSTANTS

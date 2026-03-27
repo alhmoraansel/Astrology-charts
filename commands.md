@@ -14,3 +14,5 @@ pyinstaller --noconfirm --onedir --name "Astro Basics" --windowed --icon "icon.i
 Because `swisseph` relies on the massive ephemeris files (which you mapped to `swe.set_ephe_path('ephe')`), you must ensure that your `ephe` folder is placed exactly in the same directory as the final generated `Astro Basics.exe`. 
 
 **Troubleshooting Tip:** If it *still* fails to open after this, build it once **without** the `--windowed` flag. This will force a black command prompt window to appear alongside your app and it will instantly print out the exact Python error preventing the launch!
+
+python -m nuitka --standalone --onefile --show-progress --plugin-enable=qt-plugins --include-data-dir=ephe=ephe --include-data-dir=dynamic_settings_modules=dynamic_settings_modules --windows-icon-from-ico=icon.ico --windows-disable-console main.py
