@@ -13,7 +13,7 @@ error_print = getattr(main, 'error_print', print)
 import astro_engine
 
 PLUGIN_GROUP = "STRENGTHS"
-PLUGIN_INDEX = 4
+PLUGIN_INDEX = 40
 
 # ==============================================================================
 # GLOBAL WEIGHTS & PERSISTENCE

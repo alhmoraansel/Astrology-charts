@@ -6,7 +6,7 @@ from PyQt6.QtCore import qInstallMessageHandler, QtMsgType, QObject, pyqtSignal,
 from PyQt6.QtGui import QFont
 
 PLUGIN_GROUP = "UTILS"
-PLUGIN_INDEX = 9
+PLUGIN_INDEX = 90
 
 # -------------------------------------------------------------------------
 # 1. CORE LOGGER ENGINE (QObject for thread-safe signals)

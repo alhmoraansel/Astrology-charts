@@ -19,7 +19,7 @@ from timezonefinder import TimezoneFinder
 from main import ChartRenderer  # Safely inject the renderer
 
 PLUGIN_GROUP = "CHART RECTIFICATION"
-PLUGIN_INDEX = 2
+PLUGIN_INDEX = 20
 
 class NoScrollComboBox(QComboBox):
     def wheelEvent(self, event): event.ignore()

@@ -18,7 +18,7 @@ from PyQt6.QtCore import QThread, pyqtSignal, Qt, QTimer
 
 
 PLUGIN_GROUP = "UTILS"
-PLUGIN_INDEX = 8
+PLUGIN_INDEX = 80
 
 # --- CONFIGURATION ---
 UPDATE_SERVER_URL = "https://raw.githubusercontent.com/alhmoraansel/Astrology-charts/main/dist/AstroBasics/"

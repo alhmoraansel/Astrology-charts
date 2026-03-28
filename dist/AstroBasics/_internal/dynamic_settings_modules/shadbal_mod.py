@@ -15,7 +15,7 @@ SmoothScroller = getattr(main, 'SmoothScroller', None)
 import astro_engine as astro_engine
 
 PLUGIN_GROUP = "STRENGTHS"
-PLUGIN_INDEX = 6
+PLUGIN_INDEX = 60
 
 # ==============================================================================
 # CLASSICAL CONSTANTS & CONFIGURATION TABLES

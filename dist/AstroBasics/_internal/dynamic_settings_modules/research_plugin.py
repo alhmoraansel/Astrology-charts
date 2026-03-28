@@ -6,7 +6,7 @@ from PyQt6.QtCore import Qt, QObject, pyqtSignal, QEvent, QTimer
 from PyQt6.QtGui import QAction
 
 PLUGIN_GROUP = "RESEARCH"
-PLUGIN_INDEX = 3
+PLUGIN_INDEX = 30
 
 # =========================================================================
 # GLOBAL SETTINGS & EXPLICIT PLUGIN REGISTRY

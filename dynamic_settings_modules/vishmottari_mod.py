@@ -8,7 +8,7 @@ from PyQt6.QtGui import QColor, QBrush, QFont
 import astro_engine
 
 PLUGIN_GROUP = "DASHAS"
-PLUGIN_INDEX = 7
+PLUGIN_INDEX = 70
 
 SmoothScroller = getattr(main, 'SmoothScroller', None)
 

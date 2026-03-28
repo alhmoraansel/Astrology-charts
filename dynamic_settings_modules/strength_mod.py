@@ -15,7 +15,7 @@ error_print = getattr(main, 'error_print', print)
 SmoothScroller = getattr(main, 'SmoothScroller', None)
 
 PLUGIN_GROUP = "STRENGTHS"
-PLUGIN_INDEX = 5
+PLUGIN_INDEX = 50
 
 # ==========================================
 # CUSTOM UI COMPONENTS FOR INSTANT TOOLTIPS
