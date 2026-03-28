@@ -10,7 +10,7 @@ import main
 import astro_engine
 from chart_renderer import ChartAnalyzer, SIGN_LORDS, ChartRenderer
 
-# Import the Live CSI Helper safely
+# Import the Live CSI Helper safely for end-of-analysis diagnostics ONLY
 try:
     from dynamic_settings_modules.composite_strength_mod import CSIHelper
 except ImportError as e:
@@ -108,70 +108,6 @@ RAW_PROFESSIONS = {
     }
 }
 
-# 1:1 Intersection Mapping Matrix (No arbitrary additions, maps pure RAW list to House Themes)
-EXACT_DEGREE_MATRIX = {
-    "Technical": {
-        "Foundation (4H)": {
-            "Sun": "Physics", "Moon": "Environmental Science", "Mars": "Mechanical Work", "Mercury": "Higher Accountancy", "Jupiter": "Biotechnology", "Venus": "Mula (Botany, Horticulture and Agriculture)", "Saturn": "Geology", "Rahu": "Aerospace/Aeronautical Engineering/Environmental Science", "Ketu": "Meteorology"
-        },
-        "Medical/Occult (6/8/12H)": {
-            "Sun": "Mula -Ayurvedic - Medicines", "Moon": "Medicine", "Mars": "Science", "Mercury": "Higher Accountancy", "Jupiter": "Jeev Vigyan (Biology) - Zoology in association with Ketu", "Venus": "Mula (Botany, Horticulture and Agriculture)", "Saturn": "Geology", "Rahu": "Aerospace/Aeronautical Engineering/Environmental Science", "Ketu": "Microbiology in association with Jupiter"
-        },
-        "Communication (3/7/9H)": {
-            "Sun": "Physics", "Moon": "Biochemistry", "Mars": "Engineering", "Mercury": "Higher Accountancy", "Jupiter": "Law", "Venus": "Computer Graphics & Animation", "Saturn": "Engineering", "Rahu": "Pilot", "Ketu": "Computer Language/ Programming"
-        },
-        "Finance (2/11H)": {
-            "Sun": "Higher Mathematics", "Moon": "Pharmacy", "Mars": "Engineering", "Mercury": "Higher Accountancy", "Jupiter": "Management", "Venus": "Computer Graphics & Animation", "Saturn": "Engineering", "Rahu": "Air Hostess", "Ketu": "Computer Language/ Programming"
-        },
-        "Authority (10H)": {
-            "Sun": "Physics", "Moon": "Chemistry", "Mars": "Engineering", "Mercury": "Higher Accountancy", "Jupiter": "Management", "Venus": "Computer Graphics & Animation", "Saturn": "Engineering", "Rahu": "Aerospace/Aeronautical Engineering/Environmental Science", "Ketu": "Computer Language/ Programming"
-        },
-        "General (1/5H)": {
-            "Sun": "Higher Mathematics", "Moon": "Chemistry", "Mars": "Science", "Mercury": "Higher Accountancy", "Jupiter": "Jeev Vigyan (Biology) - Zoology in association with Ketu", "Venus": "Mula (Botany, Horticulture and Agriculture)", "Saturn": "Engineering", "Rahu": "Pilot", "Ketu": "Computer Language/ Programming"
-        }
-    },
-    "Semi-Technical": {
-        "Foundation (4H)": {
-            "Sun": "Astronomy", "Moon": "Paramedics", "Mars": "Mechanic", "Mercury": "Semi-technical Accounts", "Jupiter": "Management", "Venus": "Architecture", "Saturn": "Mechanical Work", "Rahu": "Avionics", "Ketu": "Languages"
-        },
-        "Medical/Occult (6/8/12H)": {
-            "Sun": "Actuary", "Moon": "Paramedics", "Mars": "Science", "Mercury": "Semi-technical Accounts", "Jupiter": "Psychology", "Venus": "Hotel Management", "Saturn": "Mechanical Work", "Rahu": "Avionics", "Ketu": "Languages"
-        },
-        "Communication (3/7/9H)": {
-            "Sun": "Statistics", "Moon": "Paramedics", "Mars": "Mechanic", "Mercury": "Semi-technical Accounts", "Jupiter": "Philosophy", "Venus": "Tourism", "Saturn": "Mechanical Work", "Rahu": "Avionics", "Ketu": "Languages"
-        },
-        "Finance (2/11H)": {
-            "Sun": "Mathematics", "Moon": "Paramedics", "Mars": "Science", "Mercury": "Semi-technical Accounts", "Jupiter": "Commerce", "Venus": "Fashion Designing", "Saturn": "Mechanical Work", "Rahu": "Avionics", "Ketu": "Languages"
-        },
-        "Authority (10H)": {
-            "Sun": "Actuary", "Moon": "Paramedics", "Mars": "Mechanic", "Mercury": "Semi-technical Accounts", "Jupiter": "Banking", "Venus": "Photography", "Saturn": "Mechanical Work", "Rahu": "Avionics", "Ketu": "Languages"
-        },
-        "General (1/5H)": {
-            "Sun": "Mathematics", "Moon": "Paramedics", "Mars": "Science", "Mercury": "Semi-technical Accounts", "Jupiter": "Finance", "Venus": "Fashion Designing", "Saturn": "Mechanical Work", "Rahu": "Avionics", "Ketu": "Languages"
-        }
-    },
-    "Non-Technical": {
-        "Foundation (4H)": {
-            "Sun": "Political Science", "Moon": "Humanities", "Mars": "Land", "Mercury": "Public Relation", "Jupiter": "History", "Venus": "Sociology", "Saturn": "Geography", "Rahu": "Research work", "Ketu": "Languages"
-        },
-        "Medical/Occult (6/8/12H)": {
-            "Sun": "Political Science", "Moon": "Music", "Mars": "Logic related", "Mercury": "Astrology", "Jupiter": "Sanskrit", "Venus": "Painting", "Saturn": "Prachin Vidya", "Rahu": "Psychology", "Ketu": "Languages"
-        },
-        "Communication (3/7/9H)": {
-            "Sun": "Political Science", "Moon": "Dance", "Mars": "Law", "Mercury": "Journalism", "Jupiter": "Classical Literature", "Venus": "Music", "Saturn": "Law", "Rahu": "Research work", "Ketu": "Languages"
-        },
-        "Finance (2/11H)": {
-            "Sun": "Political Science", "Moon": "Fine Arts", "Mars": "Land", "Mercury": "Accountancy", "Jupiter": "History", "Venus": "Fine Arts", "Saturn": "History", "Rahu": "Research work", "Ketu": "Languages"
-        },
-        "Authority (10H)": {
-            "Sun": "Political Science", "Moon": "Humanities", "Mars": "Law", "Mercury": "Public Relation", "Jupiter": "Classical Literature", "Venus": "Humanities", "Saturn": "Archaeology", "Rahu": "Psychology", "Ketu": "Languages"
-        },
-        "General (1/5H)": {
-            "Sun": "Political Science", "Moon": "Fine Arts", "Mars": "Logic related", "Mercury": "Journalism", "Jupiter": "Classical Literature", "Venus": "Dance", "Saturn": "History", "Rahu": "Research work", "Ketu": "Languages"
-        }
-    }
-}
-
 # ==========================================
 # EDUCATION CALCULATOR ENGINE
 # ==========================================
@@ -253,30 +189,41 @@ class EducationCalculator:
         return False
 
     def _classify_planet(self, p_name, analyzer, asc_override_idx=None):
+        """
+        Classifies strictly based on user rules:
+        - Unafflicted Benefic in Tech Rashi = Semi-Tech
+        - Malefic in Non-Tech Rashi = Semi-Tech
+        - Unafflicted Benefic in Non-Tech = Non-Tech
+        - Malefic in Tech Rashi = Tech
+        """
         p_data = analyzer.get_planet(p_name)
-        if not p_data: return "Non-Technical", 0.0
+        if not p_data: return "Non-Technical", 0.0, "Planet Not Found"
 
         sign_num = p_data["sign_index"] + 1
         in_tech_rashi = sign_num in TECH_RASHIS
+        rashi_str = "Technical Rashi" if in_tech_rashi else "Non-Technical Rashi"
 
         func_nature, _ = self.get_functional_nature(p_name, analyzer.chart_data, asc_override_idx)
         is_func_malefic = (func_nature == "Malefic")
 
-        is_inherent_tech = (p_name in MALEFICS) or p_data.get("debilitated") or p_data.get("retro", False) or is_func_malefic
+        # Is it a malefic by inherent nature, debilitation, retro, or functional lordship?
+        is_inherent_malefic = (p_name in MALEFICS) or p_data.get("debilitated") or p_data.get("retro", False) or is_func_malefic
+        afflicted = self._is_afflicted_in_chart(p_name, analyzer, asc_override_idx)
+        
+        is_acting_malefic = is_inherent_malefic or afflicted
 
-        if is_inherent_tech:
-            if not in_tech_rashi: 
-                return "Semi-Technical", W_SEMI_TECH_PLANET
-            else:
-                return "Technical", W_TECH_PLANET
+        if is_acting_malefic:
+            base_reason = "Malefic/Afflicted"
+            if in_tech_rashi: 
+                return "Technical", W_TECH_PLANET, f"{base_reason} in {rashi_str}"
+            else: 
+                return "Semi-Technical", W_SEMI_TECH_PLANET, f"{base_reason} in {rashi_str}"
         else:
-            afflicted = self._is_afflicted_in_chart(p_name, analyzer, asc_override_idx)
-            if not afflicted:
-                if in_tech_rashi: return "Semi-Technical", W_SEMI_TECH_PLANET
-                else: return "Non-Technical", W_NON_TECH_PLANET
-            else:
-                if not in_tech_rashi: return "Semi-Technical", W_SEMI_TECH_PLANET
-                else: return "Technical", W_TECH_PLANET
+            base_reason = "Unafflicted Benefic"
+            if in_tech_rashi: 
+                return "Semi-Technical", W_SEMI_TECH_PLANET, f"{base_reason} in {rashi_str}"
+            else: 
+                return "Non-Technical", W_NON_TECH_PLANET, f"{base_reason} in {rashi_str}"
 
     def _process_influences(self, analyzer, target_name, occupant_list, aspect_list, base_weight, mult, target_desc, asc_override_idx=None):
         """Calculates categorical points based on planetary rules."""
@@ -284,28 +231,27 @@ class EducationCalculator:
             p_name = p if isinstance(p, str) else p.get("name")
             if not p_name: continue
             
-            cat, p_wt = self._classify_planet(p_name, analyzer, asc_override_idx)
+            cat, p_wt, reason = self._classify_planet(p_name, analyzer, asc_override_idx)
             final_wt = base_weight * p_wt * mult
             self.scores[cat] += final_wt
             self.dominant_planet_scores[p_name] += final_wt
             
             self.log.append(f"<li><b>{p_name}</b> occupies/conjuncts {target_name} &rarr; <b style='color:#0284C7;'>{cat}</b> (+{final_wt:.2f}) <br>"
-                            f"<span style='color:#64748B; font-size: 11px;'><i>Math: {target_desc} (w={base_weight:.2f}) * Planet Wt (w={p_wt:.2f}) * Chart Mult (w={mult:.2f}) = {final_wt:.2f}</i></span></li>")
+                            f"<span style='color:#64748B; font-size: 11px;'><i>Reason: {reason}. Math: {target_desc} (w={base_weight:.2f}) * Planet Wt (w={p_wt:.2f}) * Chart Mult (w={mult:.2f}) = {final_wt:.2f}</i></span></li>")
             
         for p in aspect_list:
             p_name = p if isinstance(p, str) else p.get("aspecting_planet")
             if not p_name: continue
             
-            cat, p_wt = self._classify_planet(p_name, analyzer, asc_override_idx)
+            cat, p_wt, reason = self._classify_planet(p_name, analyzer, asc_override_idx)
             final_wt = base_weight * p_wt * mult
             self.scores[cat] += final_wt
             self.dominant_planet_scores[p_name] += final_wt
             
             self.log.append(f"<li><b>{p_name}</b> aspects {target_name} &rarr; <b style='color:#0284C7;'>{cat}</b> (+{final_wt:.2f}) <br>"
-                            f"<span style='color:#64748B; font-size: 11px;'><i>Math: {target_desc} (w={base_weight:.2f}) * Planet Wt (w={p_wt:.2f}) * Chart Mult (w={mult:.2f}) = {final_wt:.2f}</i></span></li>")
+                            f"<span style='color:#64748B; font-size: 11px;'><i>Reason: {reason}. Math: {target_desc} (w={base_weight:.2f}) * Planet Wt (w={p_wt:.2f}) * Chart Mult (w={mult:.2f}) = {final_wt:.2f}</i></span></li>")
 
     def _eval_varga_chart(self, chart, name, mult, asc_override_idx=None):
-        """Exact identical logic applied over and over. NO CSI SCORES ADDED HERE."""
         if not chart: return
         self.log.append(f"<div style='margin-bottom: 15px; border-left: 3px solid #0284C7; padding-left: 10px;'>")
         self.log.append(f"<h3 style='color:#0284C7; margin-bottom: 4px;'>--- {name.upper()} ANALYSIS ---</h3><ul>")
@@ -338,8 +284,6 @@ class EducationCalculator:
             self.log.append(f"<li>5th House Sign ({h5_sign}) is Non-Technical &rarr; <b style='color:#0284C7;'>Non-Technical</b> (+{W_TECH_RASHI_5TH * mult:.2f})</li>")
 
         self.log.append("<br><b>2. CHECKING 5TH HOUSE INFLUENCE:</b><br>")
-        
-        # Original house number maps back to the chart data array structure securely
         h5_original_house_num = ((h5_sign_idx - original_asc_idx) % 12) + 1
         h5_occ = analyzer.get_occupants(h5_original_house_num)
         h5_asp = analyzer.get_aspecting_planets(h5_original_house_num)
@@ -367,12 +311,12 @@ class EducationCalculator:
                     
                 nak_lord = l5_p.get("nakshatra_lord")
                 if nak_lord:
-                    cat, n_wt = self._classify_planet(nak_lord, analyzer, asc_override_idx)
+                    cat, n_wt, reason = self._classify_planet(nak_lord, analyzer, asc_override_idx)
                     final_n_wt = W_NAKSHATRA_5TH_LORD * n_wt * mult
                     self.scores[cat] += final_n_wt
                     self.dominant_planet_scores[nak_lord] += final_n_wt
                     self.log.append(f"<li>Nakshatra Lord of 5th Lord is <b>{nak_lord}</b> &rarr; <b style='color:#0284C7;'>{cat}</b> (+{final_n_wt:.2f}) <br>"
-                                    f"<span style='color:#64748B; font-size: 11px;'><i>Math: Nak Wt (w=0.1) * Planet Wt ({n_wt:.2f}) * Chart Mult ({mult:.2f}) = {final_n_wt:.2f}</i></span></li>")
+                                    f"<span style='color:#64748B; font-size: 11px;'><i>Reason: {reason}. Math: Nak Wt (w=0.1) * Planet Wt (w={n_wt:.2f}) * Chart Mult (w={mult:.2f}) = {final_n_wt:.2f}</i></span></li>")
         else:
             self.log.append("<li>Could not determine 5th lord.</li>")
 
@@ -408,18 +352,19 @@ class EducationCalculator:
                     
                     m_nak_lord = m_l5_p.get("nakshatra_lord")
                     if m_nak_lord:
-                        cat, n_wt = self._classify_planet(m_nak_lord, analyzer, asc_override_idx)
+                        cat, n_wt, reason = self._classify_planet(m_nak_lord, analyzer, asc_override_idx)
                         final_n_wt = W_NAKSHATRA_5TH_LORD * W_MERCURY_FACTOR * n_wt * mult
                         self.scores[cat] += final_n_wt
                         self.dominant_planet_scores[m_nak_lord] += final_n_wt
-                        self.log.append(f"<li>Nakshatra Lord of Merc's 5L is <b>{m_nak_lord}</b> &rarr; <b style='color:#0284C7;'>{cat}</b> (+{final_n_wt:.2f})</li>")
+                        self.log.append(f"<li>Nakshatra Lord of Merc's 5L is <b>{m_nak_lord}</b> &rarr; <b style='color:#0284C7;'>{cat}</b> (+{final_n_wt:.2f}) <br>"
+                                        f"<span style='color:#64748B; font-size: 11px;'><i>Reason: {reason}. Math: Nak Wt (w=0.02) * Planet Wt (w={n_wt:.2f}) * Chart Mult (w={mult:.2f}) = {final_n_wt:.2f}</i></span></li>")
         else:
             self.log.append("<li>Mercury data missing.</li>")
         self.log.append("</ul></div>")
 
     def _eval_knowledge_yogas(self):
-        #self.log.append(f"<div style='margin-bottom: 15px; border-left: 3px solid #D97706; padding-left: 10px;'>")
-        #self.log.append(f"<h3 style='color:#D97706; margin-bottom: 4px;'>--- KNOWLEDGE YOGAS ---</h3><ul>")
+        self.log.append(f"<div style='margin-bottom: 15px; border-left: 3px solid #D97706; padding-left: 10px;'>")
+        self.log.append(f"<h3 style='color:#D97706; margin-bottom: 4px;'>--- KNOWLEDGE YOGAS ---</h3><ul>")
         
         sun_h = self.analyzer_d1.get_house_of("Sun")
         mer_h = self.analyzer_d1.get_house_of("Mercury")
@@ -434,7 +379,7 @@ class EducationCalculator:
             self.scores["Semi-Technical"] += W_BUDHADITYA_SEMI_BONUS
             self.dominant_planet_scores["Sun"] += W_BUDHADITYA_TECH_BONUS
             self.dominant_planet_scores["Mercury"] += W_BUDHADITYA_SEMI_BONUS
-           #self.log.append(f"<li><b>Budhaditya Yoga</b> detected in D1. Tech (+{W_BUDHADITYA_TECH_BONUS}), Semi-Tech (+{W_BUDHADITYA_SEMI_BONUS}).</li>")
+            self.log.append(f"<li><b>Budhaditya Yoga</b> detected in D1. Tech (+{W_BUDHADITYA_TECH_BONUS}), Semi-Tech (+{W_BUDHADITYA_SEMI_BONUS}).</li>")
 
         kendra_trikona = [1, 4, 5, 7, 9, 10]
         if mer_h in kendra_trikona and ven_h in kendra_trikona and jup_h in kendra_trikona:
@@ -444,11 +389,10 @@ class EducationCalculator:
             self.dominant_planet_scores["Jupiter"] += W_SARASWATI_NON_TECH_BONUS
             self.dominant_planet_scores["Venus"] += W_SARASWATI_SEMI_BONUS
             self.dominant_planet_scores["Mercury"] += W_SARASWATI_SEMI_BONUS
-            #self.log.append(f"<li><b>Saraswati Yoga</b> detected in D1. Non-Tech (+{W_SARASWATI_NON_TECH_BONUS}), Semi-Tech (+{W_SARASWATI_SEMI_BONUS}).</li>")
+            self.log.append(f"<li><b>Saraswati Yoga</b> detected in D1. Non-Tech (+{W_SARASWATI_NON_TECH_BONUS}), Semi-Tech (+{W_SARASWATI_SEMI_BONUS}).</li>")
 
         if not yogas_found:
-                pass
-            #self.log.append("<li>No major classical knowledge Yogas detected in D-1.</li>")
+            self.log.append("<li>No major classical knowledge Yogas detected in D-1.</li>")
         self.log.append("</ul></div>")
 
     def _find_house_theme(self, dom_planet):
@@ -476,9 +420,37 @@ class EducationCalculator:
         
         return "General (1/5H)", f"Points directed at 1/5 Axis"
 
+    def _filter_exact_profession(self, prof_list, theme):
+        if not prof_list: return "Undecided"
+        if len(prof_list) == 1: return prof_list[0]
+
+        theme_keywords = {
+            "Foundation (4H)": ["architecture", "land", "agriculture", "botany", "mula", "mechanical", "mechanic", "hotel", "geology", "designing", "property", "engineering", "science", "civil", "construction", "interior"],
+            "Medical/Occult (6/8/12H)": ["medicine", "ayurvedic", "pharmacy", "biochemistry", "biology", "zoology", "paramedics", "psychology", "astrology", "prachin vidya", "archaeology", "research", "microbiology", "genetics", "speech", "nursing", "pathology", "surgery"],
+            "Communication (3/7/9H)": ["journalism", "public relation", "tourism", "photography", "pilot", "aviation", "languages", "law", "air hostess", "aerospace", "telecommunication", "media", "animation"],
+            "Finance (2/11H)": ["accountancy", "commerce", "finance", "banking", "actuary", "statistics", "economics", "management", "financial"],
+            "Authority (10H)": ["political science", "management", "public relation", "engineering", "electrical", "defense", "law", "administration", "control", "production"],
+            "General (1/5H)": ["mathematics", "physics", "chemistry", "fine arts", "humanities", "music", "dance", "literature", "history", "sanskrit", "sociology", "painting", "computer"]
+        }
+        
+        keywords = theme_keywords.get(theme, [])
+        
+        valid_matches = []
+        for prof in prof_list:
+            prof_lower = prof.lower()
+            for kw in keywords:
+                if kw in prof_lower:
+                    if prof not in valid_matches:
+                        valid_matches.append(prof)
+
+        if len(valid_matches) > 0:
+            return " / ".join(valid_matches)
+        
+        return " / ".join(prof_list)
+
     def run_analysis(self, app_instance=None):
         self.log.append("<h2>Four-Step Triangulation Process</h2>")
-        self.log.append("<p style='font-size:12px; color:#64748B;'>Applying exact identical logic rules across D1, D9, D24, and D-1 (Age 18 Dasha Lagna). CSI is strictly ignored during these score calculations.</p>")
+        self.log.append("<p style='font-size:12px; color:#64748B;'>Applying identical logic rules across D1, D9, D24, and D-1 (Age 18 Dasha Lagna).</p>")
         
         # Step 1, 2, 3: Core Varga Evaluations (No CSI passed here!)
         self._eval_varga_chart(self.chart_data, "Step 1: D-1 Base Chart", W_D1_MULTIPLIER, asc_override_idx=None)
@@ -489,6 +461,8 @@ class EducationCalculator:
         jd_utc = self.chart_data.get("current_jd")
         moon_p = self.analyzer_d1.get_planet("Moon")
         
+        self.log.append(f"<div style='margin-bottom: 15px; border-left: 3px solid #8B5CF6; padding-left: 10px;'>")
+        self.log.append(f"<h3 style='color:#8B5CF6; margin-bottom: 4px;'>--- STEP 4: D-1 DASHA LAGNA (AGE {AGE_OF_EDUCATION}) ANALYSIS ---</h3><ul>")
         if jd_utc and moon_p:
             target_jd = jd_utc + (AGE_OF_EDUCATION * 365.2421904)
             engine = astro_engine.EphemerisEngine()
@@ -500,16 +474,16 @@ class EducationCalculator:
                 md_p = self.analyzer_d1.get_planet(md_lord)
                 if md_p:
                     md_sign_idx = md_p["sign_index"]
-                    self._eval_varga_chart(self.chart_data, f"Step 4: D-1 Dasha Lagna (Age {AGE_OF_EDUCATION})", W_DASHA_LAGNA_MULTIPLIER, asc_override_idx=md_sign_idx)
+                    self.log.append(f"<li>Dasha Lord at Age {AGE_OF_EDUCATION} is {md_lord}. Processing chart with {md_lord}'s sign as Lagna.</li></ul></div>")
+                    self._eval_varga_chart(self.chart_data, f"Step 4: D-1 Dasha Lagna ({md_lord})", W_DASHA_LAGNA_MULTIPLIER, asc_override_idx=md_sign_idx)
                 else:
-                    self.log.append(f"<p>Could not find {md_lord} in chart. Skipping Step 4.</p>")
+                    self.log.append(f"<li>Could not find {md_lord} in chart. Skipping Step 4.</li></ul></div>")
             else:
-                self.log.append("<p>Could not compute Dasha timing. Skipping Step 4.</p>")
+                self.log.append("<li>Could not compute Dasha timing. Skipping Step 4.</li></ul></div>")
         else:
-            self.log.append("<p>Missing JD or Moon data for Dasha. Skipping Step 4.</p>")
+            self.log.append("<li>Missing JD or Moon data for Dasha. Skipping Step 4.</li></ul></div>")
 
-        self._eval_knowledge_yogas()
-
+        # Step 5: Aggregating Results
         self.log.append(f"<div style='margin-bottom: 15px; border-left: 3px solid #10B981; padding-left: 10px;'>")
         self.log.append(f"<h3 style='color:#10B981; margin-bottom: 4px;'>--- STEP 5: AGGREGATING FINAL RESULTS ---</h3><ul>")
 
@@ -525,12 +499,10 @@ class EducationCalculator:
         theme, theme_reason = self._find_house_theme(dom_planet)
         self.log.append(f"<li><b>4. House Result:</b> {theme} - {theme_reason}</li>")
         
-        # 1-to-1 Matrix Lookup
-        exact_degree = EXACT_DEGREE_MATRIX.get(winner_cat, {}).get(theme, {}).get(dom_planet, prof_list[0])
-        eliminated = [p for p in prof_list if p != exact_degree]
-        elim_str = ', '.join(eliminated) if eliminated else "None"
-        
-        self.log.append(f"<li><b>5. House Theme Filtering:</b> {theme} narrowed the selection down to exactly <b>{exact_degree}</b>. (Eliminated options: {elim_str})</li>")
+        exact_degree = self._filter_exact_profession(prof_list, theme)
+        eliminated = [p for p in prof_list if p not in exact_degree.split(" / ")]
+        elim_str = " / ".join(eliminated) if eliminated else "None"
+        self.log.append(f"<li><b>5. House Theme Filtering:</b> {theme} narrowed the selection down to <b>{exact_degree}</b>. (Eliminated options: {elim_str})</li>")
         
         nak_lord = self.analyzer_d1.get_nakshatra_lord(dom_planet)
         if not nak_lord: nak_lord = "Ketu"
@@ -543,7 +515,7 @@ class EducationCalculator:
             f"<b>4. Nakshatra Influence ({nak_lord}):</b> The dominant planet sits in the Nakshatra of {nak_lord} in D-1."
         )
 
-        # ONLY extracting CSI at the very end for purely diagnostic text printing
+        # ONLY extracting CSI at the very end for purely diagnostic text printing (Does not alter logic scores)
         self.log.append("<hr><h3>Real-World Diagnostics (CSI Verification)</h3><ul>")
         if CSIHelper and app_instance:
             helper = CSIHelper.get_instance(app_instance)
@@ -612,7 +584,7 @@ class EducationAnalysisDialog(QDialog):
         self.summary_group.setLayout(summary_layout)
         self.left_layout.addWidget(self.summary_group)
         
-        self.log_group = QGroupBox("Logic Trail")
+        self.log_group = QGroupBox("Algorithmic Logic Trail")
         log_layout = QVBoxLayout()
         self.log_browser = QTextBrowser()
         

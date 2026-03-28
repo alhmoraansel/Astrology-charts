@@ -29,7 +29,7 @@ MANIFEST_FILENAME = "manifest.json"
 PROTECTED_DIRS = {'update_cache', 'autosave', 'analysis_export', 'created chart exports', 'saves', '__pycache__'}
 PROTECTED_FILES = {
     'manifest.json', 'icon.ico', 'astro_settings.json', 'custom_vargas.json', 
-    'apply_update.bat', 'apply_update.sh', '.hash_cache.json', 
+    'apply_update.bat', 'apply_update.sh', '.hash_cache.json', 'csi_weights_prefs.json',
     'unins000.exe', 'unins000.dat', 'updater_config.json'
 }
 

@@ -266,6 +266,9 @@ class ChartAnalyzer:
                     exchanges.append((p1, p2))
         return exchanges
 
+
+
+
 # ==========================================
 # CORE RENDERER CLASS
 # ==========================================
