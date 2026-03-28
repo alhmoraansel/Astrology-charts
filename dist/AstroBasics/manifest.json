@@ -1,7 +1,7 @@
 {
-    "version": "0.4.0",
+    "version": "0.4.2",
     "files": {
-        "AstroBasics.exe": "8ff55e7aad980b8689c6e8af2e1439ad8d8d5f05184bdd1ef29eae0ebc1ded74",
+        "AstroBasics.exe": "1d8cd6a4da6a5e376a8fc41c847c145d38d65044e397615f71ddeb2d448fe65e",
         "_internal/api-ms-win-core-console-l1-1-0.dll": "f0f7cb2a9ffccb43400db88d6bf99f2fcc3161de1ac96c48501d4d522c48c2ca",
         "_internal/api-ms-win-core-datetime-l1-1-0.dll": "55e5f10d0dd9c85ff1c6dc7798e46b3a4422fb7ebc583bb00d06a7df2494397b",
         "_internal/api-ms-win-core-debug-l1-1-0.dll": "092b72832c47f9c4edcde61f1a111c20eb73452984e0a6109482de74eb03c34d",
@@ -42,7 +42,7 @@
         "_internal/api-ms-win-crt-string-l1-1-0.dll": "44ddab31c182235ac5405d31c1cba048316cc230698e392a732ac941ec683bad",
         "_internal/api-ms-win-crt-time-l1-1-0.dll": "a409e25a9d3c252cc0a5af9df85d3733e946087b06cd1fb2cf1bf640eb0d49ba",
         "_internal/api-ms-win-crt-utility-l1-1-0.dll": "cfb2ee4e426bb00b76163c1a66cf8cfef8d7450cbf9bbce3bc9eb2053f51e0e5",
-        "_internal/base_library.zip": "6f5254e0165b71f7657ac1d049d68010a93190dbf7fc7cf384f77a42c44b8d4b",
+        "_internal/base_library.zip": "c13bd3b1d27b66d2d4a2639d4d00b42dfaff15b1846ebb90782f767ede23f789",
         "_internal/libcrypto-3.dll": "e03dd02fdcfb791981c9962827cfcf495f2a47a514c1526efb57f847a9df514a",
         "_internal/libffi-8.dll": "eff52743773eb550fcc6ce3efc37c85724502233b6b002a35496d828bd7b280a",
         "_internal/libssl-3.dll": "1e4bc0638682bfcbb36f4465d6a2e9944d917a60f05ecc8ddf9e96847e05e13f",
@@ -78,7 +78,8 @@
         "_internal/dateutil/zoneinfo/dateutil-zoneinfo.tar.gz": "d3ea52e7b6e968de0d884df1288193596fa95b803db4f92a18279a7398004475",
         "_internal/dynamic_settings_modules/a_transit_mod.py": "7ca88c3feb80c8f3753767fa3a5ed6dbc01e1a28de20b00750fc844ed7e51069",
         "_internal/dynamic_settings_modules/chart_rectification_plugin.py": "a7bbdd6ca5bf92b2c4b42b6b3df805c27cb753251dd0bb4592aaf485a923f413",
-        "_internal/dynamic_settings_modules/composite_strength_mod.py": "1bc141a6adf96461481135acf71cd7353536c454207e11ceb9cd1f794d538021",
+        "_internal/dynamic_settings_modules/composite_strength_mod.py": "2eb12a7214bb176dc3f57b6758cde936c424204e2006bd71d26cdf21bbd316f4",
+        "_internal/dynamic_settings_modules/education_mod.py": "4100bccf3750926915f0db7cd70b43dc4d4cf94d6dbf698bec1707aca760262a",
         "_internal/dynamic_settings_modules/research_plugin.py": "1de4072db0ab54dd998bf376e4a884c4ad98b64d6a3732ce527d34ac6701c45c",
         "_internal/dynamic_settings_modules/shadbal_mod.py": "52c3905ed4082f638869661acc93206e698de8f61ca565188fe959df36b7b6c1",
         "_internal/dynamic_settings_modules/strength_mod.py": "3589d264a43e0b2aeff04363e6b41598d956f1e6f951166d38e6fa2f42eb2ef7",

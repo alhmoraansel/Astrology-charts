@@ -2,7 +2,7 @@
 import sys, math, json, os
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QDialog, QTabWidget, QTableWidget, QTableWidgetItem, QHeaderView, QLabel, QScrollArea, QGroupBox, QFrame, QCheckBox, QSizePolicy, QDoubleSpinBox, QGridLayout)
 from PyQt6.QtGui import QPainter, QColor, QFont, QPen, QBrush, QPolygonF, QPainterPath
-from PyQt6.QtCore import Qt, QRectF, QPointF, QTimer
+from PyQt6.QtCore import Qt, QRectF, QPointF, QTimer, QObject, pyqtSignal
 import main
 
 # Attempt to load SmoothScroller from the main application namespace safely
@@ -948,6 +948,10 @@ class CompositeStrengthDialog(QDialog):
         new_csi_data = calc.calculate_csi()
         if new_csi_data:
             self.csi_data = new_csi_data
+            
+            # --- CRITICAL FIX: Push the fresh calculation to the global app cache ---
+            self.app._csi_results = new_csi_data
+            
             self.chart_data = getattr(self.app, 'current_base_chart', self.chart_data)
             self.build_chart_tab()
             self.build_table_tab()
@@ -1002,11 +1006,6 @@ class CompositeStrengthDialog(QDialog):
                 col = 0
                 row += 1
                 
-        # reset_btn = QPushButton("Reset All to Default")
-        # reset_btn.setStyleSheet("QPushButton { background-color: #FEE2E2; color: #DC2626; border: 1px solid #FCA5A5; padding: 4px; border-radius: 4px; font-weight: bold; margin-top: 10px; } QPushButton:hover { background-color: #FECACA; }")
-        # reset_btn.clicked.connect(self.reset_weights)
-        #settings_layout.addWidget(reset_btn, row + 1, 0, 1, 8) # Span across all 8 grid columns (4 label-spinbox pairs)
-
         settings_scroll.setWidget(settings_widget)
         group_layout = QVBoxLayout(self.settings_group)
         group_layout.addWidget(settings_scroll)
@@ -1226,6 +1225,7 @@ def setup_ui(app, layout):
                 retry_timer.start(1000)
                 return
 
+            # Push the very first calculation into the main app cache
             app._csi_results = results
             
             planets_list = list(results["planets"].items())
@@ -1265,3 +1265,133 @@ def setup_ui(app, layout):
 
     btn_details.clicked.connect(show_details)
     auto_trigger()
+
+
+# ==============================================================================
+# GLOBAL HELPER API FOR OTHER PLUGINS
+# ==============================================================================
+class LiveCSIValue:
+    """
+    A dynamic wrapper that behaves exactly like a float.
+    It fetches the latest CSI value on-demand every time it is used, printed, or calculated.
+    """
+    def __init__(self, helper, type_key, identifier):
+        self.helper = helper
+        self.type_key = type_key       # 'house' or 'planet'
+        self.identifier = identifier   # e.g., 4 or 'Sun'
+        
+    @property
+    def value(self):
+        # Always fetches the live value from the helper (returns 0.0 if not loaded)
+        if self.type_key == 'house':
+            return self.helper._get_h(self.identifier)
+        return self.helper._get_p(self.identifier)
+        
+    # --- Standard Type Conversions ---
+    def __float__(self): return float(self.value)
+    def __int__(self): return int(self.value)
+    def __str__(self): return f"{self.value:.2f}"
+    def __format__(self, format_spec): return format(self.value, format_spec)
+    def __round__(self, ndigits=None): return round(self.value, ndigits)
+    def __bool__(self): return bool(self.value)
+    
+    # --- Math Operator Overloads ---
+    def _val(self, other):
+        return other.value if isinstance(other, LiveCSIValue) else float(other)
+        
+    def __add__(self, other): return self.value + self._val(other)
+    def __radd__(self, other): return self._val(other) + self.value
+    def __sub__(self, other): return self.value - self._val(other)
+    def __rsub__(self, other): return self._val(other) - self.value
+    def __mul__(self, other): return self.value * self._val(other)
+    def __rmul__(self, other): return self._val(other) * self.value
+    def __truediv__(self, other): return self.value / self._val(other)
+    def __rtruediv__(self, other): return self._val(other) / self.value
+    
+    # --- Comparisons ---
+    def __lt__(self, other): return self.value < self._val(other)
+    def __le__(self, other): return self.value <= self._val(other)
+    def __eq__(self, other): return self.value == self._val(other)
+    def __ge__(self, other): return self.value >= self._val(other)
+    def __gt__(self, other): return self.value > self._val(other)
+
+
+class CSIHelper(QObject):
+    """
+    Singleton Helper to access CSI values across plugins.
+    Emits csi_updated when the base plugin loads or when user weights change.
+    """
+    csi_updated = pyqtSignal()
+    
+    _instance = None
+    
+    @classmethod
+    def get_instance(cls, app):
+        """Safely fetch the singleton instance of the CSI Helper."""
+        if cls._instance is None:
+            cls._instance = cls(app)
+        return cls._instance
+        
+    def __init__(self, app):
+        super().__init__()
+        self.app = app
+        self._last_results_id = None
+        
+        # Setup a lightweight polling timer to detect when the main plugin 
+        # generates a new CSI dictionary (either on load or weight change).
+        self.watcher_timer = QTimer(self)
+        self.watcher_timer.timeout.connect(self._check_for_updates)
+        self.watcher_timer.start(500)  # Check every 500ms
+
+    def _check_for_updates(self):
+        """Monitors app._csi_results memory ID to detect fresh calculations."""
+        current_results = getattr(self.app, '_csi_results', None)
+        if current_results is not None:
+            current_id = id(current_results)
+            if current_id != self._last_results_id:
+                self._last_results_id = current_id
+                # Notify the rest of the application that data has changed!
+                self.csi_updated.emit()
+
+    def _get_h(self, h_num):
+        """Internal fetcher for house. Returns 0.0 if not ready."""
+        res = getattr(self.app, '_csi_results', None)
+        if res and "houses" in res and h_num in res["houses"]:
+            return float(res["houses"][h_num].get("net_energy", 0.0))
+        return 0.0
+
+    def _get_p(self, p_name):
+        """Internal fetcher for planets. Returns 0.0 if not ready."""
+        res = getattr(self.app, '_csi_results', None)
+        if res and "planets" in res and p_name in res["planets"]:
+            return float(res["planets"][p_name].get("csi", 0.0))
+        return 0.0
+
+    # ==========================================
+    # PUBLIC API: HOUSE CSI METHODS
+    # ==========================================
+    def csi_house_1(self): return LiveCSIValue(self, 'house', 1)
+    def csi_house_2(self): return LiveCSIValue(self, 'house', 2)
+    def csi_house_3(self): return LiveCSIValue(self, 'house', 3)
+    def csi_house_4(self): return LiveCSIValue(self, 'house', 4)
+    def csi_house_5(self): return LiveCSIValue(self, 'house', 5)
+    def csi_house_6(self): return LiveCSIValue(self, 'house', 6)
+    def csi_house_7(self): return LiveCSIValue(self, 'house', 7)
+    def csi_house_8(self): return LiveCSIValue(self, 'house', 8)
+    def csi_house_9(self): return LiveCSIValue(self, 'house', 9)
+    def csi_house_10(self): return LiveCSIValue(self, 'house', 10)
+    def csi_house_11(self): return LiveCSIValue(self, 'house', 11)
+    def csi_house_12(self): return LiveCSIValue(self, 'house', 12)
+
+    # ==========================================
+    # PUBLIC API: PLANETARY CSI METHODS
+    # ==========================================
+    def csi_sun(self): return LiveCSIValue(self, 'planet', "Sun")
+    def csi_moon(self): return LiveCSIValue(self, 'planet', "Moon")
+    def csi_mars(self): return LiveCSIValue(self, 'planet', "Mars")
+    def csi_mercury(self): return LiveCSIValue(self, 'planet', "Mercury")
+    def csi_jupiter(self): return LiveCSIValue(self, 'planet', "Jupiter")
+    def csi_venus(self): return LiveCSIValue(self, 'planet', "Venus")
+    def csi_saturn(self): return LiveCSIValue(self, 'planet', "Saturn")
+    def csi_rahu(self): return LiveCSIValue(self, 'planet', "Rahu")
+    def csi_ketu(self): return LiveCSIValue(self, 'planet', "Ketu")

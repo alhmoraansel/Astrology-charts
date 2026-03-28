@@ -1,7 +1,7 @@
 {
-    "location": "27.6000, 76.6000",
-    "lat": 27.6,
-    "lon": 76.6,
+    "location": "ALWAR",
+    "lat": 27.4140049,
+    "lon": 76.6170387,
     "tz": "Asia/Kolkata",
     "ayanamsa": "True Lahiri (Chitrapaksha)",
     "outline_mode": "Vitality (Lords)",
@@ -11,7 +11,7 @@
     "show_arrows": true,
     "use_tint": true,
     "show_aspects": true,
-    "show_details": true,
+    "show_details": false,
     "use_circular": false,
     "show_tooltips": true,
     "use_true_positions": true,
@@ -40,18 +40,17 @@
         "D11": false,
         "D12": false,
         "D16": false,
-        "D20": true,
-        "D24": false,
+        "D20": false,
+        "D24": true,
         "D27": false,
         "D30": false,
         "D40": false,
         "D45": false,
-        "D60": true
+        "D60": false
     },
     "active_charts_order": [
         "D1",
         "D9",
-        "D20",
-        "D60"
+        "D24"
     ]
 }

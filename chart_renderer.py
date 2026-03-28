@@ -89,6 +89,7 @@ def get_ordinal(n):
 # ==========================================
 # CHART ANALYZER (Plugin API Helper)
 # ==========================================
+
 class ChartAnalyzer:
     """
     Helper API to access planetary statuses safely and cleanly.
@@ -118,11 +119,15 @@ class ChartAnalyzer:
                     
         raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
 
-    # --- Core Accessors ---
+    # ==========================================
+    # Core Accessors
+    # ==========================================
     def get_planet(self, name): return self.planets.get(name, {})
     def get_all_planets(self): return list(self.planets.values())
     
-    # --- Status Checks ---
+    # ==========================================
+    # Status Checks
+    # ==========================================
     def is_exalted(self, name): return self.get_planet(name).get("exalted", False)
     def is_debilitated(self, name): return self.get_planet(name).get("debilitated", False)
     def is_own_sign(self, name): return self.get_planet(name).get("own_sign", False)
@@ -133,12 +138,16 @@ class ChartAnalyzer:
     def is_benefic(self, name): return name in NATURAL_BENEFICS
     def is_malefic(self, name): return name in NATURAL_MALEFICS
     
-    # --- Aggregates & Counts ---
+    # ==========================================
+    # Aggregates & Counts
+    # ==========================================
     def num_deb_planets(self): return sum(1 for p in self.planets.values() if p.get("debilitated"))
     def num_exalted_planets(self): return sum(1 for p in self.planets.values() if p.get("exalted"))
     def num_retro_planets(self): return sum(1 for p in self.planets.values() if p.get("retro") and p["name"] not in ["Rahu", "Ketu"])
     
-    # --- Structural Accessors ---
+    # ==========================================
+    # Structural Accessors
+    # ==========================================
     def get_house_of(self, name): return self.get_planet(name).get("house", -1)
     def get_sign_of(self, name): return self.get_planet(name).get("sign_num", -1)
     
@@ -176,6 +185,86 @@ class ChartAnalyzer:
     def get_dusthana_planets(self): return [p["name"] for p in self.planets.values() if p.get("house") in DUSTHANA_HOUSES]
     def get_upachaya_planets(self): return [p["name"] for p in self.planets.values() if p.get("house") in UPACHAYA_MALEFIC_HOUSES]
 
+    # ==========================================
+    # Standard Planet Nakshatra Accessors
+    # ==========================================
+    def get_nakshatra(self, name): 
+        """Returns the nakshatra name of the given planet (e.g. 'Pushya')."""
+        return self.get_planet(name).get("nakshatra")
+
+    def get_nakshatra_lord(self, name): 
+        """Returns the planet name ruling the nakshatra the given planet is placed in."""
+        return self.get_planet(name).get("nakshatra_lord")
+
+    def get_nakshatra_pada(self, name): 
+        """Returns the nakshatra pada (1-4) of the given planet."""
+        return self.get_planet(name).get("nakshatra_pada")
+
+    # ==========================================
+    # House Lord Nakshatra Accessors
+    # ==========================================
+    def get_house_lord_nakshatra(self, house_num):
+        """Returns the nakshatra name of the planet ruling the given house."""
+        lord = self.get_lord_of_house(house_num)
+        return lord.get("nakshatra") if lord else None
+
+    def get_house_lord_nakshatra_lord(self, house_num):
+        """Returns the planet name ruling the nakshatra of the given house lord."""
+        lord = self.get_lord_of_house(house_num)
+        return lord.get("nakshatra_lord") if lord else None
+
+    def get_house_lord_nakshatra_pada(self, house_num):
+        """Returns the nakshatra pada (1-4) of the given house lord."""
+        lord = self.get_lord_of_house(house_num)
+        return lord.get("nakshatra_pada") if lord else None
+
+    # ==========================================
+    # Ascendant Nakshatra Accessors
+    # ==========================================
+    def get_ascendant_nakshatra(self):
+        """Returns the nakshatra of the Ascendant degree."""
+        return self.ascendant.get("nakshatra")
+
+    def get_ascendant_nakshatra_lord(self):
+        """Returns the planet name ruling the Ascendant's nakshatra."""
+        return self.ascendant.get("nakshatra_lord")
+
+    def get_ascendant_nakshatra_pada(self):
+        """Returns the pada of the Ascendant's nakshatra."""
+        return self.ascendant.get("nakshatra_pada")
+
+    # ==========================================
+    # Advanced Nakshatra Astrology Helpers
+    # ==========================================
+    def get_planets_in_nakshatra(self, nakshatra_name):
+        """Returns a list of planet names currently placed in the specified nakshatra."""
+        return [p["name"] for p in self.planets.values() if p.get("nakshatra") == nakshatra_name]
+
+    def get_planets_in_nakshatra_ruled_by(self, lord_name):
+        """Returns a list of planet names placed in ANY nakshatra ruled by the given planet."""
+        return [p["name"] for p in self.planets.values() if p.get("nakshatra_lord") == lord_name]
+
+    def get_nakshatra_dispositor(self, planet_name):
+        """Returns the planet object of the given planet's Nakshatra Lord (Stellar Dispositor)."""
+        nak_lord_name = self.get_nakshatra_lord(planet_name)
+        return self.get_planet(nak_lord_name) if nak_lord_name else {}
+        
+    def is_in_own_nakshatra(self, planet_name):
+        """Checks if a planet is placed in its own nakshatra (e.g., Moon in Rohini)."""
+        return self.get_nakshatra_lord(planet_name) == planet_name
+        
+    def get_nakshatra_exchanges(self):
+        """
+        Finds pairs of planets that have exchanged nakshatras (Nakshatra Parivartana Yoga).
+        Returns a list of tuples, e.g., [("Sun", "Moon")] if Sun is in Moon's star and Moon is in Sun's star.
+        """
+        exchanges = []
+        p_names = list(self.planets.keys())
+        for i, p1 in enumerate(p_names):
+            for p2 in p_names[i+1:]:
+                if self.get_nakshatra_lord(p1) == p2 and self.get_nakshatra_lord(p2) == p1:
+                    exchanges.append((p1, p2))
+        return exchanges
 
 # ==========================================
 # CORE RENDERER CLASS
