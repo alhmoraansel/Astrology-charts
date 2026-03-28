@@ -1,18 +1,11 @@
 # dynamic_settings_modules/education_mod.py
 
-import sys
-import copy
-import json
-import os
-import datetime
-from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QDialog, 
-                             QLabel, QScrollArea, QGroupBox, QTextBrowser, QTabWidget,
-                             QMenuBar, QFormLayout, QDoubleSpinBox, QDialogButtonBox, QApplication, QMessageBox)
+import sys, copy, json, os, datetime
+from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QDialog, QLabel, QScrollArea, QGroupBox, QTextBrowser, QTabWidget,QMenuBar, QFormLayout, QDoubleSpinBox, QDialogButtonBox, QApplication, QMessageBox)
 from PyQt6.QtGui import QFont, QColor
 from PyQt6.QtCore import Qt, QUrl, QTimer
 
-import main
-import astro_engine
+import main, astro_engine
 from chart_renderer import ChartAnalyzer, SIGN_LORDS, ChartRenderer
 
 # Import the Live CSI Helper safely for end-of-analysis diagnostics ONLY
@@ -867,7 +860,7 @@ class EducationAnalysisDialog(QDialog):
         time_mod_layout = QVBoxLayout(self.time_mod_tab)
         
         time_top_bar = QHBoxLayout()
-        self.btn_run_time_mod = QPushButton("Run Sensitivity Analysis (±60 mins)")
+        self.btn_run_time_mod = QPushButton("Run Sensitivity Analysis (±20 mins)")
         self.btn_run_time_mod.setStyleSheet("background-color: #8B5CF6; color: white; font-weight: bold; padding: 8px 16px; border-radius: 4px;")
         self.btn_run_time_mod.clicked.connect(self.run_time_sensitivity)
         
@@ -920,7 +913,7 @@ class EducationAnalysisDialog(QDialog):
         time_mod_layout.addLayout(time_top_bar)
         time_mod_layout.addWidget(self.time_mod_results)
         
-        self.right_panel.addTab(self.time_mod_tab, "Time Sensitivity (±60m)")
+        self.right_panel.addTab(self.time_mod_tab, "Time Sensitivity (±20m)")
         # ----------------------------
         
         self.content_layout.addWidget(self.right_panel, stretch=2)
@@ -1048,7 +1041,7 @@ class EducationAnalysisDialog(QDialog):
         html = "<h3 style='color: #0F172A; margin-bottom: 16px; margin-top: 5px;'>Time Fluctuation Analysis</h3>"
         html += "<table width='100%' style='border-collapse: separate; border-spacing: 0 10px;'>"
         
-        offsets = list(range(-60, 65, 5))
+        offsets = list(range(-20, 25, 5))
         
         # 1. Fetch EXTREMELY EXACT state strictly from the App instance
         lat = getattr(self.app, 'current_lat', self.chart_data.get('lat', 0.0))
@@ -1157,7 +1150,7 @@ class EducationAnalysisDialog(QDialog):
         html += "</table>"
         self.time_mod_results.setHtml(html)
         
-        self.btn_run_time_mod.setText("Run Sensitivity Analysis (±60 mins)")
+        self.btn_run_time_mod.setText("Run Sensitivity Analysis (±20 mins)")
         self.btn_run_time_mod.setEnabled(True)
 
 
