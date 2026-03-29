@@ -332,7 +332,7 @@ class ChartRenderer(QWidget):
         self.ambient_timer = QTimer(self)
         self.ambient_timer.timeout.connect(self.update)
         # 30-40ms is about 25-30 FPS, perfect for a smooth, slow breath without draining CPU
-        self.ambient_timer.start(35)
+        self.ambient_timer.start(80)
         self.anim_timer.timeout.connect(self._on_anim_tick)
         self.anim_duration = 600.0
         self.anim_start_time = 0

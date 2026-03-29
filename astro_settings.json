@@ -38,7 +38,7 @@
         "D8": false,
         "D9": true,
         "D10": true,
-        "D11": false,
+        "D11": true,
         "D12": false,
         "D16": false,
         "D20": false,
@@ -52,7 +52,8 @@
     "active_charts_order": [
         "D1",
         "D9",
-        "D10"
+        "D10",
+        "D11"
     ],
     "plugin_order_prefs": [
         "education_mod",

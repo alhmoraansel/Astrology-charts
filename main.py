@@ -1297,6 +1297,7 @@ class AstroApp(QMainWindow):
         elif not checked and d_id in self.active_charts_order: self.active_charts_order.remove(d_id)
         if hasattr(self, "chart_layout"): self.update_grid_layout()
 
+
     def update_grid_layout(self):
         if getattr(self, "is_updating_ui", False) or not hasattr(self, "chart_layout"): return
         v_scroll = self.charts_scroll.verticalScrollBar().value() if hasattr(self, 'charts_scroll') else 0
@@ -1316,7 +1317,7 @@ class AstroApp(QMainWindow):
         mode_str = self.cb_layout_mode.currentText() if getattr(self, "cb_layout_mode", None) else "3 Columns"
         viewport_h = max(100, self.charts_scroll.viewport().height())
         
-        # --- FIX 1: Prevent Scrollbar Micro-Jitters ---
+        # FIX 1: Round viewport height to prevent fractional scrollbar jitters
         viewport_h = (viewport_h // 10) * 10 
         min_h = max(200, (viewport_h // 2 if mode_str == "1 Left, 2 Right (Stacked)" else viewport_h // 3) - 15)
 
@@ -1328,7 +1329,7 @@ class AstroApp(QMainWindow):
 
             renderer = self.renderers[div]
             
-            # --- FIX 2: Properly scale the 2-row spanning chart to stop the infinite layout loop ---
+            # FIX 2: Properly scale the 2-row spanning chart to stop the infinite layout loop
             target_min_h = min_h * 2 + 10 if (mode_str == "1 Left, 2 Right (Stacked)" and i == 0) else min_h
             
             # Debounce by 5px to stop infinite fractional recalculations
@@ -1348,6 +1349,22 @@ class AstroApp(QMainWindow):
         if hasattr(self, 'charts_scroll'):
             QTimer.singleShot(0, lambda: self.charts_scroll.verticalScrollBar().setValue(v_scroll))
             QTimer.singleShot(0, lambda: self.charts_scroll.horizontalScrollBar().setValue(h_scroll))
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if not hasattr(self, 'charts_scroll') or (viewport_h := self.charts_scroll.viewport().height()) < 100: return
+        
+        # FIX 3: Apply the exact same debounce logic here to survive window resizing
+        viewport_h = (viewport_h // 10) * 10
+        mode_str = self.cb_layout_mode.currentText() if getattr(self, "cb_layout_mode", None) else "3 Columns"
+        min_h = max(200, (viewport_h // 2 if mode_str == "1 Left, 2 Right (Stacked)" else viewport_h // 3) - 15)
+        
+        for i, div in enumerate(getattr(self, 'active_charts_order', [])):
+            if div in self.renderers: 
+                target_min_h = min_h * 2 + 10 if (mode_str == "1 Left, 2 Right (Stacked)" and i == 0) else min_h
+                if abs(self.renderers[div].minimumHeight() - target_min_h) > 5:
+                    self.renderers[div].setMinimumHeight(target_min_h)
+
 
     def show_chart_context_menu(self, pos, old_div):
         menu = QMenu(self)
@@ -1369,21 +1386,6 @@ class AstroApp(QMainWindow):
                 if old_div in self.div_cbs: self.div_cbs[old_div].setChecked(False)
                 if new_div in self.div_cbs: self.div_cbs[new_div].setChecked(True)
         self.is_updating_ui = False; self.update_grid_layout(); self.recalculate()
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        if not hasattr(self, 'charts_scroll') or (viewport_h := self.charts_scroll.viewport().height()) < 100: return
-        
-        # --- Apply the exact same logic here to survive window resizing ---
-        viewport_h = (viewport_h // 10) * 10
-        mode_str = self.cb_layout_mode.currentText() if getattr(self, "cb_layout_mode", None) else "3 Columns"
-        min_h = max(200, (viewport_h // 2 if mode_str == "1 Left, 2 Right (Stacked)" else viewport_h // 3) - 15)
-        
-        for i, div in enumerate(getattr(self, 'active_charts_order', [])):
-            if div in self.renderers: 
-                target_min_h = min_h * 2 + 10 if (mode_str == "1 Left, 2 Right (Stacked)" and i == 0) else min_h
-                if abs(self.renderers[div].minimumHeight() - target_min_h) > 5:
-                    self.renderers[div].setMinimumHeight(target_min_h)
 
     def _connect_signals(self):
         self.loc_btn.clicked.connect(self.search_location); self.loc_input.returnPressed.connect(self.search_location)

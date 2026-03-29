@@ -226,29 +226,170 @@ class TransitPluginUI(QWidget):
         }
         return astro_engine.dt_dict_to_utc_jd(dt_dict, getattr(self.app, 'current_tz', 0.0))
 
+
     def calculate_transit(self):
+        self._is_calculating = True
         dt_dict = {
             'year': self.transit_dt.year, 'month': self.transit_dt.month, 'day': self.transit_dt.day,
             'hour': self.transit_dt.hour, 'minute': self.transit_dt.minute, 'second': self.transit_dt.second
         }
         
-        # Safely fetch location variables. If main app hasn't fully loaded them yet, abort cleanly.
         lat = getattr(self.app, 'current_lat', None)
         lon = getattr(self.app, 'current_lon', None)
         tz = getattr(self.app, 'current_tz', None)
         
         if lat is None or lon is None or tz is None:
-            return # App is not fully initialized yet; defer calculation.
+            self._is_calculating = False
+            return 
             
         try:
-            # Calculate full transit chart
             self.transit_data = self.app.ephemeris.calculate_chart(
                 dt_dict, lat, lon, tz
             )
         except Exception as e:
             print(f"Gochar calculation deferred: {e}")
             
+        self._is_calculating = False
         self.trigger_redraw()
+
+    def draw_transits(self, renderer):
+        # FIX: Break the infinite loop! Schedule calculations OUTSIDE the paint event.
+        if not self.transit_data and self.is_enabled:
+            if not getattr(self, '_is_calculating', False):
+                self._is_calculating = True
+                QTimer.singleShot(0, self.calculate_transit)
+            return
+            
+        if not self.transit_data or not getattr(renderer, 'chart_data', None):
+            return
+            
+        layout = getattr(renderer, "current_layout", None)
+        if not layout or "houses" not in layout:
+            return
+            
+        div_type = "D1"
+        for k, v in self.app.div_titles.items():
+            if v == renderer.title:
+                div_type = k
+                break
+                
+        if div_type != "D1":
+            return
+                
+        size = min(renderer.width(), renderer.height()) - 50
+        cx, cy = renderer.width() / 2, renderer.height() / 2 + 10
+        x = cx - size / 2
+        y = cy - size / 2
+        
+        base_asc_sign = renderer.chart_data["ascendant"]["sign_index"]
+        if getattr(renderer, 'rotated_asc_sign_idx', None) is not None:
+            base_asc_sign = renderer.rotated_asc_sign_idx
+            
+        transit_by_vh = {i: [] for i in range(1, 13)}
+        
+        for p in self.transit_data["planets"]:
+            if p["name"] not in self.selected_planets:
+                continue
+                
+            sign_idx, _ = self.app.ephemeris.get_div_sign_and_lon(p["lon"], div_type)
+            visual_h = ((sign_idx - base_asc_sign) % 12) + 1
+            transit_by_vh[visual_h].append(p)
+
+        # FIX: Ensure QPainter ALWAYS closes safely no matter what happens
+        painter = QPainter(renderer)
+        try:
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            
+            font_scale = max(0.6, min(1.2, size / 400.0))
+            font_size = int(10 * font_scale)
+            icon_font = QFont("Arial", font_size, QFont.Weight.Bold)
+            
+            colors = chart_renderer.BRIGHT_COLORS
+            
+            diamond_coords = {
+                1:  (0.50, 0.08, 'H', 0, 1),
+                2:  (0.12, 0.06, 'H', 0, 1),   
+                3:  (0.06, 0.12, 'V', 1, 0),   
+                4:  (0.08, 0.50, 'V', 1, 0),
+                5:  (0.06, 0.88, 'V', 1, 0),   
+                6:  (0.12, 0.94, 'H', 0, -1),  
+                7:  (0.50, 0.92, 'H', 0, -1),
+                8:  (0.88, 0.94, 'H', 0, -1),  
+                9:  (0.94, 0.88, 'V', -1, 0),  
+                10: (0.92, 0.50, 'V', -1, 0),
+                11: (0.94, 0.12, 'V', -1, 0),  
+                12: (0.88, 0.06, 'H', 0, 1)    
+            }
+
+            for vh, planets in transit_by_vh.items():
+                if not planets:
+                    continue
+
+                if getattr(renderer, "use_circular", False):
+                    h_info = layout["houses"].get(vh)
+                    if not h_info: continue
+                    hx, hy = h_info["x"], h_info["y"]
+                    dx, dy = hx - cx, hy - cy
+                    dist = max(1, math.hypot(dx, dy))
+                    push_factor = size * 0.42 
+                    base_px = cx + (dx / dist) * push_factor
+                    base_py = cy + (dy / dist) * push_factor
+                    orientation, wrap_dx, wrap_dy = 'H', 0, 1
+                else:
+                    rx, ry, orientation, wrap_dx, wrap_dy = diamond_coords.get(vh, (0.5, 0.5, 'H', 0, 1))
+                    base_px = x + (rx * size)
+                    base_py = y + (ry * size)
+                
+                badge_size = 20 * font_scale
+                spacing = badge_size + 2
+                items_per_line = 3 
+                
+                for i, p in enumerate(planets):
+                    line_idx = i % items_per_line
+                    wrap_idx = i // items_per_line
+                    
+                    items_in_current_line = min(items_per_line, len(planets) - wrap_idx * items_per_line)
+                    total_length = (items_in_current_line - 1) * spacing
+                    
+                    if orientation == 'H':
+                        start_x = base_px - (total_length / 2)
+                        px = start_x + (line_idx * spacing)
+                        py = base_py + (wrap_idx * spacing * wrap_dy)
+                    else:
+                        start_y = base_py - (total_length / 2)
+                        px = base_px + (wrap_idx * spacing * wrap_dx)
+                        py = start_y + (line_idx * spacing)
+                    
+                    color = colors.get(p["name"], QColor("#000000"))
+                    bg_color = QColor(color)
+                    bg_color.setAlpha(40) 
+                    
+                    pen = QPen(color, max(1.5, size * 0.003))
+                    pen.setStyle(Qt.PenStyle.DashLine)
+                    painter.setPen(pen)
+                    painter.setBrush(QBrush(bg_color))
+                    
+                    painter.drawEllipse(int(px - badge_size/2), int(py - badge_size/2), 
+                                        int(badge_size), int(badge_size))
+                    
+                    painter.setPen(color.darker(120))
+                    painter.setFont(icon_font)
+                    
+                    sym = p["sym"]
+                    if getattr(renderer, "use_symbols", False):
+                        sym = chart_renderer.UNICODE_SYMS.get(p["name"], p["sym"])
+                        
+                    text_rect = painter.fontMetrics().boundingRect(sym)
+                    painter.drawText(int(px - text_rect.width()/2), int(py + text_rect.height()/3), sym)
+                    
+                    if p.get("retro") and p["name"] not in ["Rahu", "Ketu"]:
+                        painter.setPen(QColor("#D35400"))
+                        retro_font = QFont("Arial", max(6, int(font_size * 0.7)), QFont.Weight.Bold)
+                        painter.setFont(retro_font)
+                        painter.drawText(int(px + badge_size/3), int(py - badge_size/3), "R")
+        finally:
+            painter.end() # Safely close painter!
+
 
     def trigger_redraw(self):
         if hasattr(self.app, 'charts_container'):

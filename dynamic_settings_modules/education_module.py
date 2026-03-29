@@ -1,18 +1,11 @@
 # dynamic_settings_modules/education_mod.py
 
-import sys
-import copy
-import json
-import os
-import datetime
-from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QDialog, 
-                             QLabel, QScrollArea, QGroupBox, QTextBrowser, QTabWidget,
-                             QMenuBar, QFormLayout, QDoubleSpinBox, QDialogButtonBox, QApplication, QMessageBox, QCheckBox)
+import sys, copy, json, os, datetime
+from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QDialog, QLabel, QScrollArea, QGroupBox, QTextBrowser, QTabWidget,QMenuBar, QFormLayout, QDoubleSpinBox, QDialogButtonBox, QApplication, QMessageBox, QCheckBox)
 from PyQt6.QtGui import QFont, QColor
 from PyQt6.QtCore import Qt, QUrl, QTimer
 
-import main
-import astro_engine
+import main, astro_engine
 from chart_renderer import ChartAnalyzer, SIGN_LORDS, ChartRenderer
 
 # Import the Live CSI Helper safely for end-of-analysis diagnostics ONLY
@@ -20,9 +13,6 @@ try:
     from dynamic_settings_modules.composite_strength_mod import CSIHelper
 except ImportError as e:
     CSIHelper = None
-
-PLUGIN_INDEX = 1
-
 
 # ==========================================
 # GLOBAL DECIDING WEIGHTS & CONSTANTS
