@@ -87,8 +87,8 @@ WEIGHTS_MAP = {
     "W_D24_MULTIPLIER": ("D-24 Varga Multiplier", 0.0, 10.0, 0.1, "Importance of the D-24 Siddhamsa Chart (The specific microscopic chart for education)."),
     "W_D60_MULTIPLIER": ("D-60 Varga Multiplier", 0.0, 10.0, 0.1, "Importance of the D-60 Shashtiamsa Chart. Forced to ALWAYS be >= any other chart weight."),
     "W_DASHA_LAGNA_MULTIPLIER": ("Dasha Lagna Varga Multiplier", 0.0, 10.0, 0.1, "Importance of reading the D-1 chart using the Mahadasha Lord as the new Ascendant."),
-    "W_D24_4TH_HOUSE_WEIGHT": ("D-24 4th House Multiplier", 0.0, 5.0, 0.1, "Multiplier applied to 4th house calculations specifically inside the D-24 chart."),
-    "W_D24_5TH_HOUSE_WEIGHT": ("D-24 5th House Multiplier", 0.0, 5.0, 0.1, "Multiplier applied to 5th house calculations specifically inside the D-24 chart."),
+    "W_D24_4TH_HOUSE_WEIGHT": ("D-24 4th House Base Weight", 0.0, 5.0, 0.1, "Exact base weight given to 4th house properties specifically inside the D-24 chart."),
+    "W_D24_5TH_HOUSE_WEIGHT": ("D-24 5th House Base Weight", 0.0, 5.0, 0.1, "Exact base weight given to 5th house properties specifically inside the D-24 chart."),
     "W_D1_5TH_LORD_BOOST": ("D-1 5th Lord Conflict Boost", 0.0, 10.0, 0.5, "Bonus score given to the D-1 5th Lord if it is tied among top scorers."),
     "W_SPECIAL_STATUS_BOOST": ("Special D-1 Condition Boost", 0.0, 10.0, 0.5, "Bonus score given to an exalted, debilitated, or exchanged planet to resolve ties when the 5th Lord is absent.")
 }
@@ -569,19 +569,23 @@ class EducationCalculator:
         afflicted = self._is_afflicted_in_chart(p_name, analyzer, asc_override_idx)
         
         is_acting_malefic = is_inherent_malefic or afflicted
+        
+        w_tech = globals().get("W_TECH_PLANET", 0.5)
+        w_semi = globals().get("W_SEMI_TECH_PLANET", 0.5)
+        w_non = globals().get("W_NON_TECH_PLANET", 0.5)
 
         if is_acting_malefic:
             base_reason = "Malefic/Afflicted"
             if in_tech_rashi: 
-                return "Technical", W_TECH_PLANET, f"{base_reason} in {rashi_str}"
+                return "Technical", w_tech, f"{base_reason} in {rashi_str}"
             else: 
-                return "Semi-Technical", W_SEMI_TECH_PLANET, f"{base_reason} in {rashi_str}"
+                return "Semi-Technical", w_semi, f"{base_reason} in {rashi_str}"
         else:
             base_reason = "Unafflicted Benefic"
             if in_tech_rashi: 
-                return "Semi-Technical", W_SEMI_TECH_PLANET, f"{base_reason} in {rashi_str}"
+                return "Semi-Technical", w_semi, f"{base_reason} in {rashi_str}"
             else: 
-                return "Non-Technical", W_NON_TECH_PLANET, f"{base_reason} in {rashi_str}"
+                return "Non-Technical", w_non, f"{base_reason} in {rashi_str}"
 
     def _process_influences(self, analyzer, target_name, occupant_list, aspect_list, base_weight, mult, target_desc, asc_override_idx=None):
         for p in occupant_list:
@@ -594,7 +598,7 @@ class EducationCalculator:
             self.dominant_planet_scores[p_name] += final_wt
             
             self.log.append(f"<li><b>{p_name}</b> occupies/conjuncts {target_name} &rarr; <b style='color:#0284C7;'>{cat}</b> (+{final_wt:.2f}) <br>"
-                            f"<span style='color:#64748B; font-size: 11px;'><i>Reason: {reason}. Math: {target_desc} (w={base_weight:.2f}) * Planet Wt (w={p_wt:.2f}) * Chart Mult (w={mult:.2f}) = {final_wt:.2f}</i></span></li>")
+                            f"<span style='color:#64748B; font-size: 11px;'><i>Reason: {reason}. Math: {target_desc} * Planet Wt ({p_wt:.2f}) * Chart Mult ({mult:.2f}) = {final_wt:.2f}</i></span></li>")
             
         for p in aspect_list:
             p_name = p if isinstance(p, str) else p.get("aspecting_planet")
@@ -606,7 +610,7 @@ class EducationCalculator:
             self.dominant_planet_scores[p_name] += final_wt
             
             self.log.append(f"<li><b>{p_name}</b> aspects {target_name} &rarr; <b style='color:#0284C7;'>{cat}</b> (+{final_wt:.2f}) <br>"
-                            f"<span style='color:#64748B; font-size: 11px;'><i>Reason: {reason}. Math: {target_desc} (w={base_weight:.2f}) * Planet Wt (w={p_wt:.2f}) * Chart Mult (w={mult:.2f}) = {final_wt:.2f}</i></span></li>")
+                            f"<span style='color:#64748B; font-size: 11px;'><i>Reason: {reason}. Math: {target_desc} * Planet Wt ({p_wt:.2f}) * Chart Mult ({mult:.2f}) = {final_wt:.2f}</i></span></li>")
 
     def _eval_varga_chart(self, chart, name, mult, asc_override_idx=None):
         if not chart: return
@@ -614,8 +618,14 @@ class EducationCalculator:
         self.log.append(f"<h3 style='color:#0284C7; margin-bottom: 4px;'>--- {name.upper()} ANALYSIS ---</h3><ul>")
         
         is_d24 = "D-24" in name
-        mult_4 = mult * (W_D24_4TH_HOUSE_WEIGHT if is_d24 else 1.0)
-        mult_5 = mult * (W_D24_5TH_HOUSE_WEIGHT if is_d24 else 1.0)
+        
+        # Explicitly read exact user-configured global variables to guarantee pure base substitution 
+        w_4h_rashi = globals().get("W_D24_4TH_HOUSE_WEIGHT", 0.6) if is_d24 else globals().get("W_TECH_RASHI_4TH", 0.3)
+        w_5h_rashi = globals().get("W_D24_5TH_HOUSE_WEIGHT", 0.3) if is_d24 else globals().get("W_TECH_RASHI_5TH", 0.6)
+        w_5h_occ_asp = globals().get("W_D24_5TH_HOUSE_WEIGHT", 0.3) if is_d24 else globals().get("W_INFLUENCE_5TH_HOUSE", 0.4)
+        w_5l_occ_asp = globals().get("W_D24_5TH_HOUSE_WEIGHT", 0.3) if is_d24 else globals().get("W_INFLUENCE_5TH_LORD", 0.4)
+        w_nak_5l = globals().get("W_NAKSHATRA_5TH_LORD", 0.1)
+        w_merc_factor = globals().get("W_MERCURY_FACTOR", 0.2)
 
         analyzer = ChartAnalyzer(chart)
         original_asc_idx = chart["ascendant"]["sign_index"]
@@ -630,18 +640,18 @@ class EducationCalculator:
         
         self.log.append("<b>1. CHECKING RASHI:</b><br>")
         if h4_sign in TECH_RASHIS:
-            self.scores["Technical"] += W_TECH_RASHI_4TH * mult_4
-            self.log.append(f"<li>4th House Sign ({h4_sign}) is Technical &rarr; <b style='color:#0284C7;'>Technical</b> (+{W_TECH_RASHI_4TH * mult_4:.2f})</li>")
+            self.scores["Technical"] += w_4h_rashi * mult
+            self.log.append(f"<li>4th House Sign ({h4_sign}) is Technical &rarr; <b style='color:#0284C7;'>Technical</b> (+{w_4h_rashi * mult:.2f}) <br><span style='color:#64748B; font-size: 11px;'><i>Math: 4H Rashi Base ({w_4h_rashi:.2f}) * Chart Mult ({mult:.2f})</i></span></li>")
         else:
-            self.scores["Non-Technical"] += W_TECH_RASHI_4TH * mult_4
-            self.log.append(f"<li>4th House Sign ({h4_sign}) is Non-Technical &rarr; <b style='color:#0284C7;'>Non-Technical</b> (+{W_TECH_RASHI_4TH * mult_4:.2f})</li>")
+            self.scores["Non-Technical"] += w_4h_rashi * mult
+            self.log.append(f"<li>4th House Sign ({h4_sign}) is Non-Technical &rarr; <b style='color:#0284C7;'>Non-Technical</b> (+{w_4h_rashi * mult:.2f}) <br><span style='color:#64748B; font-size: 11px;'><i>Math: 4H Rashi Base ({w_4h_rashi:.2f}) * Chart Mult ({mult:.2f})</i></span></li>")
             
         if h5_sign in TECH_RASHIS:
-            self.scores["Technical"] += W_TECH_RASHI_5TH * mult_5
-            self.log.append(f"<li>5th House Sign ({h5_sign}) is Technical &rarr; <b style='color:#0284C7;'>Technical</b> (+{W_TECH_RASHI_5TH * mult_5:.2f})</li>")
+            self.scores["Technical"] += w_5h_rashi * mult
+            self.log.append(f"<li>5th House Sign ({h5_sign}) is Technical &rarr; <b style='color:#0284C7;'>Technical</b> (+{w_5h_rashi * mult:.2f}) <br><span style='color:#64748B; font-size: 11px;'><i>Math: 5H Rashi Base ({w_5h_rashi:.2f}) * Chart Mult ({mult:.2f})</i></span></li>")
         else:
-            self.scores["Non-Technical"] += W_TECH_RASHI_5TH * mult_5
-            self.log.append(f"<li>5th House Sign ({h5_sign}) is Non-Technical &rarr; <b style='color:#0284C7;'>Non-Technical</b> (+{W_TECH_RASHI_5TH * mult_5:.2f})</li>")
+            self.scores["Non-Technical"] += w_5h_rashi * mult
+            self.log.append(f"<li>5th House Sign ({h5_sign}) is Non-Technical &rarr; <b style='color:#0284C7;'>Non-Technical</b> (+{w_5h_rashi * mult:.2f}) <br><span style='color:#64748B; font-size: 11px;'><i>Math: 5H Rashi Base ({w_5h_rashi:.2f}) * Chart Mult ({mult:.2f})</i></span></li>")
 
         self.log.append("<br><b>2. CHECKING 5TH HOUSE INFLUENCE:</b><br>")
         h5_original_house_num = ((h5_sign_idx - original_asc_idx) % 12) + 1
@@ -651,7 +661,7 @@ class EducationCalculator:
         if not h5_occ and not h5_asp:
             self.log.append("<li>No planets occupying or aspecting 5th house.</li>")
         else:
-            self._process_influences(analyzer, "5th House", h5_occ, h5_asp, W_INFLUENCE_5TH_HOUSE, mult_5, f"w={W_INFLUENCE_5TH_HOUSE:.2f}", asc_override_idx)
+            self._process_influences(analyzer, "5th House", h5_occ, h5_asp, w_5h_occ_asp, mult, f"5H Base ({w_5h_occ_asp:.2f})", asc_override_idx)
 
         self.log.append("<br><b>3. CHECKING 5TH LORD INFLUENCE:</b><br>")
         l5_name = SIGN_LORDS.get(h5_sign)
@@ -667,20 +677,20 @@ class EducationCalculator:
                 if not l5_conj and not l5_asp:
                     self.log.append(f"<li>No planets conjunct or aspecting 5th Lord ({l5_name}).</li>")
                 else:
-                    self._process_influences(analyzer, f"5th Lord ({l5_name})", l5_conj, l5_asp, W_INFLUENCE_5TH_LORD, mult_5, f"w={W_INFLUENCE_5TH_LORD:.2f}", asc_override_idx)
+                    self._process_influences(analyzer, f"5th Lord ({l5_name})", l5_conj, l5_asp, w_5l_occ_asp, mult, f"5L Base ({w_5l_occ_asp:.2f})", asc_override_idx)
                     
                 nak_lord = l5_p.get("nakshatra_lord")
                 if nak_lord:
                     cat, n_wt, reason = self._classify_planet(nak_lord, analyzer, asc_override_idx)
-                    final_n_wt = W_NAKSHATRA_5TH_LORD * n_wt * mult_5
+                    final_n_wt = w_nak_5l * n_wt * mult
                     self.scores[cat] += final_n_wt
                     self.dominant_planet_scores[nak_lord] += final_n_wt
                     self.log.append(f"<li>Nakshatra Lord of 5th Lord is <b>{nak_lord}</b> &rarr; <b style='color:#0284C7;'>{cat}</b> (+{final_n_wt:.2f}) <br>"
-                                    f"<span style='color:#64748B; font-size: 11px;'><i>Reason: {reason}. Math: Nak Wt (w={W_NAKSHATRA_5TH_LORD:.2f}) * Planet Wt (w={n_wt:.2f}) * Chart Mult (w={mult_5:.2f}) = {final_n_wt:.2f}</i></span></li>")
+                                    f"<span style='color:#64748B; font-size: 11px;'><i>Reason: {reason}. Math: Nak Base Wt ({w_nak_5l:.2f}) * Planet Wt ({n_wt:.2f}) * Chart Mult ({mult:.2f}) = {final_n_wt:.2f}</i></span></li>")
         else:
             self.log.append("<li>Could not determine 5th lord.</li>")
 
-        self.log.append(f"<br><b>4. REPEATING PROCESS FROM MERCURY (1/5th Weight - w={W_MERCURY_FACTOR}):</b><br>")
+        self.log.append(f"<br><b>4. REPEATING PROCESS FROM MERCURY (Fractional Factor - w={w_merc_factor:.2f}):</b><br>")
         merc = analyzer.get_planet("Mercury")
         if merc:
             merc_sign_idx = merc["sign_index"]
@@ -688,16 +698,16 @@ class EducationCalculator:
             merc_h5_sign = merc_h5_sign_idx + 1
             
             if merc_h5_sign in TECH_RASHIS:
-                self.scores["Technical"] += W_TECH_RASHI_5TH * W_MERCURY_FACTOR * mult_5
-                self.log.append(f"<li>5th House from Mercury Sign ({merc_h5_sign}) is Technical &rarr; <b style='color:#0284C7;'>Technical</b> (+{W_TECH_RASHI_5TH * W_MERCURY_FACTOR * mult_5:.2f})</li>")
+                self.scores["Technical"] += w_5h_rashi * w_merc_factor * mult
+                self.log.append(f"<li>5th House from Mercury Sign ({merc_h5_sign}) is Technical &rarr; <b style='color:#0284C7;'>Technical</b> (+{w_5h_rashi * w_merc_factor * mult:.2f}) <br><span style='color:#64748B; font-size: 11px;'><i>Math: 5H Rashi Base ({w_5h_rashi:.2f}) * Merc Factor ({w_merc_factor:.2f}) * Chart Mult ({mult:.2f})</i></span></li>")
             else:
-                self.scores["Non-Technical"] += W_TECH_RASHI_5TH * W_MERCURY_FACTOR * mult_5
-                self.log.append(f"<li>5th House from Mercury Sign ({merc_h5_sign}) is Non-Technical &rarr; <b style='color:#0284C7;'>Non-Technical</b> (+{W_TECH_RASHI_5TH * W_MERCURY_FACTOR * mult_5:.2f})</li>")
+                self.scores["Non-Technical"] += w_5h_rashi * w_merc_factor * mult
+                self.log.append(f"<li>5th House from Mercury Sign ({merc_h5_sign}) is Non-Technical &rarr; <b style='color:#0284C7;'>Non-Technical</b> (+{w_5h_rashi * w_merc_factor * mult:.2f}) <br><span style='color:#64748B; font-size: 11px;'><i>Math: 5H Rashi Base ({w_5h_rashi:.2f}) * Merc Factor ({w_merc_factor:.2f}) * Chart Mult ({mult:.2f})</i></span></li>")
 
             merc_h5_original_house_num = ((merc_h5_sign_idx - original_asc_idx) % 12) + 1
             m_h5_occ = analyzer.get_occupants(merc_h5_original_house_num)
             m_h5_asp = analyzer.get_aspecting_planets(merc_h5_original_house_num)
-            self._process_influences(analyzer, "5th House from Mercury", m_h5_occ, m_h5_asp, W_INFLUENCE_5TH_HOUSE * W_MERCURY_FACTOR, mult_5, "w=0.08", asc_override_idx)
+            self._process_influences(analyzer, "5th House from Mercury", m_h5_occ, m_h5_asp, w_5h_occ_asp * w_merc_factor, mult, f"Merc 5H Wt (Base {w_5h_occ_asp:.2f} * Factor {w_merc_factor:.2f})", asc_override_idx)
             
             m_l5_name = SIGN_LORDS.get(merc_h5_sign)
             if m_l5_name:
@@ -708,16 +718,16 @@ class EducationCalculator:
                     m_l5_asp = analyzer.get_aspecting_planets(m_l5_original_house_num)
                     if m_l5_name in m_l5_asp: m_l5_asp.remove(m_l5_name)
                     
-                    self._process_influences(analyzer, f"5th Lord from Mercury ({m_l5_name})", m_l5_conj, m_l5_asp, W_INFLUENCE_5TH_LORD * W_MERCURY_FACTOR, mult_5, "w=0.08", asc_override_idx)
+                    self._process_influences(analyzer, f"5th Lord from Mercury ({m_l5_name})", m_l5_conj, m_l5_asp, w_5l_occ_asp * w_merc_factor, mult, f"Merc 5L Wt (Base {w_5l_occ_asp:.2f} * Factor {w_merc_factor:.2f})", asc_override_idx)
                     
                     m_nak_lord = m_l5_p.get("nakshatra_lord")
                     if m_nak_lord:
                         cat, n_wt, reason = self._classify_planet(m_nak_lord, analyzer, asc_override_idx)
-                        final_n_wt = W_NAKSHATRA_5TH_LORD * W_MERCURY_FACTOR * n_wt * mult_5
+                        final_n_wt = w_nak_5l * w_merc_factor * n_wt * mult
                         self.scores[cat] += final_n_wt
                         self.dominant_planet_scores[m_nak_lord] += final_n_wt
                         self.log.append(f"<li>Nakshatra Lord of Merc's 5L is <b>{m_nak_lord}</b> &rarr; <b style='color:#0284C7;'>{cat}</b> (+{final_n_wt:.2f}) <br>"
-                                        f"<span style='color:#64748B; font-size: 11px;'><i>Reason: {reason}. Math: Nak Wt (w=0.02) * Planet Wt (w={n_wt:.2f}) * Chart Mult (w={mult_5:.2f}) = {final_n_wt:.2f}</i></span></li>")
+                                        f"<span style='color:#64748B; font-size: 11px;'><i>Reason: {reason}. Math: Merc Nak Wt ({w_nak_5l * w_merc_factor:.2f}) * Planet Wt ({n_wt:.2f}) * Chart Mult ({mult:.2f}) = {final_n_wt:.2f}</i></span></li>")
         else:
             self.log.append("<li>Mercury data missing.</li>")
         self.log.append("</ul></div>")
@@ -751,29 +761,35 @@ class EducationCalculator:
         self.log.append("<h2>Four-Step Triangulation Process</h2>")
         self.log.append("<p style='font-size:12px; color:#64748B;'>Applying logic rules dynamically to active charts.</p>")
         
-        # Enforce D60 rule globally at runtime
-        global W_D60_MULTIPLIER
-        actual_d60_mult = max(W_D60_MULTIPLIER, W_D1_MULTIPLIER, W_D9_MULTIPLIER, W_D24_MULTIPLIER, W_DASHA_LAGNA_MULTIPLIER)
+        # Enforce D60 rule globally at runtime from user variables
+        w_d1 = globals().get("W_D1_MULTIPLIER", 1.0)
+        w_d9 = globals().get("W_D9_MULTIPLIER", 1.0)
+        w_d24 = globals().get("W_D24_MULTIPLIER", 1.0)
+        w_d60 = globals().get("W_D60_MULTIPLIER", 1.0)
+        w_md = globals().get("W_DASHA_LAGNA_MULTIPLIER", 1.0)
+        
+        actual_d60_mult = max(w_d60, w_d1, w_d9, w_d24, w_md)
+        age_edu = globals().get("AGE_OF_EDUCATION", 18.0)
         
         # Step 1, 2, 3: Core Varga Evaluations based on selected charts
-        if ANALYZE_D1:
-            self._eval_varga_chart(self.chart_data, "D-1 Base Chart", W_D1_MULTIPLIER, asc_override_idx=None)
-        if ANALYZE_D9:
-            self._eval_varga_chart(self.d9_data, "D-9 Navamsha", W_D9_MULTIPLIER, asc_override_idx=None)
-        if ANALYZE_D24:
-            self._eval_varga_chart(self.d24_data, "D-24 Siddhamsa", W_D24_MULTIPLIER, asc_override_idx=None)
-        if ANALYZE_D60:
+        if globals().get("ANALYZE_D1", True):
+            self._eval_varga_chart(self.chart_data, "D-1 Base Chart", w_d1, asc_override_idx=None)
+        if globals().get("ANALYZE_D9", True):
+            self._eval_varga_chart(self.d9_data, "D-9 Navamsha", w_d9, asc_override_idx=None)
+        if globals().get("ANALYZE_D24", True):
+            self._eval_varga_chart(self.d24_data, "D-24 Siddhamsa", w_d24, asc_override_idx=None)
+        if globals().get("ANALYZE_D60", True):
             self._eval_varga_chart(self.d60_data, "D-60 Shashtiamsa", actual_d60_mult, asc_override_idx=None)
         
         # Mahadasha Evaluation
-        if ANALYZE_MD:
+        if globals().get("ANALYZE_MD", False):
             jd_utc = self.chart_data.get("current_jd")
             moon_p = self.analyzer_d1.get_planet("Moon")
             
             self.log.append(f"<div style='margin-bottom: 15px; border-left: 3px solid #8B5CF6; padding-left: 10px;'>")
-            self.log.append(f"<h3 style='color:#8B5CF6; margin-bottom: 4px;'>--- D-1 DASHA LAGNA (AGE {AGE_OF_EDUCATION}) ANALYSIS ---</h3><ul>")
+            self.log.append(f"<h3 style='color:#8B5CF6; margin-bottom: 4px;'>--- D-1 DASHA LAGNA (AGE {age_edu}) ANALYSIS ---</h3><ul>")
             if jd_utc and moon_p:
-                target_jd = jd_utc + (AGE_OF_EDUCATION * 365.2421904)
+                target_jd = jd_utc + (age_edu * 365.2421904)
                 engine = astro_engine.EphemerisEngine()
                 dasha_data = engine.calculate_vimshottari_dasha(jd_utc, moon_p["lon"], target_jd)
                 dasha_seq = dasha_data.get("current_sequence", [])
@@ -783,8 +799,8 @@ class EducationCalculator:
                     md_p = self.analyzer_d1.get_planet(md_lord)
                     if md_p:
                         md_sign_idx = md_p["sign_index"]
-                        self.log.append(f"<li>Dasha Lord at Age {AGE_OF_EDUCATION} is {md_lord}. Processing chart with {md_lord}'s sign as Lagna.</li></ul></div>")
-                        self._eval_varga_chart(self.chart_data, f"D-1 Dasha Lagna ({md_lord})", W_DASHA_LAGNA_MULTIPLIER, asc_override_idx=md_sign_idx)
+                        self.log.append(f"<li>Dasha Lord at Age {age_edu} is {md_lord}. Processing chart with {md_lord}'s sign as Lagna.</li></ul></div>")
+                        self._eval_varga_chart(self.chart_data, f"D-1 Dasha Lagna ({md_lord})", w_md, asc_override_idx=md_sign_idx)
                     else:
                         self.log.append(f"<li>Could not find {md_lord} in chart. Skipping Dasha Lagna.</li></ul></div>")
                 else:
@@ -802,12 +818,15 @@ class EducationCalculator:
         high_scorers = [p for p, s in self.dominant_planet_scores.items() if s > 1.0]
         l5 = self.analyzer_d1.get_lord_of_house(5)
         d1_5th_lord_name = l5.get("name") if l5 else None
+        
+        w_5l_boost = globals().get("W_D1_5TH_LORD_BOOST", 2.0)
+        w_special_boost = globals().get("W_SPECIAL_STATUS_BOOST", 2.0)
 
         if len(high_scorers) >= 2:
             self.log.append(f"<li><b>Boss Selection Conflict:</b> Multiple planets scored > 1.0: {', '.join(high_scorers)}</li>")
             if d1_5th_lord_name in high_scorers:
-                self.dominant_planet_scores[d1_5th_lord_name] += W_D1_5TH_LORD_BOOST
-                self.log.append(f"<li>&rarr; <b>D-1 5th Lord Rule:</b> {d1_5th_lord_name} receives 5th Lord Boost (+{W_D1_5TH_LORD_BOOST:.2f}). New score: {self.dominant_planet_scores[d1_5th_lord_name]:.2f}</li>")
+                self.dominant_planet_scores[d1_5th_lord_name] += w_5l_boost
+                self.log.append(f"<li>&rarr; <b>D-1 5th Lord Rule:</b> {d1_5th_lord_name} receives 5th Lord Boost (+{w_5l_boost:.2f}). New score: {self.dominant_planet_scores[d1_5th_lord_name]:.2f}</li>")
                 dom_planet = max(self.dominant_planet_scores, key=self.dominant_planet_scores.get)
             else:
                 self.log.append(f"<li>&rarr; D-1 5th Lord ({d1_5th_lord_name}) not among top contenders. Applying Special D-1 conditions.</li>")
@@ -837,8 +856,8 @@ class EducationCalculator:
                         is_special = True; reasons.append("Rashi Exchange")
                         
                     if is_special:
-                        self.dominant_planet_scores[p] += W_SPECIAL_STATUS_BOOST
-                        self.log.append(f"<li>&rarr; <b>{p}</b> receives Special Condition Boost (+{W_SPECIAL_STATUS_BOOST:.2f}) for: {', '.join(reasons)}. New score: {self.dominant_planet_scores[p]:.2f}</li>")
+                        self.dominant_planet_scores[p] += w_special_boost
+                        self.log.append(f"<li>&rarr; <b>{p}</b> receives Special Condition Boost (+{w_special_boost:.2f}) for: {', '.join(reasons)}. New score: {self.dominant_planet_scores[p]:.2f}</li>")
                 
                 dom_planet = max(self.dominant_planet_scores, key=self.dominant_planet_scores.get)
         else:
@@ -995,6 +1014,7 @@ class EducationAnalysisDialog(QDialog):
         log_tab_layout = QVBoxLayout(self.log_tab)
         self.log_browser = QTextBrowser()
         
+        import main
         SmoothScroller = getattr(main, 'SmoothScroller', None)
         if SmoothScroller:
             self.scroller = SmoothScroller(self.log_browser)

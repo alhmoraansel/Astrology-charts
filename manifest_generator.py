@@ -5,7 +5,7 @@ import os, hashlib, json
 # It will generate a manifest.json file containing the hashes of your app files.
 # ==========================================
 
-VERSION = "0.5.1"
+VERSION = "0.5.2"
 
 # We want the manifest to go directly into the built PyInstaller folder
 BUILD_DIR = os.path.abspath(os.path.join("dist", "AstroBasics"))

@@ -1,5 +1,5 @@
 {
-    "version": "0.5.1",
+    "version": "0.5.2",
     "files": {
         "AstroBasics.exe": "96e0d984abedb05567ffa56aa0756e50e500e75df57e7b0f1d62fb1a10f41467",
         "_internal/api-ms-win-core-console-l1-1-0.dll": "f0f7cb2a9ffccb43400db88d6bf99f2fcc3161de1ac96c48501d4d522c48c2ca",
@@ -42,7 +42,7 @@
         "_internal/api-ms-win-crt-string-l1-1-0.dll": "44ddab31c182235ac5405d31c1cba048316cc230698e392a732ac941ec683bad",
         "_internal/api-ms-win-crt-time-l1-1-0.dll": "a409e25a9d3c252cc0a5af9df85d3733e946087b06cd1fb2cf1bf640eb0d49ba",
         "_internal/api-ms-win-crt-utility-l1-1-0.dll": "cfb2ee4e426bb00b76163c1a66cf8cfef8d7450cbf9bbce3bc9eb2053f51e0e5",
-        "_internal/base_library.zip": "658abba63fa42ecc2b3e74c36a35c63c6b5a9563803c2847d1b217761f0e802e",
+        "_internal/base_library.zip": "24a421ce559373b300f2136ad9f831411d7091e3a54445ceab12d338ddf854e6",
         "_internal/libcrypto-3.dll": "e03dd02fdcfb791981c9962827cfcf495f2a47a514c1526efb57f847a9df514a",
         "_internal/libffi-8.dll": "eff52743773eb550fcc6ce3efc37c85724502233b6b002a35496d828bd7b280a",
         "_internal/libssl-3.dll": "1e4bc0638682bfcbb36f4465d6a2e9944d917a60f05ecc8ddf9e96847e05e13f",
@@ -78,7 +78,7 @@
         "_internal/dateutil/zoneinfo/dateutil-zoneinfo.tar.gz": "d3ea52e7b6e968de0d884df1288193596fa95b803db4f92a18279a7398004475",
         "_internal/dynamic_settings_modules/chart_rectification_module.py": "e8bd4fc1d692921620a0835ce15c47be47071c5999851690e5affdab9cd4e9d3",
         "_internal/dynamic_settings_modules/composite_strength_module.py": "0ccda804c499b1e1dbc3464ed9db549d759f447e9535199d8a6b97d07e1275bb",
-        "_internal/dynamic_settings_modules/education_module.py": "e8986f7be1e45f61756aa673f6915cf18ed2b6db3f534c057c460cb51cb0f937",
+        "_internal/dynamic_settings_modules/education_module.py": "506ad9a4d2a96fc574b0d9c8f80bdab88e46963a20204d4377fb1466ca3f6f13",
         "_internal/dynamic_settings_modules/research_module.py": "f311b18d1c20ad1c740719c596fc866479e28cfd5f3c3b59abc548cf747b8c63",
         "_internal/dynamic_settings_modules/shadbal_module.py": "d52ed3e73af9f25c1dec7b700ce93956fbbbe53a4eb29dafc6f73ac075522b13",
         "_internal/dynamic_settings_modules/strength_module.py": "2a4011074fbaf8030a5874f7242276a389f375535aac83a72b1d2b30ea2704ed",
