@@ -1,7 +1,7 @@
 {
-    "location": "sultanpur",
-    "lat": 26.2604732,
-    "lon": 82.2380532,
+    "location": "ALWAR",
+    "lat": 27.4140049,
+    "lon": 76.6170387,
     "tz": "Asia/Kolkata",
     "ayanamsa": "True Lahiri (Chitrapaksha)",
     "outline_mode": "Vitality (Lords)",
@@ -38,7 +38,7 @@
         "D8": false,
         "D9": true,
         "D10": true,
-        "D11": true,
+        "D11": false,
         "D12": false,
         "D16": false,
         "D20": false,
@@ -52,8 +52,7 @@
     "active_charts_order": [
         "D1",
         "D9",
-        "D10",
-        "D11"
+        "D10"
     ],
     "plugin_order_prefs": [
         "education_mod",

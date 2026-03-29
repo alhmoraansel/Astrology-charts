@@ -907,7 +907,8 @@ class EducationCalculator:
         winner_cat = max(self.scores, key=self.scores.get)
         self.log.append(f"<li><b>1. Dominant Category Selected:</b> {winner_cat} (Score: {self.scores[winner_cat]:.2f})</li>")
         
-        high_scorers = [p for p, s in self.dominant_planet_scores.items() if s > 1.0]
+        # CHANGED: Threshold is now >= 1.0
+        high_scorers = [p for p, s in self.dominant_planet_scores.items() if s >= 1.0]
         l5 = self.analyzer_d1.get_lord_of_house(5)
         d1_5th_lord_name = l5.get("name") if l5 else None
         
@@ -915,7 +916,7 @@ class EducationCalculator:
         w_special_boost = globals().get("W_SPECIAL_STATUS_BOOST", 2.0)
 
         if len(high_scorers) >= 2:
-            self.log.append(f"<li><b>Boss Selection Conflict:</b> Multiple planets scored > 1.0: {', '.join(high_scorers)}</li>")
+            self.log.append(f"<li><b>Boss Selection Conflict:</b> Multiple planets scored &ge; 1.0: {', '.join(high_scorers)}</li>")
             if d1_5th_lord_name in high_scorers:
                 self.dominant_planet_scores[d1_5th_lord_name] += w_5l_boost
                 self.log.append(f"<li>&rarr; <b>D-1 5th Lord Rule:</b> {d1_5th_lord_name} receives 5th Lord Boost (+{w_5l_boost:.2f}). New score: {self.dominant_planet_scores[d1_5th_lord_name]:.2f}</li>")

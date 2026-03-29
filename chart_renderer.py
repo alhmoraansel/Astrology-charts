@@ -1256,6 +1256,500 @@ class ChartRenderer(QWidget):
             painter.end()
 
 
+# #NEONGLOW DARK MODE PAINT  EVENT  FUNCTION 
+#     def paintEvent(self, event):
+#         painter = QPainter(self)
+#         try:
+#             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            
+#             size = int(min(self.width(), self.height()) - 50)
+#             cx, cy = int(self.width() / 2), int(self.height() / 2)
+#             x, y, w, h = int(cx - size / 2), int(cy - size / 2 + 10), size, size
+            
+#             layout_just_changed = False
+            
+#             if getattr(self, '_last_layout_params', None) != (x, y, w, h) or self.data_changed_flag or getattr(self, 'target_layout', None) is None:
+#                 new_target_layout = self._compute_layout(x, y, w, h)
+#                 self._last_layout_params = (x, y, w, h)
+#                 layout_just_changed = True
+#             else:
+#                 new_target_layout = self.target_layout
+
+#             if self.data_changed_flag:
+#                 self.data_changed_flag = False
+#                 self.bg_cache = None 
+#                 self._fg_cache = None 
+                
+#                 if getattr(self, 'instant_snap', False) or self.current_layout is None:
+#                     self.source_layout = self.target_layout = self.current_layout = new_target_layout
+#                     if self.anim_timer.isActive():
+#                         self.anim_timer.stop()
+#                 else:
+#                     self.source_layout, self.target_layout = self.current_layout, new_target_layout
+#                     self.anim_start_time = time.time() * 1000
+#                     self.anim_timer.start(16)
+#             else:
+#                 self.target_layout = new_target_layout
+#                 if not self.anim_timer.isActive():
+#                     self.source_layout = self.current_layout = new_target_layout
+
+#             if not self.current_layout or not self.chart_data:
+#                 painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "No Chart Data")
+#                 return
+
+#             dpr = self.devicePixelRatioF()
+#             pixel_w = int(self.width() * dpr)
+#             pixel_h = int(self.height() * dpr)
+
+#             # ==========================================
+#             # 1. NEON BACKGROUND CACHE (Static)
+#             # ==========================================
+#             if getattr(self, '_last_bg_size', None) != self.size() or not getattr(self, 'bg_cache', None):
+#                 self._last_bg_size = self.size()
+#                 self._fg_cache = None 
+                
+#                 self.bg_cache = QPixmap(pixel_w, pixel_h)
+#                 self.bg_cache.setDevicePixelRatio(dpr)
+#                 # NEON TWEAK: Deep Cyberpunk Background
+#                 self.bg_cache.fill(QColor("#0d0914"))
+                
+#                 bg_p = QPainter(self.bg_cache)
+#                 try:
+#                     bg_p.setRenderHint(QPainter.RenderHint.Antialiasing)
+                    
+#                     if self.title:
+#                         # NEON TWEAK: Cyan Title
+#                         bg_p.setPen(QColor("#00ffff"))
+#                         calc_size = int(min(15, max(10, int(size * 0.035))) * GLOBAL_FONT_SCALE_MULTIPLIER)
+#                         bg_p.setFont(QFont(GLOBAL_UI_FONT_FAMILY, calc_size, QFont.Weight.Bold))
+#                         bg_p.drawText(QRectF(0, 0, self.width(), y - 10), Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignHCenter, self.title)
+
+#                     self.house_polys.clear()
+#                     for h_num in range(1, 13):
+#                         self.house_polys[h_num] = self._get_house_polygon(h_num, x, y, w, h)
+
+#                     if getattr(self, "use_circular", False):
+#                         outer_r, inner_r = (w - 40) / 2, w * 0.15
+                        
+#                         # NEON TWEAK: Magenta Outer Rings with Glow
+#                         bg_p.setPen(QPen(QColor(255, 0, 255, 100), 6))
+#                         bg_p.drawEllipse(QPointF(cx, cy), outer_r + 4, outer_r + 4)
+#                         bg_p.setPen(QPen(QColor(255, 150, 255, 255), 2))
+#                         bg_p.drawEllipse(QPointF(cx, cy), outer_r + 4, outer_r + 4)
+                        
+#                         # NEON TWEAK: Cyan Inner Rings with Glow
+#                         bg_p.setPen(QPen(QColor(0, 255, 255, 100), 5))
+#                         bg_p.drawEllipse(QPointF(cx, cy), outer_r + 8, outer_r + 8)
+#                         bg_p.setPen(QPen(QColor(150, 255, 255, 255), 1.5))
+#                         bg_p.drawEllipse(QPointF(cx, cy), outer_r + 8, outer_r + 8)
+                        
+#                         bg_p.setPen(QPen(QColor("#39ff14"), max(1.0, w * 0.005)))
+#                         bg_p.drawEllipse(QRectF(x + 20, y + 20, w - 40, h - 40))
+#                         bg_p.drawEllipse(QRectF(cx - inner_r, cy - inner_r, inner_r * 2, inner_r * 2))
+                        
+#                         for i in range(12):
+#                             angle = math.radians(i * 30 + 15)
+#                             bg_p.drawLine(
+#                                 int(cx + inner_r * math.cos(angle)), int(cy - inner_r * math.sin(angle)), 
+#                                 int(cx + outer_r * math.cos(angle)), int(cy - outer_r * math.sin(angle))
+#                             )
+#                     else:
+#                         # NEON TWEAK: Magenta Outer Boxes with Glow
+#                         bg_p.setPen(QPen(QColor(255, 0, 255, 100), 6))
+#                         bg_p.drawRect(int(x - 4), int(y - 4), int(w + 8), int(h + 8))
+#                         bg_p.setPen(QPen(QColor(255, 150, 255, 255), 2))
+#                         bg_p.drawRect(int(x - 4), int(y - 4), int(w + 8), int(h + 8))
+                        
+#                         # NEON TWEAK: Cyan Inner Boxes with Glow
+#                         bg_p.setPen(QPen(QColor(0, 255, 255, 100), 5))
+#                         bg_p.drawRect(int(x - 8), int(y - 8), int(w + 16), int(h + 16))
+#                         bg_p.setPen(QPen(QColor(150, 255, 255, 255), 1.5))
+#                         bg_p.drawRect(int(x - 8), int(y - 8), int(w + 16), int(h + 16))
+                        
+#                         bg_p.setPen(Qt.PenStyle.NoPen)
+#                         bg_p.setBrush(QBrush(QColor("#00ffff")))
+#                         for px in [x - 8, x + w + 8]:
+#                             for py in [y - 8, y + h + 8]: 
+#                                 bg_p.drawRect(int(px - 2), int(py - 2), 4, 4)
+                                
+#                         bg_p.setBrush(Qt.BrushStyle.NoBrush)
+                        
+#                         # NEON TWEAK: Cyan Grid Lines with Glow
+#                         glow_pen = QPen(QColor(0, 255, 255, 80), max(4.0, w * 0.015))
+#                         core_pen = QPen(QColor(150, 255, 255, 255), max(1.0, w * 0.005))
+                        
+#                         # Draw core border
+#                         bg_p.setPen(glow_pen)
+#                         bg_p.drawRect(int(x), int(y), int(w), int(h))
+#                         bg_p.setPen(core_pen)
+#                         bg_p.drawRect(int(x), int(y), int(w), int(h))
+                        
+#                         lines = [
+#                             (x, y, x + w, y + h), 
+#                             (x + w, y, x, y + h), 
+#                             (x + w/2, y, x + w, y + h/2), 
+#                             (x + w, y + h/2, x + w/2, y + h), 
+#                             (x + w/2, y + h, x, y + h/2), 
+#                             (x, y + h/2, x + w/2, y)
+#                         ]
+#                         for L in lines:
+#                             bg_p.setPen(glow_pen)
+#                             bg_p.drawLine(int(L[0]), int(L[1]), int(L[2]), int(L[3]))
+#                             bg_p.setPen(core_pen)
+#                             bg_p.drawLine(int(L[0]), int(L[1]), int(L[2]), int(L[3]))
+#                 finally:
+#                     bg_p.end()
+
+#             painter.drawPixmap(0, 0, self.bg_cache)
+
+#             # ==========================================
+#             # 2. KARAKAMSHA HIGHLIGHT (Dynamic Layer)
+#             # ==========================================
+#             is_d1_chart = self.title and (self.title == "D1" or self.title.startswith("D1 "))
+            
+#             if getattr(self, "show_karakamsha", True) and is_d1_chart and getattr(self, "chart_data", None) and not getattr(self, "use_circular", False):
+#                 ak_planet = next((p for p in self.chart_data.get("planets", []) if p.get("is_ak")), None)
+                
+#                 if ak_planet and "deg_in_sign" in ak_planet and "sign_index" in ak_planet:
+#                     ak_d9_sign = int(ak_planet["sign_index"] * 9 + ak_planet["deg_in_sign"] / (30.0 / 9.0)) % 12
+#                     asc_idx = self.rotated_asc_sign_idx if getattr(self, 'rotated_asc_sign_idx', None) is not None else self.chart_data["ascendant"]["sign_index"]
+#                     k_house = ((ak_d9_sign - asc_idx) % 12) + 1
+                    
+#                     h_data = self.target_layout["houses"].get(k_house)
+                    
+#                     if h_data and k_house in self.house_polys:
+#                         poly = self.house_polys[k_house]
+                        
+#                         house_tints = [t["color"] for t in self.target_layout.get("tints", []) if t["h2"] == k_house]
+#                         if not house_tints:
+#                             glow_color = QColor(0, 255, 255) # NEON TWEAK: Default to Cyan
+#                         else:
+#                             bg_r, bg_g, bg_b = 255.0, 255.0, 255.0 
+#                             for tc in house_tints:
+#                                 alpha = tc.alphaF()
+#                                 bg_r = (tc.red() * alpha) + (bg_r * (1.0 - alpha))
+#                                 bg_g = (tc.green() * alpha) + (bg_g * (1.0 - alpha))
+#                                 bg_b = (tc.blue() * alpha) + (bg_b * (1.0 - alpha))
+                            
+#                             bg_color = QColor(int(bg_r), int(bg_g), int(bg_b))
+#                             bg_h, bg_s, _, _ = bg_color.getHsv()
+#                             comp_h = 180 if (bg_h == -1 or bg_s < 15) else (bg_h + 180) % 360
+#                             glow_color = QColor.fromHsv(comp_h, 255, 255) # NEON TWEAK: Max Brightness/Saturation
+                            
+#                         cache_key = (k_house, self.width(), self.height(), x, y, w, h, glow_color.rgb(), getattr(self, "outline_mode", ""), dpr)
+#                         if getattr(self, '_k_cache_key', None) != cache_key:
+#                             self._k_cache_key = cache_key
+#                             self._k_seeds = [(abs(math.sin(i * 37.1)), abs(math.cos(i * 91.3))) for i in range(24)]
+#                             self._k_glow_pix = QPixmap(pixel_w, pixel_h)
+#                             self._k_glow_pix.setDevicePixelRatio(dpr)
+#                             self._k_glow_pix.fill(Qt.GlobalColor.transparent)
+                            
+#                             p_cache = QPainter(self._k_glow_pix)
+#                             p_cache.setRenderHint(QPainter.RenderHint.Antialiasing)
+                            
+#                             p_cache.save()
+#                             clip_path = QPainterPath()
+#                             clip_path.addPolygon(poly)
+#                             p_cache.setClipPath(clip_path)
+                            
+#                             radial_grad = QRadialGradient(QPointF(h_data["x"], h_data["y"]), w * 0.18)
+#                             radial_grad.setColorAt(0.0, QColor(glow_color.red(), glow_color.green(), glow_color.blue(), 180))
+#                             radial_grad.setColorAt(1.0, QColor(glow_color.red(), glow_color.green(), glow_color.blue(), 0))
+#                             p_cache.setPen(Qt.PenStyle.NoPen)
+#                             p_cache.setBrush(QBrush(radial_grad))
+#                             p_cache.drawPolygon(poly)
+#                             p_cache.restore()
+                            
+#                             def get_inset_poly(offset):
+#                                 pts = []
+#                                 for pt in poly:
+#                                     dx = h_data["x"] - pt.x()
+#                                     dy = h_data["y"] - pt.y()
+#                                     dist = max(1, math.hypot(dx, dy))
+#                                     pts.append(QPointF(pt.x() + (dx / dist) * offset, pt.y() + (dy / dist) * offset))
+#                                 return QPolygonF(pts)
+
+#                             dynamic_inset = (max(1.0, w * 0.005) / 2.0)
+#                             if self.outline_mode == "Regime (Forces)" and h_data.get("regime_colors", []):
+#                                 dynamic_inset += 4.25 + ((len(h_data["regime_colors"]) - 1) * 3.5) + 3.0
+#                             elif self.outline_mode != "Regime (Forces)" and h_data.get("outline_width", 1.0) > 1.05:
+#                                 dynamic_inset += 4.25 + 3.0
+#                             else:
+#                                 dynamic_inset += 5.0
+
+#                             inset_poly = get_inset_poly(dynamic_inset)
+#                             p_cache.setBrush(Qt.BrushStyle.NoBrush)
+                            
+#                             glow_widths = [15.0, 10.0, 5.0, 2.0] 
+#                             for width_mult in glow_widths:
+#                                 blur_thickness = max(width_mult, w * (width_mult / 1000.0))
+#                                 p_cache.setPen(QPen(QColor(glow_color.red(), glow_color.green(), glow_color.blue(), 100), blur_thickness, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+#                                 p_cache.drawPolygon(inset_poly)
+                                
+#                             p_cache.setPen(QPen(QColor(255, 255, 255, 255), max(1.5, w * 0.0025), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.MiterJoin))
+#                             p_cache.drawPolygon(inset_poly)
+#                             p_cache.end()
+                            
+#                         current_time = time.time()
+#                         breath = (math.sin(current_time * 2.0) + 1.0) / 2.0
+                        
+#                         painter.save()
+#                         pulse_opacity = 0.5 + (breath * 0.5) 
+#                         painter.setOpacity(pulse_opacity)
+#                         painter.drawPixmap(0, 0, self._k_glow_pix)
+#                         painter.restore()
+                        
+#                         painter.save()
+#                         clip_path = QPainterPath()
+#                         clip_path.addPolygon(poly)
+#                         painter.setClipPath(clip_path)
+#                         painter.setPen(Qt.PenStyle.NoPen)
+                        
+#                         rect = poly.boundingRect()
+#                         r_bottom, r_left = rect.bottom(), rect.left()
+#                         r_width, r_height = rect.width(), rect.height()
+                        
+#                         # NEON TWEAK: Stardust is now bright Cyan
+#                         particle_color = QColor(0, 255, 255)
+#                         base_p_size = w * 0.0035
+#                         min_p_size = max(2.0, base_p_size)
+#                         sway_mult = w * 0.012
+
+#                         for i in range(24):
+#                             seed1, seed2 = self._k_seeds[i]
+#                             y_offset = ((current_time * (14 + seed1 * 20)) + (i * 45.2)) % r_height
+#                             x = r_left + (seed1 * r_width) + (math.sin(current_time * (0.8 + seed2 * 1.5) + i) * sway_mult)
+                            
+#                             p_opacity = int(130 + (((math.sin(current_time * 4 + i) + 1) / 2.0) * 125))
+#                             particle_color.setAlpha(p_opacity)
+                            
+#                             painter.setBrush(particle_color)
+#                             p_size = min_p_size + (seed2 * base_p_size)
+#                             painter.drawEllipse(QPointF(x, r_bottom - y_offset), p_size, p_size)
+
+#                         painter.restore() 
+
+#             # ==========================================
+#             # 3. FOREGROUND CACHE (Static Text & Layouts)
+#             # ==========================================
+#             is_animating = self.anim_timer.isActive()
+            
+#             if layout_just_changed or is_animating or not getattr(self, '_fg_cache', None):
+                
+#                 if not is_animating:
+#                     self._fg_cache = QPixmap(pixel_w, pixel_h)
+#                     self._fg_cache.setDevicePixelRatio(dpr)
+#                     self._fg_cache.fill(Qt.GlobalColor.transparent)
+#                     active_painter = QPainter(self._fg_cache)
+#                     active_painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+#                     self.hitboxes.clear() 
+#                 else:
+#                     active_painter = painter
+                
+#                 for tint in self.current_layout["tints"]:
+#                     if not getattr(self, "use_circular", False) and tint["h2"] in self.house_polys:
+#                         active_painter.setBrush(QBrush(tint["color"]))
+#                         active_painter.setPen(Qt.PenStyle.NoPen)
+#                         active_painter.drawPolygon(self.house_polys[tint["h2"]])
+                
+#                 active_painter.setBrush(Qt.BrushStyle.NoBrush)
+#                 if not getattr(self, "use_circular", False):
+#                     for h_num in range(1, 13):
+#                         h_data = self.current_layout["houses"].get(h_num)
+#                         if not h_data: continue
+                            
+#                         if self.outline_mode == "Regime (Forces)" and h_data.get("regime_colors", []):
+#                             for i, col_hex in enumerate(h_data["regime_colors"]):
+#                                 # NEON TWEAK: Ensure regime colors pop against dark bg
+#                                 c = QColor(col_hex)
+#                                 c = QColor.fromHsv(c.hsvHue(), 200, 255)
+#                                 c.setAlpha(230)
+#                                 inset_dist = (max(1.0, w * 0.005) / 2.0) + 4.25 + (i * 3.5)
+                                
+#                                 pts = []
+#                                 for pt in self.house_polys[h_num]:
+#                                     dx = h_data["x"] - pt.x()
+#                                     dy = h_data["y"] - pt.y()
+#                                     dist = max(1, math.hypot(dx, dy))
+#                                     pts.append(QPointF(pt.x() + (dx / dist) * inset_dist, pt.y() + (dy / dist) * inset_dist))
+                                    
+#                                 active_painter.setPen(QPen(c, 2.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+#                                 active_painter.drawPolygon(QPolygonF(pts))
+                                
+#                         elif self.outline_mode != "Regime (Forces)" and h_data.get("outline_width", 1.0) > 1.05:
+#                             c = QColor(h_data["outline_color"])
+#                             c = QColor.fromHsv(c.hsvHue(), 200, 255)
+#                             c.setAlpha(220)
+#                             inset_dist = (max(1.0, w * 0.005) / 2.0) + 4.25
+                            
+#                             pts = []
+#                             for pt in self.house_polys[h_num]:
+#                                 dx = h_data["x"] - pt.x()
+#                                 dy = h_data["y"] - pt.y()
+#                                 dist = max(1, math.hypot(dx, dy))
+#                                 pts.append(QPointF(pt.x() + (dx / dist) * inset_dist, pt.y() + (dy / dist) * inset_dist))
+                                
+#                             active_painter.setPen(QPen(c, 2.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+#                             active_painter.drawPolygon(QPolygonF(pts))
+
+#                 z_font = QFont(GLOBAL_RASHI_FONT_FAMILY, int(max(7, min(14, max(9, w * 0.035)) * 0.5) * GLOBAL_FONT_SCALE_MULTIPLIER))
+#                 active_painter.setFont(z_font)
+                
+#                 # NEON TWEAK: Yellow Zodiac Text
+#                 active_painter.setPen(QColor("#ffff00"))
+                
+#                 for z in self.current_layout["zodiacs"].values():
+#                     active_painter.drawText(QRectF(z["x"] - 15, z["y"] - 15, 30, 30), Qt.AlignmentFlag.AlignCenter, z["val"])
+
+#                 p_base_font_size = min(14, max(9, int(w * 0.035))) * GLOBAL_FONT_SCALE_MULTIPLIER * 1.15
+#                 marker_base_fs = max(4, min(9, max(6, int(w * 0.022))))
+                
+#                 ak_brush = QBrush(QColor(255, 0, 255, 90)) # Neon Magenta AK backing
+#                 color_exalted = QColor("#39ff14") # Neon Green
+#                 color_debilitated = QColor("#ff003c") # Neon Pink/Red
+                
+#                 for b in self.current_layout["planets"].values():
+#                     scale = b.get("scale", 1.0)
+                    
+#                     if b["raw"].get("is_ak"):
+#                         active_painter.setPen(Qt.PenStyle.NoPen)
+#                         active_painter.setBrush(ak_brush)
+#                         active_painter.drawEllipse(QPointF(b["x"], b["y"] - 4 * scale), 22 * scale, 22 * scale)
+                        
+#                     # NEON TWEAK: Convert dark planet colors to super-bright neon variants dynamically
+#                     base_c = b["color_dark"]
+#                     neon_c = QColor.fromHsv(base_c.hsvHue(), 220, 255) if base_c.hsvHue() != -1 else QColor("#00ffff")
+                    
+#                     active_painter.setPen(neon_c)
+#                     p_font = QFont(GLOBAL_CHART_FONT_FAMILY, int(p_base_font_size * scale), QFont.Weight.Bold)
+#                     active_painter.setFont(p_font)
+#                     p_rect = QRectF(b["x"] - 40 * scale, b["y"] - 10 * scale, 80 * scale, 20 * scale)
+#                     active_painter.drawText(p_rect, Qt.AlignmentFlag.AlignCenter, b["str"])
+                    
+#                     if not is_animating:
+#                         self.hitboxes.append((p_rect, b["raw"]))
+                        
+#                     font_adv = active_painter.fontMetrics().horizontalAdvance(b["str"])
+#                     marker_x = b["x"] + font_adv / 2.0 + 2 * scale
+#                     marker_y, marker_h = b["y"] - 10 * scale, 20 * scale
+#                     marker_fs = max(4, int(marker_base_fs * scale))
+                    
+#                     draw_deg_block = False
+#                     deg_str = ""
+#                     deg_color = None
+#                     deg_fs = 5
+                    
+#                     if is_d1_chart and "deg_in_sign" in b["raw"]:
+#                         draw_deg_block = True
+#                         deg_val = b["raw"]["deg_in_sign"]
+#                         deg_str = f"{int(deg_val)}°"
+#                         deg_fs = max(5, int(marker_fs * GLOBAL_DEGREE_FONT_MULTIPLIER)) 
+                        
+#                         # NEON TWEAK: Cyberpunk Degree Colors
+#                         if deg_val < 6.0 or deg_val >= 24.0: deg_color = QColor("#00ffff") # Cyan
+#                         elif deg_val < 12.0 or deg_val < 24.0: deg_color = QColor("#39ff14") # Lime
+#                         else: deg_color = QColor("#ff00ff") # Magenta
+                        
+#                     if draw_deg_block and not DEGREE_AFTER_SYMBOLS:
+#                         deg_weight = QFont.Weight.Bold if DEGREE_FONT_BOLD else QFont.Weight.Normal
+#                         active_painter.setFont(QFont(GLOBAL_CHART_FONT_FAMILY, deg_fs, deg_weight))
+#                         active_painter.setPen(deg_color) 
+#                         active_painter.drawText(QRectF(marker_x, marker_y, 30 * scale, marker_h), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, deg_str)
+#                         marker_x += active_painter.fontMetrics().horizontalAdvance(deg_str) + 2
+                        
+#                     active_painter.setPen(neon_c)
+                    
+#                     if b["retro"]:
+#                         active_painter.setFont(QFont(GLOBAL_CHART_FONT_FAMILY, max(4, marker_fs - 1), QFont.Weight.Bold))
+#                         active_painter.drawText(QRectF(marker_x, marker_y - 5 * scale, 20 * scale, marker_h), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, "R")
+#                         marker_x += active_painter.fontMetrics().horizontalAdvance("R") + 1
+                        
+#                     if b.get("exalted"):
+#                         active_painter.setPen(color_exalted)
+#                         active_painter.setFont(QFont(GLOBAL_CHART_FONT_FAMILY, marker_fs, QFont.Weight.Bold))
+#                         active_painter.drawText(QRectF(marker_x, marker_y, 20 * scale, marker_h), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, "▲")
+#                         marker_x += active_painter.fontMetrics().horizontalAdvance("▲") + 2
+#                     elif b.get("debilitated"):
+#                         active_painter.setPen(color_debilitated)
+#                         active_painter.setFont(QFont(GLOBAL_CHART_FONT_FAMILY, marker_fs, QFont.Weight.Bold))
+#                         active_painter.drawText(QRectF(marker_x, marker_y, 20 * scale, marker_h), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, "▼")
+#                         marker_x += active_painter.fontMetrics().horizontalAdvance("▼") + 2
+                        
+#                     if b.get("obliterated") or b.get("combust"):
+#                         active_painter.setFont(QFont(GLOBAL_EMOJI_FONT_FAMILY, marker_fs))
+#                         char = "☀" if b.get("obliterated") else "🔥"
+#                         active_painter.drawText(QRectF(marker_x, marker_y, 20 * scale, marker_h), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, char)
+#                         marker_x += active_painter.fontMetrics().horizontalAdvance(char) + 2
+
+#                     if b["raw"]["name"] != "Ascendant":
+#                         asc_sign_idx = self.rotated_asc_sign_idx if getattr(self, 'rotated_asc_sign_idx', None) is not None else self.chart_data["ascendant"]["sign_index"]
+#                         func_color, _, _ = self._get_dynamic_functional_nature(b["raw"]["name"], b["raw"].get("lord_of", []), self.chart_data["ascendant"]["sign_index"], asc_sign_idx)
+#                         if func_color and func_color != "#7f8c8d":
+#                             # Make the asterisk neon too
+#                             f_c = QColor(func_color)
+#                             f_c = QColor.fromHsv(f_c.hsvHue(), 200, 255) if f_c.hsvHue() != -1 else QColor("#ffffff")
+#                             active_painter.setPen(f_c)
+#                             active_painter.setFont(QFont(GLOBAL_CHART_FONT_FAMILY, int(marker_fs * GLOBAL_CANVAS_ASTERISK_SCALE), QFont.Weight.Bold))
+#                             active_painter.drawText(QRectF(marker_x, marker_y + 2 * scale, 20 * scale, marker_h), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, "*")
+#                             marker_x += active_painter.fontMetrics().horizontalAdvance("*") + 1
+                            
+#                     if draw_deg_block and DEGREE_AFTER_SYMBOLS:
+#                         deg_weight = QFont.Weight.Bold if DEGREE_FONT_BOLD else QFont.Weight.Normal
+#                         active_painter.setFont(QFont(GLOBAL_CHART_FONT_FAMILY, deg_fs, deg_weight))
+#                         active_painter.setPen(deg_color) 
+#                         active_painter.drawText(QRectF(marker_x, marker_y, 30 * scale, marker_h), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, deg_str)
+#                         marker_x += active_painter.fontMetrics().horizontalAdvance(deg_str) + 2
+
+#                 if self.show_aspects and self.show_arrows and self.chart_data and self.chart_data.get("aspects"):
+#                     asc_sign_idx = self.rotated_asc_sign_idx if getattr(self, 'rotated_asc_sign_idx', None) is not None else self.chart_data["ascendant"]["sign_index"]
+                    
+#                     for i, aspect in enumerate(self.chart_data["aspects"]):
+#                         is_node = aspect["aspecting_planet"] in ["Rahu", "Ketu"]
+#                         if aspect["aspecting_planet"] in self.visible_aspect_planets and (not is_node or self.show_rahu_ketu):
+#                             target_h_visual = ((((self.chart_data["ascendant"]["sign_index"] + aspect["target_house"] - 1) % 12) - asc_sign_idx) % 12) + 1
+#                             p_v = self.current_layout["planets"].get(aspect["aspecting_planet"])
+#                             h_v = self.current_layout["houses"].get(target_h_visual)
+                            
+#                             if p_v and h_v:
+#                                 # NEON TWEAK: Brighter arrow lines
+#                                 c = QColor(BRIGHT_COLORS.get(aspect["aspecting_planet"], QColor("#00ffff")))
+#                                 c = QColor.fromHsv(c.hsvHue(), 200, 255)
+#                                 c.setAlpha(180)
+#                                 offset_x = (i % 3 - 1) * 4
+#                                 offset_y = ((i + 1) % 3 - 1) * 4
+#                                 x1, y1 = p_v["x"] + offset_x, p_v["y"] + offset_y
+#                                 x2, y2 = h_v["x"] + offset_x, h_v["y"] + offset_y
+                                
+#                                 dist = math.hypot(x2 - x1, y2 - y1)
+#                                 if dist >= 70:
+#                                     sx = x1 + ((x2 - x1) / dist) * 35
+#                                     sy = y1 + ((y2 - y1) / dist) * 35
+#                                     ex = x2 - ((x2 - x1) / dist) * 35
+#                                     ey = y2 - ((y2 - y1) / dist) * 35
+                                    
+#                                     active_painter.setPen(QPen(c, max(2.5, w * 0.007), Qt.PenStyle.SolidLine))
+#                                     active_painter.drawLine(int(sx), int(sy), int(ex), int(ey))
+                                    
+#                                     angle = math.atan2(ey - sy, ex - sx)
+#                                     active_painter.setBrush(QBrush(c))
+#                                     active_painter.setPen(Qt.PenStyle.NoPen)
+                                    
+#                                     arrow_pts = [
+#                                         QPointF(ex, ey), 
+#                                         QPointF(ex - 9 * math.cos(angle - math.pi / 6), ey - 9 * math.sin(angle - math.pi / 6)), 
+#                                         QPointF(ex - 9 * math.cos(angle + math.pi / 6), ey - 9 * math.sin(angle + math.pi / 6))
+#                                     ]
+#                                     active_painter.drawPolygon(QPolygonF(arrow_pts))
+                
+#                 if not is_animating:
+#                     active_painter.end()
+
+#             if not is_animating and getattr(self, '_fg_cache', None):
+#                 painter.drawPixmap(0, 0, self._fg_cache)
+
+#         finally:
+#             painter.end()
+
 
     def mouseDoubleClickEvent(self, event):
         if not self.chart_data: return
