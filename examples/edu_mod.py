@@ -16,7 +16,7 @@ from chart_renderer import ChartAnalyzer, SIGN_LORDS, ChartRenderer
 
 # Import the Live CSI Helper safely for end-of-analysis diagnostics ONLY
 try:
-    from dynamic_settings_modules.composite_strength_mod import CSIHelper
+    from dynamic_settings_modules.composite_strength_module import CSIHelper
 except ImportError as e:
     CSIHelper = None
 

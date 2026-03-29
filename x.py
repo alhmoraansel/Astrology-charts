@@ -13,7 +13,7 @@ from geopy.geocoders import Nominatim
 from timezonefinder import TimezoneFinder
 
 import dynamic_settings_modules
-from dynamic_settings_modules.zzlogger_mod import info_print
+from dynamic_settings_modules.zz_logger_module import info_print
 import save_prefs,animation,astro_engine
 import help_content
 from chart_renderer import ChartRenderer

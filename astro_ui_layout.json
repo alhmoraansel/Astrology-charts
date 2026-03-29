@@ -1,0 +1,14 @@
+{
+    "sidebar": [
+        "Divisional Charts",
+        "Aspects",
+        "Settings",
+        "Transit Constraints",
+        "Animation",
+        "Date Time",
+        "Location Settings"
+    ],
+    "topbar": [
+        "Plugins"
+    ]
+}

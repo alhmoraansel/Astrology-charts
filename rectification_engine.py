@@ -10,7 +10,7 @@ from astro_engine import (
     safe_calc_ut,
     safe_houses_ex
 )
-from dynamic_settings_modules.zzlogger_mod import error_print
+from dynamic_settings_modules.zz_logger_module import error_print
 
 # ==========================================
 # RESOURCE / PATH RESOLVER FOR PYINSTALLER

@@ -5,7 +5,7 @@ import os, hashlib, json
 # It will generate a manifest.json file containing the hashes of your app files.
 # ==========================================
 
-VERSION = "0.4.42"
+VERSION = "0.5.0"
 
 # We want the manifest to go directly into the built PyInstaller folder
 BUILD_DIR = os.path.abspath(os.path.join("dist", "AstroBasics"))
@@ -14,7 +14,9 @@ OUTPUT_FILE = os.path.join(BUILD_DIR, "manifest.json")
 # Files and folders to EXCLUDE from the update checks
 EXCLUDE_DIRS = ['update_cache', 'autosave', 'analysis_export', 'created chart exports', 'saves', '__pycache__']
 # Fixed missing comma after icon.ico
-EXCLUDE_FILES = ['manifest.json','education_weights_config.json','csi_weights_prefs.json', 'icon.ico', 'astro_settings.json', 'custom_vargas.json', 'apply_update.bat', 'apply_update.sh', '.hash_cache.json', 'unins000.exe', 'unins000.dat']
+EXCLUDE_FILES = ['manifest.json','education_weights_config.json','csi_weights_prefs.json', 
+                 'icon.ico', 'astro_settings.json', 'custom_vargas.json', 'apply_update.bat', 'apply_update.sh', 
+                 '.hash_cache.json', 'unins000.exe', 'unins000.dat']
 
 def get_file_hash(filepath):
     """Calculate SHA256 hash of a file, normalizing line endings and trailing whitespaces for text files."""

@@ -2,7 +2,7 @@
 
 import swisseph as swe, datetime, pytz, time, math, copy, os, sys, threading
 import custom_vargas
-from dynamic_settings_modules.zzlogger_mod import debug_print, error_print
+from dynamic_settings_modules.zz_logger_module import debug_print, error_print
 
 swe_lock = threading.Lock()
 

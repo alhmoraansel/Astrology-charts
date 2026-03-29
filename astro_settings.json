@@ -1,9 +1,9 @@
 {
-    "location": "Brahmanbaria",
-    "lat": 23.9605999,
-    "lon": 91.1190893,
-    "tz": "Asia/Dhaka",
-    "ayanamsa": "Lahiri",
+    "location": "akhri",
+    "lat": 26.552217,
+    "lon": 74.7985267,
+    "tz": "Asia/Kolkata",
+    "ayanamsa": "True Lahiri (Chitrapaksha)",
     "outline_mode": "Vitality (Lords)",
     "layout_mode": "1 Left, 2 Right (Stacked)",
     "use_symbols": false,
@@ -11,9 +11,9 @@
     "show_arrows": true,
     "use_tint": true,
     "show_aspects": true,
-    "show_details": false,
+    "show_details": true,
     "use_circular": false,
-    "show_tooltips": true,
+    "show_tooltips": false,
     "use_true_positions": true,
     "aspect_planets": {
         "Sun": false,
@@ -41,16 +41,48 @@
         "D12": false,
         "D16": false,
         "D20": false,
-        "D24": true,
+        "D24": false,
         "D27": false,
         "D30": false,
-        "D40": false,
+        "D40": true,
         "D45": false,
-        "D60": false
+        "D60": true
     },
     "active_charts_order": [
         "D1",
         "D9",
-        "D24"
+        "D60",
+        "D40"
+    ],
+    "plugin_order_prefs": [
+        "education_mod",
+        "a_transit_mod",
+        "chart_rectification_plugin",
+        "research_plugin",
+        "composite_strength_mod",
+        "strength_mod",
+        "shadbal_mod",
+        "vishmottari_mod",
+        "zupdater",
+        "zzlogger_mod"
+    ],
+    "layout_prefs": {
+        "sidebar": [
+            "Date Time"
+        ],
+        "menubar": [
+            "Settings",
+            "Divisional Charts",
+            "Animation",
+            "Aspects From",
+            "Transit Constraints",
+            "Planet Details",
+            "Location"
+        ],
+        "table_menu_height": 365
+    },
+    "splitter_sizes": [
+        416,
+        946
     ]
 }
