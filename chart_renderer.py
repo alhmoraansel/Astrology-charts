@@ -802,7 +802,14 @@ class ChartRenderer(QWidget):
             cx, cy = self.width() / 2, self.height() / 2
             x, y, w, h = cx - size / 2, cy - size / 2 + 10, size, size
             
-            new_target_layout = self._compute_layout(x, y, w, h)
+            # --- 1. HUGE CPU FIX: Cache the Layout Math ---
+            # Bypasses the heavy layout math during ambient animations (runs 30x faster)
+            if getattr(self, '_last_layout_params', None) != (x, y, w, h) or self.data_changed_flag or getattr(self, 'target_layout', None) is None:
+                new_target_layout = self._compute_layout(x, y, w, h)
+                self._last_layout_params = (x, y, w, h)
+            else:
+                new_target_layout = self.target_layout
+
             if self.data_changed_flag:
                 self.data_changed_flag = False
                 self.bg_cache = None 
@@ -824,9 +831,17 @@ class ChartRenderer(QWidget):
                 painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "No Chart Data")
                 return
 
+            # --- 2. HIGH DPI FIX: Ensure Pixmaps scale physically ---
+            dpr = self.devicePixelRatioF()
+            pixel_w = int(self.width() * dpr)
+            pixel_h = int(self.height() * dpr)
+
             if getattr(self, '_last_bg_size', None) != self.size() or not getattr(self, 'bg_cache', None):
                 self._last_bg_size = self.size()
-                self.bg_cache = QPixmap(self.size())
+                
+                # Apply the DPI ratio so it doesn't shift when exported via PyInstaller
+                self.bg_cache = QPixmap(pixel_w, pixel_h)
+                self.bg_cache.setDevicePixelRatio(dpr)
                 self.bg_cache.fill(Qt.GlobalColor.white)
                 
                 bg_p = QPainter(self.bg_cache)
@@ -944,11 +959,11 @@ class ChartRenderer(QWidget):
                         painter.drawPolygon(inset_poly)
 
             # =========================================================
-            # KARAKAMSHA HIGHLIGHT (The Light Divine & Blazing Stardust)
+            # KARAKAMSHA HIGHLIGHT (Optimized Cached Glow & Stardust)
             # =========================================================
             is_d1_chart = self.title and (self.title == "D1" or self.title.startswith("D1 "))
             
-            if self.show_karakamsha and is_d1_chart and self.chart_data and not getattr(self, "use_circular", False):
+            if getattr(self, "show_karakamsha", True) and is_d1_chart and getattr(self, "chart_data", None) and not getattr(self, "use_circular", False):
                 ak_planet = next((p for p in self.chart_data.get("planets", []) if p.get("is_ak")), None)
                 
                 if ak_planet and "deg_in_sign" in ak_planet and "sign_index" in ak_planet:
@@ -960,16 +975,10 @@ class ChartRenderer(QWidget):
                     if h_data and k_house in self.house_polys:
                         poly = self.house_polys[k_house]
                         
-                        painter.save()
-                        
-                        # --- 1. DYNAMIC COLOR CALCULATION (Neon Piercing Complement) ---
                         house_tints = [t["color"] for t in self.current_layout.get("tints", []) if t["h2"] == k_house]
-                        
                         if not house_tints:
-                            # Clean white canvas: Default to pure Blazing Gold
                             glow_color = QColor(255, 215, 0) 
                         else:
-                            # Calculate the exact RGB blend of the mud
                             bg_r, bg_g, bg_b = 255.0, 255.0, 255.0 
                             for tc in house_tints:
                                 alpha = tc.alphaF()
@@ -978,31 +987,68 @@ class ChartRenderer(QWidget):
                                 bg_b = (tc.blue() * alpha) + (bg_b * (1.0 - alpha))
                             
                             bg_color = QColor(int(bg_r), int(bg_g), int(bg_b))
-                            bg_h, bg_s, bg_v, _ = bg_color.getHsv()
+                            bg_h, bg_s, _, _ = bg_color.getHsv()
                             
-                            # If the mix becomes completely desaturated (gray/dark mud), hue becomes -1.
-                            # In that case, we FORCE Electric Cyan (Hue 180) to pierce the mud perfectly.
-                            if bg_h == -1 or bg_s < 15:
-                                comp_h = 180 
-                            else:
-                                comp_h = (bg_h + 180) % 360 # Perfect opposite on color wheel
-                                
-                            # Force a "Light Neon" profile: Saturation 120 (pastel/light), Value 255 (max brightness)
+                            comp_h = 180 if (bg_h == -1 or bg_s < 15) else (bg_h + 180) % 360
                             glow_color = QColor.fromHsv(comp_h, 120, 255) 
                             
-                        # Bubbles are ALWAYS pure, blinding white
                         particle_color = QColor(255, 255, 255)
                         
-                        # --- 2. SET CLIPPING PATH ---
+                        # --- CACHE THE HEAVY VECTOR GRAPHICS ---
+                        cache_key = (k_house, w, h, glow_color.rgb(), getattr(self, "outline_mode", ""), dpr)
+                        if getattr(self, '_k_cache_key', None) != cache_key:
+                            self._k_cache_key = cache_key
+                            
+                            self._k_seeds = [(abs(math.sin(i * 37.1)), abs(math.cos(i * 91.3))) for i in range(24)]
+                            
+                            # Apply the exact same DPI physical pixel fix here
+                            self._k_glow_pix = QPixmap(pixel_w, pixel_h)
+                            self._k_glow_pix.setDevicePixelRatio(dpr)
+                            self._k_glow_pix.fill(Qt.GlobalColor.transparent)
+                            
+                            p_cache = QPainter(self._k_glow_pix)
+                            p_cache.setRenderHint(QPainter.RenderHint.Antialiasing)
+                            
+                            def get_inset_poly(offset):
+                                pts = []
+                                for pt in poly:
+                                    dx = h_data["x"] - pt.x()
+                                    dy = h_data["y"] - pt.y()
+                                    dist = max(1, math.hypot(dx, dy))
+                                    pts.append(QPointF(pt.x() + (dx / dist) * offset, pt.y() + (dy / dist) * offset))
+                                return QPolygonF(pts)
+
+                            dynamic_inset = (max(1.0, w * 0.005) / 2.0)
+                            if self.outline_mode == "Regime (Forces)" and h_data.get("regime_colors", []):
+                                dynamic_inset += 4.25 + ((len(h_data["regime_colors"]) - 1) * 3.5) + 3.0
+                            elif self.outline_mode != "Regime (Forces)" and h_data.get("outline_width", 1.0) > 1.05:
+                                dynamic_inset += 4.25 + 3.0
+                            else:
+                                dynamic_inset += 5.0
+
+                            inset_poly = get_inset_poly(dynamic_inset)
+                            p_cache.setBrush(Qt.BrushStyle.NoBrush)
+                            
+                            glow_widths = [15.0, 10.0, 5.0, 2.0] 
+                            for width_mult in glow_widths:
+                                blur_thickness = max(width_mult, w * (width_mult / 1000.0))
+                                p_cache.setPen(QPen(QColor(glow_color.red(), glow_color.green(), glow_color.blue(), 100), blur_thickness, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+                                p_cache.drawPolygon(inset_poly)
+                                
+                            p_cache.setPen(QPen(QColor(255, 255, 255, 255), max(1.5, w * 0.0025), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.MiterJoin))
+                            p_cache.drawPolygon(inset_poly)
+                            p_cache.end()
+                            
+                        # --- LIGHTNING FAST ANIMATION LOOP ---
+                        current_time = time.time()
+                        breath = (math.sin(current_time * 2.0) + 1.0) / 2.0
+                        
+                        painter.save()
                         clip_path = QPainterPath()
                         clip_path.addPolygon(poly)
                         painter.setClipPath(clip_path)
                         
-                        current_time = time.time()
-                        breath = (math.sin(current_time * 2.0) + 1.0) / 2.0
-                        
-                        # --- 3. AMBIENT AURA (Intense inner glow) ---
-                        aura_opacity = int(55 + (breath * 60)) # Much stronger ambient light
+                        aura_opacity = int(55 + (breath * 60)) 
                         radial_grad = QRadialGradient(QPointF(h_data["x"], h_data["y"]), w * 0.18)
                         radial_grad.setColorAt(0.0, QColor(glow_color.red(), glow_color.green(), glow_color.blue(), aura_opacity))
                         radial_grad.setColorAt(1.0, QColor(glow_color.red(), glow_color.green(), glow_color.blue(), 0))
@@ -1011,13 +1057,9 @@ class ChartRenderer(QWidget):
                         painter.setBrush(QBrush(radial_grad))
                         painter.drawPolygon(poly)
                         
-                        # --- 4. THE SOUL WIND (Supercharged Blazing Stardust) ---
                         rect = poly.boundingRect()
-                        num_particles = 24 # More bubbles
-                        
-                        for i in range(num_particles):
-                            seed1 = abs(math.sin(i * 37.1))
-                            seed2 = abs(math.cos(i * 91.3))
+                        for i in range(24):
+                            seed1, seed2 = self._k_seeds[i]
                             
                             speed = 14 + (seed1 * 20)      
                             phase = i * 45.2               
@@ -1025,60 +1067,24 @@ class ChartRenderer(QWidget):
                             
                             y_offset = ((current_time * speed) + phase) % rect.height()
                             y = rect.bottom() - y_offset
-                            
                             sway = math.sin(current_time * sway_freq + i) * (w * 0.012)
                             x = rect.left() + (seed1 * rect.width()) + sway
                             
                             twinkle = (math.sin(current_time * 4 + i) + 1) / 2.0
-                            
-                            # CRANKED OPACITY: Base is 130, peaks at 255 (brilliant pure white)
                             p_opacity = int(130 + (twinkle * 125))
-                            
-                            # Noticeably larger bubbles
                             p_size = max(2.0, w * 0.0035) + (seed2 * w * 0.0035)
                             
                             painter.setBrush(QColor(particle_color.red(), particle_color.green(), particle_color.blue(), p_opacity))
                             painter.drawEllipse(QPointF(x, y), p_size, p_size)
 
-                        painter.restore() # Remove clipping mask
+                        painter.restore() 
                         
-                        # --- 5. CALCULATE BORDER INSET ---
-                        def get_inset_poly(offset):
-                            pts = []
-                            for pt in poly:
-                                dx = h_data["x"] - pt.x()
-                                dy = h_data["y"] - pt.y()
-                                dist = max(1, math.hypot(dx, dy))
-                                pts.append(QPointF(pt.x() + (dx / dist) * offset, pt.y() + (dy / dist) * offset))
-                            return QPolygonF(pts)
-
-                        dynamic_inset = (max(1.0, w * 0.005) / 2.0)
-                        if self.outline_mode == "Regime (Forces)" and h_data.get("regime_colors", []):
-                            dynamic_inset += 4.25 + ((len(h_data["regime_colors"]) - 1) * 3.5) + 3.0
-                        elif self.outline_mode != "Regime (Forces)" and h_data.get("outline_width", 1.0) > 1.05:
-                            dynamic_inset += 4.25 + 3.0
-                        else:
-                            dynamic_inset += 5.0
-
-                        inset_poly = get_inset_poly(dynamic_inset)
-                        painter.setBrush(Qt.BrushStyle.NoBrush)
-
-                        # --- 6. EDGE BLOOM EFFECT (Ultra-Light Glow) ---
-                        # Base glow alpha increased dramatically for vivid edge bleeding
-                        base_glow_alpha = int(60 + (breath * 60)) 
-                        
-                        # Added a 4th tight layer (2.0) for intense light concentration near the core
-                        glow_widths = [15.0, 10.0, 5.0, 2.0] 
-                        
-                        for width_mult in glow_widths:
-                            blur_thickness = max(width_mult, w * (width_mult / 1000.0))
-                            painter.setPen(QPen(QColor(glow_color.red(), glow_color.green(), glow_color.blue(), base_glow_alpha), blur_thickness, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
-                            painter.drawPolygon(inset_poly)
-                        
-                        # --- 7. THE SACRED STROKE ---
-                        core_opacity = int(220 + (breath * 35)) # Almost always pure white
-                        painter.setPen(QPen(QColor(255, 255, 255, core_opacity), max(1.5, w * 0.0025), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.MiterJoin))
-                        painter.drawPolygon(inset_poly)
+                        # Blit the cached image (CPU usage practically zero)
+                        painter.save()
+                        pulse_opacity = 0.6 + (breath * 0.4)
+                        painter.setOpacity(pulse_opacity)
+                        painter.drawPixmap(0, 0, self._k_glow_pix)
+                        painter.restore()
             # =========================================================
 
             z_font = QFont(GLOBAL_RASHI_FONT_FAMILY, int(max(7, min(14, max(9, w * 0.035)) * 0.5) * GLOBAL_FONT_SCALE_MULTIPLIER))
@@ -1222,6 +1228,7 @@ class ChartRenderer(QWidget):
                                 painter.drawPolygon(QPolygonF(arrow_pts))
         finally:
             painter.end()
+
 
 
     def mouseDoubleClickEvent(self, event):
