@@ -796,8 +796,6 @@ class ChartRenderer(QWidget):
 
 
     def paintEvent(self, event):
-        if not self.isVisible() or self.visibleRegion().isEmpty(): 
-            return
         painter = QPainter(self)
         try:
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
