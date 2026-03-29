@@ -1211,8 +1211,8 @@ class AstroApp(QMainWindow):
         self.table_view_cb.currentIndexChanged.connect(self.populate_table)
         tc_top.addWidget(self.table_view_cb); tc_top.addStretch(); tc_layout.addLayout(tc_top)
 
-        self.table = CopyableTableWidget(); self.table.setColumnCount(7)
-        self.table.setHorizontalHeaderLabels(["Planet", "Sign", "Degree", "House", "Retrograde","Karaka", "Freeze Rashi"])
+        self.table = CopyableTableWidget(); self.table.setColumnCount(8)
+        self.table.setHorizontalHeaderLabels(["Planet", "Sign", "Degree", "House", "Retrograde", "7-Karaka", "8-Karaka", "Freeze Rashi"])
         self.table_smooth_scroller = SmoothScroller(self.table)
         if self.table.horizontalHeader() is not None: self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         tc_layout.addWidget(self.table)
@@ -1315,6 +1315,9 @@ class AstroApp(QMainWindow):
 
         mode_str = self.cb_layout_mode.currentText() if getattr(self, "cb_layout_mode", None) else "3 Columns"
         viewport_h = max(100, self.charts_scroll.viewport().height())
+        
+        # --- FIX 1: Prevent Scrollbar Micro-Jitters ---
+        viewport_h = (viewport_h // 10) * 10 
         min_h = max(200, (viewport_h // 2 if mode_str == "1 Left, 2 Right (Stacked)" else viewport_h // 3) - 15)
 
         for i, div in enumerate(active_divs):
@@ -1323,7 +1326,15 @@ class AstroApp(QMainWindow):
                 self.renderers[div].setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
                 self.renderers[div].customContextMenuRequested.connect(lambda pos, d=div: self.show_chart_context_menu(pos, d))
 
-            renderer = self.renderers[div]; renderer.setMinimumHeight(min_h)
+            renderer = self.renderers[div]
+            
+            # --- FIX 2: Properly scale the 2-row spanning chart to stop the infinite layout loop ---
+            target_min_h = min_h * 2 + 10 if (mode_str == "1 Left, 2 Right (Stacked)" and i == 0) else min_h
+            
+            # Debounce by 5px to stop infinite fractional recalculations
+            if abs(renderer.minimumHeight() - target_min_h) > 5:
+                renderer.setMinimumHeight(target_min_h)
+
             if mode_str == "1 Left, 2 Right (Stacked)":
                 if i == 0: self.chart_layout.addWidget(renderer, 0, 0, 2, 1)
                 elif i == 1: self.chart_layout.addWidget(renderer, 0, 1, 1, 1)
@@ -1362,10 +1373,17 @@ class AstroApp(QMainWindow):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         if not hasattr(self, 'charts_scroll') or (viewport_h := self.charts_scroll.viewport().height()) < 100: return
+        
+        # --- Apply the exact same logic here to survive window resizing ---
+        viewport_h = (viewport_h // 10) * 10
         mode_str = self.cb_layout_mode.currentText() if getattr(self, "cb_layout_mode", None) else "3 Columns"
         min_h = max(200, (viewport_h // 2 if mode_str == "1 Left, 2 Right (Stacked)" else viewport_h // 3) - 15)
-        for div in getattr(self, 'active_charts_order', []):
-            if div in self.renderers: self.renderers[div].setMinimumHeight(min_h)
+        
+        for i, div in enumerate(getattr(self, 'active_charts_order', [])):
+            if div in self.renderers: 
+                target_min_h = min_h * 2 + 10 if (mode_str == "1 Left, 2 Right (Stacked)" and i == 0) else min_h
+                if abs(self.renderers[div].minimumHeight() - target_min_h) > 5:
+                    self.renderers[div].setMinimumHeight(target_min_h)
 
     def _connect_signals(self):
         self.loc_btn.clicked.connect(self.search_location); self.loc_input.returnPressed.connect(self.search_location)
@@ -1750,6 +1768,8 @@ class AstroApp(QMainWindow):
         self.populate_table()
         if dasha := chart_data.get("dasha_sequence"): self.dasha_label.setText("Now: " + " -> ".join([f"<b style='color:#8B4513;'>{p}</b>" for p in dasha]))
 
+
+
     def populate_table(self):
         if not self.chk_details.isChecked() or not getattr(self, 'current_base_chart', None): return
             
@@ -1760,17 +1780,27 @@ class AstroApp(QMainWindow):
         bodies = [("Lagna", chart["ascendant"])] + [(p["name"], p) for p in chart["planets"]]
         if self.table.rowCount() != len(bodies): self.table.setRowCount(len(bodies))
 
-        # --- JAIMINI KARAKAS (7-Planet Scheme) ---
-        k_planets = []
+        # --- JAIMINI KARAKAS: Calculate Both Schemes based on D1 Degrees ---
+        k7_planets, k8_planets = [], []
+        
         for p in self.current_base_chart["planets"]:
+            # 7-Karaka (Sun to Saturn)
             if p["name"] in ["Sun", "Moon", "Mars", "Mercury", "Jupiter", "Venus", "Saturn"]: 
-                k_planets.append((p["name"], p["deg_in_sign"]))
+                k7_planets.append((p["name"], p["deg_in_sign"]))
+                k8_planets.append((p["name"], p["deg_in_sign"]))
+            # 8-Karaka adds Rahu (calculated backwards)
+            elif p["name"] == "Rahu":
+                k8_planets.append((p["name"], 30.0 - p["deg_in_sign"]))
         
-        k_planets.sort(key=lambda x: x[1], reverse=True)
-        k_labels = ["AK", "AmK", "BK", "MK", "PK", "GK", "DK"]
-        k_map = {name: label for (name, _), label in zip(k_planets, k_labels)}
+        # Sort both lists by descending degree
+        k7_planets.sort(key=lambda x: x[1], reverse=True)
+        k8_planets.sort(key=lambda x: x[1], reverse=True)
         
-        # Define distinct colors for each Karaka (optimized for your light UI background)
+        # Assign Labels
+        k7_map = {name: label for (name, _), label in zip(k7_planets, ["AK", "AmK", "BK", "MK", "PK", "GK", "DK"])}
+        k8_map = {name: label for (name, _), label in zip(k8_planets, ["AK", "AmK", "BK", "MK", "PiK", "PK", "GK", "DK"])}
+        
+        # Colors for the labels (Added a teal color for PiK)
         k_colors = {
             "AK": "#FFE925",  # Deep Red
             "AmK": "#EE680E", # Orange
@@ -1778,24 +1808,25 @@ class AstroApp(QMainWindow):
             "MK": "#E02BE0",  # Green
             "PK": "#3104D1",  # Blue
             "GK": "#6CF536",  # Purple
-            "DK": "#21C0C0"   # Rose/Pink
+            "DK": "#21C0C0",   # Rose/Pink
+            "PiK": "#FF00FF"
         }
-        # -----------------------------------------
+        # -------------------------------------------------------------------
 
         for row, (b_name, b_data) in enumerate(bodies):
             s_idx, is_asc = b_data["sign_index"], b_name == "Lagna"
             actual_name = "Ascendant" if is_asc else b_name
             total_seconds = int(round((b_data.get("degree", 0.0) % 30.0 if is_asc else b_data['deg_in_sign']) * 3600))
             
-            karaka_str = k_map.get(actual_name, "-")
-            
+            # Build the row with both Karaka columns
             row_data = [
                 b_name, 
                 ZODIAC_NAMES[s_idx], 
                 f"{total_seconds // 3600:02d}° {(total_seconds % 3600) // 60:02d}' {total_seconds % 60:02d}\"", 
                 "1" if is_asc else str(b_data["house"]), 
                 "No" if is_asc else ("Yes" if b_data.get("retro") else "No"), 
-                karaka_str
+                k7_map.get(actual_name, "-"),  # Column 5: 7-Karaka
+                k8_map.get(actual_name, "-")   # Column 6: 8-Karaka
             ]
 
             for col, text in enumerate(row_data):
@@ -1805,19 +1836,20 @@ class AstroApp(QMainWindow):
                 else: 
                     item.setText(text)
                 
-                # Apply colors and bold font exclusively to the Karaka column
-                if col == 5:
+                # Apply styles to BOTH Karaka columns (Indices 5 and 6)
+                if col in [5, 6]:
                     font = item.font()
                     if text in k_colors:
                         item.setForeground(QBrush(QColor(k_colors[text])))
                         font.setBold(True)
                     else:
-                        item.setForeground(QBrush(QColor("#1A1A1A"))) # Default text color
+                        item.setForeground(QBrush(QColor("#1A1A1A")))
                         font.setBold(False)
                     item.setFont(font)
-                    item.setTextAlignment(Qt.AlignmentFlag.AlignCenter) # Center the Karaka labels
+                    item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                     
-            if not (w := self.table.cellWidget(row, 6)):
+            # The Freeze Checkbox moves to column index 7
+            if not (w := self.table.cellWidget(row, 7)):
                 cb = QCheckBox("Freeze")
                 cb.setProperty("p_name", actual_name)
                 
@@ -1827,12 +1859,13 @@ class AstroApp(QMainWindow):
                     self.recalculate()
                     
                 cb.toggled.connect(on_toggle)
-                w = QWidget(); l = QHBoxLayout(w); l.setContentsMargins(0,0,0,0); l.setAlignment(Qt.AlignmentFlag.AlignCenter); l.addWidget(cb); self.table.setCellWidget(row, 6, w)
+                w = QWidget(); l = QHBoxLayout(w); l.setContentsMargins(0,0,0,0); l.setAlignment(Qt.AlignmentFlag.AlignCenter); l.addWidget(cb); self.table.setCellWidget(row, 7, w)
             
-            cb = self.table.cellWidget(row, 6).findChild(QCheckBox)
+            cb = self.table.cellWidget(row, 7).findChild(QCheckBox)
             cb.blockSignals(True); cb.setProperty("s_idx", s_idx); cb.setChecked(actual_name in self.frozen_planets and self.frozen_planets[actual_name]["div"] == div_view); cb.blockSignals(False)
 
         self.table.verticalScrollBar().setValue(v_scroll)
+
 
 if __name__ == "__main__":
     multiprocessing.freeze_support()

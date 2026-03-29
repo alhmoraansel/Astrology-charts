@@ -793,17 +793,23 @@ class ChartRenderer(QWidget):
         return layout
 
 
+
+
     def paintEvent(self, event):
+        if not self.isVisible() or self.visibleRegion().isEmpty(): 
+            return
         painter = QPainter(self)
         try:
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
             
-            size = min(self.width(), self.height()) - 50
-            cx, cy = self.width() / 2, self.height() / 2
-            x, y, w, h = cx - size / 2, cy - size / 2 + 10, size, size
+            # --- 1. AGGRESSIVE ANTI-JITTER (CPU SPIKE FIX) ---
+            # Cast all geometric bases to pure integers. If left as floats, PyQt's
+            # scroll layout engine causes sub-pixel jitter in stacked mode, triggering 
+            # an infinite resize and cache-invalidation loop!
+            size = int(min(self.width(), self.height()) - 50)
+            cx, cy = int(self.width() / 2), int(self.height() / 2)
+            x, y, w, h = int(cx - size / 2), int(cy - size / 2 + 10), size, size
             
-            # --- 1. HUGE CPU FIX: Cache the Layout Math ---
-            # Bypasses the heavy layout math during ambient animations (runs 30x faster)
             if getattr(self, '_last_layout_params', None) != (x, y, w, h) or self.data_changed_flag or getattr(self, 'target_layout', None) is None:
                 new_target_layout = self._compute_layout(x, y, w, h)
                 self._last_layout_params = (x, y, w, h)
@@ -831,7 +837,6 @@ class ChartRenderer(QWidget):
                 painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "No Chart Data")
                 return
 
-            # --- 2. HIGH DPI FIX: Ensure Pixmaps scale physically ---
             dpr = self.devicePixelRatioF()
             pixel_w = int(self.width() * dpr)
             pixel_h = int(self.height() * dpr)
@@ -839,7 +844,6 @@ class ChartRenderer(QWidget):
             if getattr(self, '_last_bg_size', None) != self.size() or not getattr(self, 'bg_cache', None):
                 self._last_bg_size = self.size()
                 
-                # Apply the DPI ratio so it doesn't shift when exported via PyInstaller
                 self.bg_cache = QPixmap(pixel_w, pixel_h)
                 self.bg_cache.setDevicePixelRatio(dpr)
                 self.bg_cache.fill(Qt.GlobalColor.white)
@@ -959,7 +963,7 @@ class ChartRenderer(QWidget):
                         painter.drawPolygon(inset_poly)
 
             # =========================================================
-            # KARAKAMSHA HIGHLIGHT (Optimized Cached Glow & Stardust)
+            # KARAKAMSHA HIGHLIGHT (Fully Cached Glow & Fast Stardust)
             # =========================================================
             is_d1_chart = self.title and (self.title == "D1" or self.title.startswith("D1 "))
             
@@ -971,11 +975,15 @@ class ChartRenderer(QWidget):
                     asc_idx = self.rotated_asc_sign_idx if getattr(self, 'rotated_asc_sign_idx', None) is not None else self.chart_data["ascendant"]["sign_index"]
                     k_house = ((ak_d9_sign - asc_idx) % 12) + 1
                     
-                    h_data = self.current_layout["houses"].get(k_house)
+                    # --- 2. ALIGNMENT OFFSET FIX ---
+                    # Use target_layout instead of current_layout so the internal coordinates
+                    # instantly match the snapping poly border, preventing drift!
+                    h_data = self.target_layout["houses"].get(k_house)
+                    
                     if h_data and k_house in self.house_polys:
                         poly = self.house_polys[k_house]
                         
-                        house_tints = [t["color"] for t in self.current_layout.get("tints", []) if t["h2"] == k_house]
+                        house_tints = [t["color"] for t in self.target_layout.get("tints", []) if t["h2"] == k_house]
                         if not house_tints:
                             glow_color = QColor(255, 215, 0) 
                         else:
@@ -994,14 +1002,14 @@ class ChartRenderer(QWidget):
                             
                         particle_color = QColor(255, 255, 255)
                         
-                        # --- CACHE THE HEAVY VECTOR GRAPHICS ---
+                        # --- 3. EXTREME CACHING ---
+                        # x and y are now included to safely invalidate if the layout moves 
                         cache_key = (k_house, self.width(), self.height(), x, y, w, h, glow_color.rgb(), getattr(self, "outline_mode", ""), dpr)
                         if getattr(self, '_k_cache_key', None) != cache_key:
                             self._k_cache_key = cache_key
                             
                             self._k_seeds = [(abs(math.sin(i * 37.1)), abs(math.cos(i * 91.3))) for i in range(24)]
                             
-                            # Apply the exact same DPI physical pixel fix here
                             self._k_glow_pix = QPixmap(pixel_w, pixel_h)
                             self._k_glow_pix.setDevicePixelRatio(dpr)
                             self._k_glow_pix.fill(Qt.GlobalColor.transparent)
@@ -1009,6 +1017,21 @@ class ChartRenderer(QWidget):
                             p_cache = QPainter(self._k_glow_pix)
                             p_cache.setRenderHint(QPainter.RenderHint.Antialiasing)
                             
+                            # Bake the heavy Aura directly into the cache
+                            p_cache.save()
+                            clip_path = QPainterPath()
+                            clip_path.addPolygon(poly)
+                            p_cache.setClipPath(clip_path)
+                            
+                            radial_grad = QRadialGradient(QPointF(h_data["x"], h_data["y"]), w * 0.18)
+                            radial_grad.setColorAt(0.0, QColor(glow_color.red(), glow_color.green(), glow_color.blue(), 180))
+                            radial_grad.setColorAt(1.0, QColor(glow_color.red(), glow_color.green(), glow_color.blue(), 0))
+                            p_cache.setPen(Qt.PenStyle.NoPen)
+                            p_cache.setBrush(QBrush(radial_grad))
+                            p_cache.drawPolygon(poly)
+                            p_cache.restore()
+                            
+                            # Bake the heavy Edge Bloom
                             def get_inset_poly(offset):
                                 pts = []
                                 for pt in poly:
@@ -1043,21 +1066,22 @@ class ChartRenderer(QWidget):
                         current_time = time.time()
                         breath = (math.sin(current_time * 2.0) + 1.0) / 2.0
                         
+                        # 1. Instantly stamp the baked glow image (Pulsing opacity naturally)
+                        painter.save()
+                        pulse_opacity = 0.5 + (breath * 0.5) 
+                        painter.setOpacity(pulse_opacity)
+                        painter.drawPixmap(0, 0, self._k_glow_pix)
+                        painter.restore()
+                        
+                        # 2. Draw purely dynamic Stardust
                         painter.save()
                         clip_path = QPainterPath()
                         clip_path.addPolygon(poly)
                         painter.setClipPath(clip_path)
                         
-                        aura_opacity = int(55 + (breath * 60)) 
-                        radial_grad = QRadialGradient(QPointF(h_data["x"], h_data["y"]), w * 0.18)
-                        radial_grad.setColorAt(0.0, QColor(glow_color.red(), glow_color.green(), glow_color.blue(), aura_opacity))
-                        radial_grad.setColorAt(1.0, QColor(glow_color.red(), glow_color.green(), glow_color.blue(), 0))
-                        
-                        painter.setPen(Qt.PenStyle.NoPen)
-                        painter.setBrush(QBrush(radial_grad))
-                        painter.drawPolygon(poly)
-                        
                         rect = poly.boundingRect()
+                        painter.setPen(Qt.PenStyle.NoPen)
+                        
                         for i in range(24):
                             seed1, seed2 = self._k_seeds[i]
                             
@@ -1078,13 +1102,6 @@ class ChartRenderer(QWidget):
                             painter.drawEllipse(QPointF(x, y), p_size, p_size)
 
                         painter.restore() 
-                        
-                        # Blit the cached image (CPU usage practically zero)
-                        painter.save()
-                        pulse_opacity = 0.6 + (breath * 0.4)
-                        painter.setOpacity(pulse_opacity)
-                        painter.drawPixmap(0, 0, self._k_glow_pix)
-                        painter.restore()
             # =========================================================
 
             z_font = QFont(GLOBAL_RASHI_FONT_FAMILY, int(max(7, min(14, max(9, w * 0.035)) * 0.5) * GLOBAL_FONT_SCALE_MULTIPLIER))
@@ -1228,6 +1245,7 @@ class ChartRenderer(QWidget):
                                 painter.drawPolygon(QPolygonF(arrow_pts))
         finally:
             painter.end()
+
 
 
 

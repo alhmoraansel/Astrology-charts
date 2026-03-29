@@ -800,13 +800,14 @@ class EducationCalculator:
 
         best_h = max(h_scores, key=h_scores.get)
 
-        if best_h in [4]: return "Foundation (4H)", f"Points heavily directed at 4th House"
-        if best_h in [6, 8, 12]: return "Medical/Occult (6/8/12H)", f"Points heavily directed at Dusthanas (6/8/12)"
-        if best_h in [3, 7, 9]: return "Communication (3/7/9H)", f"Points heavily directed at 3/7/9 Houses"
-        if best_h in [2, 11]: return "Finance (2/11H)", f"Points heavily directed at Wealth Houses (2/11)"
-        if best_h in [10]: return "Authority (10H)", f"Points heavily directed at 10th House"
-        
-        return "General (1/5H)", f"Points directed at 1/5 Axis"
+        if best_h in [4]: theme, theme_reason = "Foundation (4H)", f"Points heavily directed at 4th House"
+        elif best_h in [6, 8, 12]: theme, theme_reason = "Medical/Occult (6/8/12H)", f"Points heavily directed at Dusthanas (6/8/12)"
+        elif best_h in [3, 7, 9]: theme, theme_reason = "Communication (3/7/9H)", f"Points heavily directed at 3/7/9 Houses"
+        elif best_h in [2, 11]: theme, theme_reason = "Finance (2/11H)", f"Points heavily directed at Wealth Houses (2/11)"
+        elif best_h in [10]: theme, theme_reason = "Authority (10H)", f"Points heavily directed at 10th House"
+        else: theme, theme_reason = "General (1/5H)", f"Points directed at 1/5 Axis"
+
+        return theme, theme_reason, h_scores
 
     def run_analysis(self, app_instance=None):
         self.log.append("<h2>Four-Step Triangulation Process</h2>")
@@ -938,7 +939,7 @@ class EducationCalculator:
         
         prof_list = RAW_PROFESSIONS.get(winner_cat, {}).get(dom_planet, ["General Studies"])
         
-        theme, theme_reason = self._find_house_theme(dom_planet)
+        theme, theme_reason, h_scores = self._find_house_theme(dom_planet)
         self.log.append(f"<li><b>4. House Result:</b> {theme} - {theme_reason}</li>")
         
         exact_degree, elim_house, elim_planet, original_list = apply_elimination_logic(prof_list, theme, dom_planet)
@@ -979,6 +980,42 @@ class EducationCalculator:
         self.log.append(f"<li><b>5th House (Raw Intellect):</b> CSI {csi_5:.2f}</li>")
         self.log.append(f"<li><b>9th House (Post-Graduate):</b> CSI {csi_9:.2f}</li></ul>")
 
+        # Insert Complete Score Breakdown Table directly into the Algorithmic Trail
+        table_html = "<div style='background-color: #F8FAFC; border: 1px solid #CBD5E1; border-radius: 4px; padding: 10px; margin-top: 15px;'>"
+        table_html += "<h3 style='margin-top: 0; margin-bottom: 10px; color: #1E293B; text-align: center; border-bottom: 1px solid #E2E8F0; padding-bottom: 6px;'>COMPLETE SCORE BREAKDOWN</h3>"
+
+        table_html += "<table width='100%' cellpadding='4' cellspacing='0' style='border:none;'>"
+        table_html += "<tr><td valign='top' width='33%' style='padding-right: 5px;'>"
+
+        # Category Table
+        table_html += "<table width='100%' style='border-collapse: collapse; font-size: 12px;'>"
+        table_html += "<tr style='background-color:#E2E8F0;'><th style='border:1px solid #CBD5E1; padding:4px; text-align:left;'>Stream Category</th><th style='border:1px solid #CBD5E1; padding:4px; text-align:right;'>Score</th></tr>"
+        for cat, score in sorted(self.scores.items(), key=lambda x: x[1], reverse=True):
+            table_html += f"<tr><td style='border:1px solid #CBD5E1; padding:4px; color:#334155;'>{cat}</td><td style='border:1px solid #CBD5E1; padding:4px; text-align:right; font-weight:bold; color:#0F172A;'>{score:.2f}</td></tr>"
+        table_html += "</table>"
+
+        table_html += "</td><td valign='top' width='33%' style='padding-left: 5px; padding-right: 5px;'>"
+
+        # Planet Table
+        table_html += "<table width='100%' style='border-collapse: collapse; font-size: 12px;'>"
+        table_html += "<tr style='background-color:#E2E8F0;'><th style='border:1px solid #CBD5E1; padding:4px; text-align:left;'>Planet</th><th style='border:1px solid #CBD5E1; padding:4px; text-align:right;'>Score</th></tr>"
+        for p, score in sorted(self.dominant_planet_scores.items(), key=lambda x: x[1], reverse=True):
+            table_html += f"<tr><td style='border:1px solid #CBD5E1; padding:4px; color:#334155;'>{p}</td><td style='border:1px solid #CBD5E1; padding:4px; text-align:right; font-weight:bold; color:#0F172A;'>{score:.2f}</td></tr>"
+        table_html += "</table>"
+
+        table_html += "</td><td valign='top' width='33%' style='padding-left: 5px;'>"
+
+        # House Table
+        table_html += "<table width='100%' style='border-collapse: collapse; font-size: 12px;'>"
+        table_html += "<tr style='background-color:#E2E8F0;'><th style='border:1px solid #CBD5E1; padding:4px; text-align:left;'>House Theme</th><th style='border:1px solid #CBD5E1; padding:4px; text-align:right;'>Score</th></tr>"
+        for h, score in sorted(h_scores.items(), key=lambda x: x[1], reverse=True):
+            table_html += f"<tr><td style='border:1px solid #CBD5E1; padding:4px; color:#334155;'>House {h}</td><td style='border:1px solid #CBD5E1; padding:4px; text-align:right; font-weight:bold; color:#0F172A;'>{score:.2f}</td></tr>"
+        table_html += "</table>"
+
+        table_html += "</td></tr></table></div>"
+
+        self.log.append(table_html)
+
         return {
             "exact_degree": exact_degree,
             "winner_cat": winner_cat,
@@ -991,6 +1028,8 @@ class EducationCalculator:
             "original_str": orig_str,
             "log": "".join(self.log),
             "scores": self.scores,
+            "planet_scores": self.dominant_planet_scores,
+            "h_scores": h_scores,
             "csi_4": csi_4,
             "csi_5": csi_5,
             "csi_9": csi_9
@@ -1214,14 +1253,6 @@ class EducationAnalysisDialog(QDialog):
         
         rec_str += f"<div style='font-size: 13px; color: #475569; line-height: 1.5;'>{res['logic_str']}</div>"
         rec_str += "</div>"
-
-        rec_str += "<div style='background-color: #F8FAFC; border: 1px solid #CBD5E1; border-radius: 4px; padding: 10px; margin-top: 10px;'>"
-        rec_str += "<h4 style='margin-top: 0; margin-bottom: 6px; color: #334155;'>Computed Stream Category Scores</h4>"
-        rec_str += "<ul style='margin-bottom: 0; padding-left: 20px; font-size: 13px; color: #475569;'>"
-        rec_str += f"<li><b>Technical:</b> {res['scores']['Technical']:.2f}</li>"
-        rec_str += f"<li><b>Semi-Technical:</b> {res['scores']['Semi-Technical']:.2f}</li>"
-        rec_str += f"<li><b>Non-Technical:</b> {res['scores']['Non-Technical']:.2f}</li>"
-        rec_str += "</ul></div>"
         
         self.lbl_recommendations.setText(rec_str)
         self.log_browser.setHtml(res["log"])
