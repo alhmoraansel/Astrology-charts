@@ -15,6 +15,7 @@
     "use_circular": false,
     "show_tooltips": true,
     "use_true_positions": true,
+    "show_karakamsha": true,
     "aspect_planets": {
         "Sun": false,
         "Moon": false,

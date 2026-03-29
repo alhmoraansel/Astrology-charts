@@ -671,7 +671,9 @@ class AstroApp(QMainWindow):
 
             for k, w in [("use_symbols", self.chk_symbols), ("show_rahu_ketu", self.chk_rahu), ("show_arrows", self.chk_arrows), ("use_tint", self.chk_tint), ("show_aspects", self.chk_aspects), ("show_details", self.chk_details), ("use_circular", self.chk_circular), ("show_tooltips", self.show_tooltips), ("use_true_positions", self.chk_true_pos)]:
                 if k in prefs: w.setChecked(prefs[k])
-
+            # <-- Add this block
+            if "show_karakamsha" in prefs and hasattr(self, 'act_karakamsha'):
+                self.act_karakamsha.setChecked(prefs["show_karakamsha"])
             if "aspect_planets" in prefs:
                 for p, is_checked in prefs["aspect_planets"].items():
                     if p in self.aspect_cb: self.aspect_cb[p].setChecked(is_checked)
@@ -723,6 +725,7 @@ class AstroApp(QMainWindow):
                 "use_symbols": self.chk_symbols.isChecked(), "show_rahu_ketu": self.chk_rahu.isChecked(), "show_arrows": self.chk_arrows.isChecked(),
                 "use_tint": self.chk_tint.isChecked(), "show_aspects": self.chk_aspects.isChecked(), "show_details": self.chk_details.isChecked(),
                 "use_circular": self.chk_circular.isChecked(), "show_tooltips": self.show_tooltips.isChecked(), "use_true_positions": self.chk_true_pos.isChecked(),
+                "show_karakamsha": self.act_karakamsha.isChecked() if hasattr(self, 'act_karakamsha') else True, # <-- Add this
                 "aspect_planets": {p: cb.isChecked() for p, cb in self.aspect_cb.items()},
                 "div_charts": {k: v.isChecked() for k, v in self.div_cbs.items()} if hasattr(self, 'div_cbs') else {},
                 "active_charts_order": getattr(self, "active_charts_order", []),
@@ -1020,6 +1023,14 @@ class AstroApp(QMainWindow):
         act_res_lay = QAction("Reset Default Layout", self)
         act_res_lay.triggered.connect(self.reset_layout)
         file_menu.addAction(act_res_lay)
+        
+        # --- NEW VIEW MENU ---
+        self.view_menu = self.main_menu_bar.addMenu("View")
+        self.act_karakamsha = QAction("Highlight Karakamsha (D9 AK in D1)", self)
+        self.act_karakamsha.setCheckable(True)
+        self.act_karakamsha.setChecked(True) # Default is ON
+        self.view_menu.addAction(self.act_karakamsha)
+        # ---------------------
 
         self.manage_layout_menu = self.main_menu_bar.addMenu("Manage Layout")
         # -----------------------------
@@ -1200,8 +1211,8 @@ class AstroApp(QMainWindow):
         self.table_view_cb.currentIndexChanged.connect(self.populate_table)
         tc_top.addWidget(self.table_view_cb); tc_top.addStretch(); tc_layout.addLayout(tc_top)
 
-        self.table = CopyableTableWidget(); self.table.setColumnCount(6)
-        self.table.setHorizontalHeaderLabels(["Planet", "Sign", "Degree", "House", "Retrograde", "Freeze Rashi"])
+        self.table = CopyableTableWidget(); self.table.setColumnCount(7)
+        self.table.setHorizontalHeaderLabels(["Planet", "Sign", "Degree", "House", "Retrograde","Karaka", "Freeze Rashi"])
         self.table_smooth_scroller = SmoothScroller(self.table)
         if self.table.horizontalHeader() is not None: self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         tc_layout.addWidget(self.table)
@@ -1381,6 +1392,7 @@ class AstroApp(QMainWindow):
             chk.stateChanged.connect(self.update_settings)
 
         self.chk_aspects.stateChanged.connect(self.toggle_aspects); self.chk_details.stateChanged.connect(self.toggle_details)
+        self.act_karakamsha.toggled.connect(self.update_settings)
         self.btn_visual_guide.clicked.connect(self.show_visual_guide); self.btn_stop_transit.clicked.connect(self.stop_transit_worker)
 
         if HAS_CUSTOM_VARGAS and hasattr(self, 'btn_add_custom_varga'): self.btn_add_custom_varga.clicked.connect(self.open_custom_varga_dialog)
@@ -1457,6 +1469,10 @@ class AstroApp(QMainWindow):
             r.show_aspects, r.show_arrows, r.use_tint = self.chk_aspects.isChecked(), self.chk_arrows.isChecked(), self.chk_tint.isChecked()
             r.use_circular = self.chk_circular.isChecked(); r.set_tooltips_status(self.show_tooltips.isChecked())
             r.visible_aspect_planets = {p for p, cb in self.aspect_cb.items() if cb.isChecked()}
+            
+            # --- Pass the menu bar state down to the renderer ---
+            if hasattr(self, 'act_karakamsha'):
+                r.show_karakamsha = self.act_karakamsha.isChecked()
             
         self.save_settings(); self.recalculate()
 
@@ -1744,16 +1760,64 @@ class AstroApp(QMainWindow):
         bodies = [("Lagna", chart["ascendant"])] + [(p["name"], p) for p in chart["planets"]]
         if self.table.rowCount() != len(bodies): self.table.setRowCount(len(bodies))
 
+        # --- JAIMINI KARAKAS (7-Planet Scheme) ---
+        k_planets = []
+        for p in self.current_base_chart["planets"]:
+            if p["name"] in ["Sun", "Moon", "Mars", "Mercury", "Jupiter", "Venus", "Saturn"]: 
+                k_planets.append((p["name"], p["deg_in_sign"]))
+        
+        k_planets.sort(key=lambda x: x[1], reverse=True)
+        k_labels = ["AK", "AmK", "BK", "MK", "PK", "GK", "DK"]
+        k_map = {name: label for (name, _), label in zip(k_planets, k_labels)}
+        
+        # Define distinct colors for each Karaka (optimized for your light UI background)
+        k_colors = {
+            "AK": "#FFE925",  # Deep Red
+            "AmK": "#EE680E", # Orange
+            "BK": "#1162F8",  # Goldenrod
+            "MK": "#E02BE0",  # Green
+            "PK": "#3104D1",  # Blue
+            "GK": "#6CF536",  # Purple
+            "DK": "#21C0C0"   # Rose/Pink
+        }
+        # -----------------------------------------
+
         for row, (b_name, b_data) in enumerate(bodies):
             s_idx, is_asc = b_data["sign_index"], b_name == "Lagna"
             actual_name = "Ascendant" if is_asc else b_name
             total_seconds = int(round((b_data.get("degree", 0.0) % 30.0 if is_asc else b_data['deg_in_sign']) * 3600))
             
-            for col, text in enumerate([b_name, ZODIAC_NAMES[s_idx], f"{total_seconds // 3600:02d}° {(total_seconds % 3600) // 60:02d}' {total_seconds % 60:02d}\"", "1" if is_asc else str(b_data["house"]), "No" if is_asc else ("Yes" if b_data.get("retro") else "No")]):
-                if not (item := self.table.item(row, col)): self.table.setItem(row, col, QTableWidgetItem(text))
-                else: item.setText(text)
+            karaka_str = k_map.get(actual_name, "-")
+            
+            row_data = [
+                b_name, 
+                ZODIAC_NAMES[s_idx], 
+                f"{total_seconds // 3600:02d}° {(total_seconds % 3600) // 60:02d}' {total_seconds % 60:02d}\"", 
+                "1" if is_asc else str(b_data["house"]), 
+                "No" if is_asc else ("Yes" if b_data.get("retro") else "No"), 
+                karaka_str
+            ]
+
+            for col, text in enumerate(row_data):
+                if not (item := self.table.item(row, col)): 
+                    item = QTableWidgetItem(text)
+                    self.table.setItem(row, col, item)
+                else: 
+                    item.setText(text)
+                
+                # Apply colors and bold font exclusively to the Karaka column
+                if col == 5:
+                    font = item.font()
+                    if text in k_colors:
+                        item.setForeground(QBrush(QColor(k_colors[text])))
+                        font.setBold(True)
+                    else:
+                        item.setForeground(QBrush(QColor("#1A1A1A"))) # Default text color
+                        font.setBold(False)
+                    item.setFont(font)
+                    item.setTextAlignment(Qt.AlignmentFlag.AlignCenter) # Center the Karaka labels
                     
-            if not (w := self.table.cellWidget(row, 5)):
+            if not (w := self.table.cellWidget(row, 6)):
                 cb = QCheckBox("Freeze")
                 cb.setProperty("p_name", actual_name)
                 
@@ -1763,9 +1827,9 @@ class AstroApp(QMainWindow):
                     self.recalculate()
                     
                 cb.toggled.connect(on_toggle)
-                w = QWidget(); l = QHBoxLayout(w); l.setContentsMargins(0,0,0,0); l.setAlignment(Qt.AlignmentFlag.AlignCenter); l.addWidget(cb); self.table.setCellWidget(row, 5, w)
+                w = QWidget(); l = QHBoxLayout(w); l.setContentsMargins(0,0,0,0); l.setAlignment(Qt.AlignmentFlag.AlignCenter); l.addWidget(cb); self.table.setCellWidget(row, 6, w)
             
-            cb = self.table.cellWidget(row, 5).findChild(QCheckBox)
+            cb = self.table.cellWidget(row, 6).findChild(QCheckBox)
             cb.blockSignals(True); cb.setProperty("s_idx", s_idx); cb.setChecked(actual_name in self.frozen_planets and self.frozen_planets[actual_name]["div"] == div_view); cb.blockSignals(False)
 
         self.table.verticalScrollBar().setValue(v_scroll)

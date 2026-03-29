@@ -29,8 +29,8 @@ PLUGIN_INDEX = 1
 # ==========================================
 
 # 1. House & Lord Influences
-W_INFLUENCE_5TH_HOUSE = 0.4
-W_INFLUENCE_5TH_LORD = 0.4
+W_INFLUENCE_OCC_CONJ = 0.4
+W_INFLUENCE_ASPECT = 0.4
 W_NAKSHATRA_5TH_LORD = 0.1
 
 # 2. Mercury Repetition Rule
@@ -55,6 +55,7 @@ ANALYZE_D9 = True
 ANALYZE_D24 = True
 ANALYZE_D60 = True
 ANALYZE_MD = False
+ANALYZE_KARAKAMSHA = False
 
 # 7. Varga Multipliers
 W_D1_MULTIPLIER = 1.0           
@@ -62,17 +63,19 @@ W_D9_MULTIPLIER = 1.0
 W_D24_MULTIPLIER = 1.0
 W_D60_MULTIPLIER = 1.0
 W_DASHA_LAGNA_MULTIPLIER = 1.0  
+W_KARAKAMSHA_MULTIPLIER = 1.0
 
 # 8. Special Rules
 W_D24_4TH_HOUSE_WEIGHT = 0.6
 W_D24_5TH_HOUSE_WEIGHT = 0.3
 W_D1_5TH_LORD_BOOST = 2.0
 W_SPECIAL_STATUS_BOOST = 2.0
+W_SEMI_TECH_PENALTY = 0.5
 
 # Map for Settings UI configuration
 WEIGHTS_MAP = {
-    "W_INFLUENCE_5TH_HOUSE": ("5th House Occupants/Aspects Weight", 0.0, 10.0, 0.1, "Points given to planets sitting in or looking at the 5th House (House of Intellect)."),
-    "W_INFLUENCE_5TH_LORD": ("5th Lord Conjuncts/Aspects Weight", 0.0, 10.0, 0.1, "Points given based on planets interacting with the 5th House ruler."),
+    "W_INFLUENCE_OCC_CONJ": ("5th House Occupants / Lord Conjunctions", 0.0, 10.0, 0.1, "Points given to planets sitting in the 5th House or conjunct the 5th House ruler."),
+    "W_INFLUENCE_ASPECT": ("5th House / Lord Aspects", 0.0, 10.0, 0.1, "Points given to planets aspecting the 5th House or aspecting the 5th House ruler."),
     "W_NAKSHATRA_5TH_LORD": ("5th Lord's Nakshatra Weight", 0.0, 10.0, 0.1, "Influence level of the constellation (Nakshatra) where the 5th House ruler sits."),
     "W_MERCURY_FACTOR": ("Mercury Rule Weight (fraction of 5H)", 0.0, 2.0, 0.1, "Multiplier for evaluating the '5th House from Mercury' (the natural planet of education)."),
     "W_TECH_RASHI_4TH": ("Technical Rashi (4th House) Weight", 0.0, 10.0, 0.1, "Bonus points if the 4th House (Basic Education) falls in a Technical Zodiac Sign (e.g., Aries, Gemini)."),
@@ -87,20 +90,23 @@ WEIGHTS_MAP = {
     "W_D24_MULTIPLIER": ("D-24 Varga Multiplier", 0.0, 10.0, 0.1, "Importance of the D-24 Siddhamsa Chart (The specific microscopic chart for education)."),
     "W_D60_MULTIPLIER": ("D-60 Varga Multiplier", 0.0, 10.0, 0.1, "Importance of the D-60 Shashtiamsa Chart. Forced to ALWAYS be >= any other chart weight."),
     "W_DASHA_LAGNA_MULTIPLIER": ("Dasha Lagna Varga Multiplier", 0.0, 10.0, 0.1, "Importance of reading the D-1 chart using the Mahadasha Lord as the new Ascendant."),
+    "W_KARAKAMSHA_MULTIPLIER": ("Karakamsha Varga Multiplier", 0.0, 10.0, 0.1, "Importance of the Karakamsha chart (D1 using D9 Atma Karaka sign as Ascendant)."),
     "W_D24_4TH_HOUSE_WEIGHT": ("D-24 4th House Base Weight", 0.0, 5.0, 0.1, "Exact base weight given to 4th house properties specifically inside the D-24 chart."),
     "W_D24_5TH_HOUSE_WEIGHT": ("D-24 5th House Base Weight", 0.0, 5.0, 0.1, "Exact base weight given to 5th house properties specifically inside the D-24 chart."),
     "W_D1_5TH_LORD_BOOST": ("D-1 5th Lord Conflict Boost", 0.0, 10.0, 0.5, "Bonus score given to the D-1 5th Lord if it is tied among top scorers."),
-    "W_SPECIAL_STATUS_BOOST": ("Special D-1 Condition Boost", 0.0, 10.0, 0.5, "Bonus score given to an exalted, debilitated, or exchanged planet to resolve ties when the 5th Lord is absent.")
+    "W_SPECIAL_STATUS_BOOST": ("Special D-1 Condition Boost", 0.0, 10.0, 0.5, "Bonus score given to an exalted, debilitated, or exchanged planet to resolve ties when the 5th Lord is absent."),
+    "W_SEMI_TECH_PENALTY": ("Semi-Tech Penalty (4+ Malefics)", 0.0, 1.0, 0.1, "Factor to multiply Semi-Technical score by when a Non-Tech Rashi is afflicted by 4 or more malefics.")
 }
 
-TOGGLE_KEYS = ["ANALYZE_D1", "ANALYZE_D9", "ANALYZE_D24", "ANALYZE_D60", "ANALYZE_MD"]
+TOGGLE_KEYS = ["ANALYZE_D1", "ANALYZE_D9", "ANALYZE_D24", "ANALYZE_D60", "ANALYZE_MD", "ANALYZE_KARAKAMSHA"]
 
 TOGGLE_LINKS = {
     "W_D1_MULTIPLIER": ("ANALYZE_D1", "Analyze D-1 Base Chart"),
     "W_D9_MULTIPLIER": ("ANALYZE_D9", "Analyze D-9 Navamsha"),
     "W_D24_MULTIPLIER": ("ANALYZE_D24", "Analyze D-24 Siddhamsa"),
     "W_D60_MULTIPLIER": ("ANALYZE_D60", "Analyze D-60 Shashtiamsa"),
-    "W_DASHA_LAGNA_MULTIPLIER": ("ANALYZE_MD", "Analyze Mahadasha Chart")
+    "W_DASHA_LAGNA_MULTIPLIER": ("ANALYZE_MD", "Analyze Mahadasha Chart"),
+    "W_KARAKAMSHA_MULTIPLIER": ("ANALYZE_KARAKAMSHA", "Analyze Karakamsha Chart")
 }
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -261,7 +267,7 @@ class SettingsDialog(QDialog):
         super().__init__(parent, Qt.WindowType.Window)
         self.setWindowTitle("Configure Algorithm Weights & Details")
         
-        self.resize(800, 600)
+        self.resize(850, 650)
         self.setStyleSheet("QDialog { background-color: #F8FAFC; }")
         
         layout = QVBoxLayout(self)
@@ -292,12 +298,12 @@ class SettingsDialog(QDialog):
         content_layout.setContentsMargins(12, 12, 12, 12)
         
         CATEGORIES = {
-            "House & Lord Influences": ["W_INFLUENCE_5TH_HOUSE", "W_INFLUENCE_5TH_LORD", "W_NAKSHATRA_5TH_LORD", "W_MERCURY_FACTOR"],
+            "House & Lord Influences": ["W_INFLUENCE_OCC_CONJ", "W_INFLUENCE_ASPECT", "W_NAKSHATRA_5TH_LORD", "W_MERCURY_FACTOR"],
             "Rashi Technicalities": ["W_TECH_RASHI_4TH", "W_TECH_RASHI_5TH"],
             "Planet Nature Multipliers": ["W_TECH_PLANET", "W_SEMI_TECH_PLANET", "W_NON_TECH_PLANET"],
             "Dasha & Timing": ["AGE_OF_EDUCATION", "W_MAHADASHA_PLANET"],
-            "Selected Charts & Varga Weights": ["W_D1_MULTIPLIER", "W_D9_MULTIPLIER", "W_D24_MULTIPLIER", "W_D60_MULTIPLIER", "W_DASHA_LAGNA_MULTIPLIER", "W_D24_4TH_HOUSE_WEIGHT", "W_D24_5TH_HOUSE_WEIGHT"],
-            "Special Overrides": ["W_D1_5TH_LORD_BOOST", "W_SPECIAL_STATUS_BOOST"]
+            "Selected Charts & Varga Weights": ["W_D1_MULTIPLIER", "W_D9_MULTIPLIER", "W_D24_MULTIPLIER", "W_D60_MULTIPLIER", "W_DASHA_LAGNA_MULTIPLIER", "W_KARAKAMSHA_MULTIPLIER", "W_D24_4TH_HOUSE_WEIGHT", "W_D24_5TH_HOUSE_WEIGHT"],
+            "Special Overrides": ["W_D1_5TH_LORD_BOOST", "W_SPECIAL_STATUS_BOOST", "W_SEMI_TECH_PENALTY"]
         }
         
         self.spin_boxes = {}
@@ -366,7 +372,7 @@ class SettingsDialog(QDialog):
             content_layout.addWidget(cat_widget)
             
         # Hook up the D-60 multiplier strict validation rule
-        for k in ["W_D1_MULTIPLIER", "W_D9_MULTIPLIER", "W_D24_MULTIPLIER", "W_DASHA_LAGNA_MULTIPLIER"]:
+        for k in ["W_D1_MULTIPLIER", "W_D9_MULTIPLIER", "W_D24_MULTIPLIER", "W_DASHA_LAGNA_MULTIPLIER", "W_KARAKAMSHA_MULTIPLIER"]:
             if k in self.spin_boxes:
                 self.spin_boxes[k].valueChanged.connect(self.enforce_d60_rule)
                 
@@ -396,7 +402,7 @@ class SettingsDialog(QDialog):
         algo_layout.setSpacing(6)
         
         steps = [
-            "<b>1. Look at Selected Charts:</b> Analyze up to 4 charts across D-1, Navamsha (D-9), Siddhamsa (D-24), Shashtiamsa (D-60) and the age 18 Dasha chart.",
+            "<b>1. Look at Selected Charts:</b> Analyze up to 4 charts across D-1, Navamsha (D-9), Siddhamsa (D-24), Shashtiamsa (D-60), Age 18 Dasha Chart, and Karakamsha.",
             "<b>2. Score the Planets & Signs:</b> In all these charts, look at the 5th house (Intellect), its ruler, and Mercury. That gives 'Technical', 'Semi-Technical', or 'Non-Technical' points based on which planets and zodiac signs are involved.",
             "<b>3. Pick the Winning Category:</b> Total all the points across all active charts. The category (Tech, Semi-Tech, or Non-Tech) with the highest score wins.",
             "<b>4. Find the Boss Planet:</b> See which individual planet scored the most points overall. This planet will dictate the specific subject area.",
@@ -432,7 +438,8 @@ class SettingsDialog(QDialog):
                 self.spin_boxes.get("W_D1_MULTIPLIER", QDoubleSpinBox()).value(),
                 self.spin_boxes.get("W_D9_MULTIPLIER", QDoubleSpinBox()).value(),
                 self.spin_boxes.get("W_D24_MULTIPLIER", QDoubleSpinBox()).value(),
-                self.spin_boxes.get("W_DASHA_LAGNA_MULTIPLIER", QDoubleSpinBox()).value()
+                self.spin_boxes.get("W_DASHA_LAGNA_MULTIPLIER", QDoubleSpinBox()).value(),
+                self.spin_boxes.get("W_KARAKAMSHA_MULTIPLIER", QDoubleSpinBox()).value()
             )
             self.spin_boxes["W_D60_MULTIPLIER"].setMinimum(max_other)
 
@@ -461,7 +468,8 @@ class SettingsDialog(QDialog):
             globals()["W_D1_MULTIPLIER"],
             globals()["W_D9_MULTIPLIER"],
             globals()["W_D24_MULTIPLIER"],
-            globals()["W_DASHA_LAGNA_MULTIPLIER"]
+            globals()["W_DASHA_LAGNA_MULTIPLIER"],
+            globals()["W_KARAKAMSHA_MULTIPLIER"]
         )
         saved_weights["W_D60_MULTIPLIER"] = globals()["W_D60_MULTIPLIER"]
             
@@ -587,30 +595,70 @@ class EducationCalculator:
             else: 
                 return "Non-Technical", w_non, f"{base_reason} in {rashi_str}"
 
-    def _process_influences(self, analyzer, target_name, occupant_list, aspect_list, base_weight, mult, target_desc, asc_override_idx=None):
+    def _get_atma_karaka(self, chart_data):
+        max_deg = -1
+        ak = None
+        for p in chart_data.get("planets", []):
+            if p["name"] in ["Sun", "Moon", "Mars", "Mercury", "Jupiter", "Venus", "Saturn"]:
+                lon = p.get("lon", 0.0)
+                deg = lon % 30.0
+                if deg > max_deg:
+                    max_deg = deg
+                    ak = p["name"]
+        return ak
+
+    def _process_influences(self, analyzer, target_name, occupant_list, aspect_list, wt_occ, wt_asp, mult, desc_occ, desc_asp, asc_override_idx=None, target_sign=None):
+        is_non_tech = target_sign in NON_TECH_RASHIS if target_sign else False
+        semi_tech_penalty = 1.0
+        
+        if is_non_tech:
+            malefic_count = 0
+            for p in occupant_list + aspect_list:
+                p_name = p if isinstance(p, str) else (p.get("name") or p.get("aspecting_planet"))
+                if p_name:
+                    func_nature, _ = self.get_functional_nature(p_name, analyzer.chart_data, asc_override_idx)
+                    if p_name in MALEFICS or func_nature == "Malefic":
+                        malefic_count += 1
+            
+            if malefic_count >= 4:
+                semi_tech_penalty = globals().get("W_SEMI_TECH_PENALTY", 0.5)
+                self.log.append(f"<li style='color:#DC2626; font-size:11px;'><i>Rule Triggered: {target_name} is in a Non-Tech Rashi with {malefic_count} Malefic influences. Semi-Tech points from these influences will be multiplied by {semi_tech_penalty}.</i></li>")
+
         for p in occupant_list:
             p_name = p if isinstance(p, str) else p.get("name")
             if not p_name: continue
             
             cat, p_wt, reason = self._classify_planet(p_name, analyzer, asc_override_idx)
-            final_wt = base_weight * p_wt * mult
+            final_wt = wt_occ * p_wt * mult
+            math_str = f"{desc_occ} * Planet Wt ({p_wt:.2f}) * Chart Mult ({mult:.2f})"
+            
+            if cat == "Semi-Technical" and semi_tech_penalty != 1.0:
+                final_wt *= semi_tech_penalty
+                math_str += f" * Penalty ({semi_tech_penalty})"
+                
             self.scores[cat] += final_wt
             self.dominant_planet_scores[p_name] += final_wt
             
             self.log.append(f"<li><b>{p_name}</b> occupies/conjuncts {target_name} &rarr; <b style='color:#0284C7;'>{cat}</b> (+{final_wt:.2f}) <br>"
-                            f"<span style='color:#64748B; font-size: 11px;'><i>Reason: {reason}. Math: {target_desc} * Planet Wt ({p_wt:.2f}) * Chart Mult ({mult:.2f}) = {final_wt:.2f}</i></span></li>")
+                            f"<span style='color:#64748B; font-size: 11px;'><i>Reason: {reason}. Math: {math_str} = {final_wt:.2f}</i></span></li>")
             
         for p in aspect_list:
             p_name = p if isinstance(p, str) else p.get("aspecting_planet")
             if not p_name: continue
             
             cat, p_wt, reason = self._classify_planet(p_name, analyzer, asc_override_idx)
-            final_wt = base_weight * p_wt * mult
+            final_wt = wt_asp * p_wt * mult
+            math_str = f"{desc_asp} * Planet Wt ({p_wt:.2f}) * Chart Mult ({mult:.2f})"
+            
+            if cat == "Semi-Technical" and semi_tech_penalty != 1.0:
+                final_wt *= semi_tech_penalty
+                math_str += f" * Penalty ({semi_tech_penalty})"
+                
             self.scores[cat] += final_wt
             self.dominant_planet_scores[p_name] += final_wt
             
             self.log.append(f"<li><b>{p_name}</b> aspects {target_name} &rarr; <b style='color:#0284C7;'>{cat}</b> (+{final_wt:.2f}) <br>"
-                            f"<span style='color:#64748B; font-size: 11px;'><i>Reason: {reason}. Math: {target_desc} * Planet Wt ({p_wt:.2f}) * Chart Mult ({mult:.2f}) = {final_wt:.2f}</i></span></li>")
+                            f"<span style='color:#64748B; font-size: 11px;'><i>Reason: {reason}. Math: {math_str} = {final_wt:.2f}</i></span></li>")
 
     def _eval_varga_chart(self, chart, name, mult, asc_override_idx=None):
         if not chart: return
@@ -622,8 +670,8 @@ class EducationCalculator:
         # Explicitly read exact user-configured global variables to guarantee pure base substitution 
         w_4h_rashi = globals().get("W_D24_4TH_HOUSE_WEIGHT", 0.6) if is_d24 else globals().get("W_TECH_RASHI_4TH", 0.3)
         w_5h_rashi = globals().get("W_D24_5TH_HOUSE_WEIGHT", 0.3) if is_d24 else globals().get("W_TECH_RASHI_5TH", 0.6)
-        w_5h_occ_asp = globals().get("W_D24_5TH_HOUSE_WEIGHT", 0.3) if is_d24 else globals().get("W_INFLUENCE_5TH_HOUSE", 0.4)
-        w_5l_occ_asp = globals().get("W_D24_5TH_HOUSE_WEIGHT", 0.3) if is_d24 else globals().get("W_INFLUENCE_5TH_LORD", 0.4)
+        w_occ_conj = globals().get("W_D24_5TH_HOUSE_WEIGHT", 0.3) if is_d24 else globals().get("W_INFLUENCE_OCC_CONJ", 0.4)
+        w_aspect = globals().get("W_D24_5TH_HOUSE_WEIGHT", 0.3) if is_d24 else globals().get("W_INFLUENCE_ASPECT", 0.4)
         w_nak_5l = globals().get("W_NAKSHATRA_5TH_LORD", 0.1)
         w_merc_factor = globals().get("W_MERCURY_FACTOR", 0.2)
 
@@ -661,7 +709,7 @@ class EducationCalculator:
         if not h5_occ and not h5_asp:
             self.log.append("<li>No planets occupying or aspecting 5th house.</li>")
         else:
-            self._process_influences(analyzer, "5th House", h5_occ, h5_asp, w_5h_occ_asp, mult, f"5H Base ({w_5h_occ_asp:.2f})", asc_override_idx)
+            self._process_influences(analyzer, "5th House", h5_occ, h5_asp, w_occ_conj, w_aspect, mult, f"5H Occ Base ({w_occ_conj:.2f})", f"5H Asp Base ({w_aspect:.2f})", asc_override_idx, target_sign=h5_sign)
 
         self.log.append("<br><b>3. CHECKING 5TH LORD INFLUENCE:</b><br>")
         l5_name = SIGN_LORDS.get(h5_sign)
@@ -669,6 +717,7 @@ class EducationCalculator:
             l5_p = analyzer.get_planet(l5_name)
             if l5_p:
                 l5_original_house_num = l5_p["house"]
+                l5_sign = l5_p["sign_index"] + 1
                 
                 l5_conj = analyzer.get_conjunct_planets(l5_name)
                 l5_asp = analyzer.get_aspecting_planets(l5_original_house_num)
@@ -677,7 +726,7 @@ class EducationCalculator:
                 if not l5_conj and not l5_asp:
                     self.log.append(f"<li>No planets conjunct or aspecting 5th Lord ({l5_name}).</li>")
                 else:
-                    self._process_influences(analyzer, f"5th Lord ({l5_name})", l5_conj, l5_asp, w_5l_occ_asp, mult, f"5L Base ({w_5l_occ_asp:.2f})", asc_override_idx)
+                    self._process_influences(analyzer, f"5th Lord ({l5_name})", l5_conj, l5_asp, w_occ_conj, w_aspect, mult, f"5L Conj Base ({w_occ_conj:.2f})", f"5L Asp Base ({w_aspect:.2f})", asc_override_idx, target_sign=l5_sign)
                     
                 nak_lord = l5_p.get("nakshatra_lord")
                 if nak_lord:
@@ -707,18 +756,20 @@ class EducationCalculator:
             merc_h5_original_house_num = ((merc_h5_sign_idx - original_asc_idx) % 12) + 1
             m_h5_occ = analyzer.get_occupants(merc_h5_original_house_num)
             m_h5_asp = analyzer.get_aspecting_planets(merc_h5_original_house_num)
-            self._process_influences(analyzer, "5th House from Mercury", m_h5_occ, m_h5_asp, w_5h_occ_asp * w_merc_factor, mult, f"Merc 5H Wt (Base {w_5h_occ_asp:.2f} * Factor {w_merc_factor:.2f})", asc_override_idx)
+            self._process_influences(analyzer, "5th House from Mercury", m_h5_occ, m_h5_asp, w_occ_conj * w_merc_factor, w_aspect * w_merc_factor, mult, f"Merc 5H Occ Wt (Base {w_occ_conj:.2f} * Factor {w_merc_factor:.2f})", f"Merc 5H Asp Wt (Base {w_aspect:.2f} * Factor {w_merc_factor:.2f})", asc_override_idx, target_sign=merc_h5_sign)
             
             m_l5_name = SIGN_LORDS.get(merc_h5_sign)
             if m_l5_name:
                 m_l5_p = analyzer.get_planet(m_l5_name)
                 if m_l5_p:
                     m_l5_original_house_num = m_l5_p["house"]
+                    m_l5_sign = m_l5_p["sign_index"] + 1
+                    
                     m_l5_conj = analyzer.get_conjunct_planets(m_l5_name)
                     m_l5_asp = analyzer.get_aspecting_planets(m_l5_original_house_num)
                     if m_l5_name in m_l5_asp: m_l5_asp.remove(m_l5_name)
                     
-                    self._process_influences(analyzer, f"5th Lord from Mercury ({m_l5_name})", m_l5_conj, m_l5_asp, w_5l_occ_asp * w_merc_factor, mult, f"Merc 5L Wt (Base {w_5l_occ_asp:.2f} * Factor {w_merc_factor:.2f})", asc_override_idx)
+                    self._process_influences(analyzer, f"5th Lord from Mercury ({m_l5_name})", m_l5_conj, m_l5_asp, w_occ_conj * w_merc_factor, w_aspect * w_merc_factor, mult, f"Merc 5L Conj Wt (Base {w_occ_conj:.2f} * Factor {w_merc_factor:.2f})", f"Merc 5L Asp Wt (Base {w_aspect:.2f} * Factor {w_merc_factor:.2f})", asc_override_idx, target_sign=m_l5_sign)
                     
                     m_nak_lord = m_l5_p.get("nakshatra_lord")
                     if m_nak_lord:
@@ -767,8 +818,9 @@ class EducationCalculator:
         w_d24 = globals().get("W_D24_MULTIPLIER", 1.0)
         w_d60 = globals().get("W_D60_MULTIPLIER", 1.0)
         w_md = globals().get("W_DASHA_LAGNA_MULTIPLIER", 1.0)
+        w_karakamsha = globals().get("W_KARAKAMSHA_MULTIPLIER", 1.0)
         
-        actual_d60_mult = max(w_d60, w_d1, w_d9, w_d24, w_md)
+        actual_d60_mult = max(w_d60, w_d1, w_d9, w_d24, w_md, w_karakamsha)
         age_edu = globals().get("AGE_OF_EDUCATION", 18.0)
         
         # Step 1, 2, 3: Core Varga Evaluations based on selected charts
@@ -780,6 +832,25 @@ class EducationCalculator:
             self._eval_varga_chart(self.d24_data, "D-24 Siddhamsa", w_d24, asc_override_idx=None)
         if globals().get("ANALYZE_D60", True):
             self._eval_varga_chart(self.d60_data, "D-60 Shashtiamsa", actual_d60_mult, asc_override_idx=None)
+            
+        # Karakamsha Evaluation
+        if globals().get("ANALYZE_KARAKAMSHA", False):
+            ak_name = self._get_atma_karaka(self.chart_data)
+            self.log.append(f"<div style='margin-bottom: 15px; border-left: 3px solid #D97706; padding-left: 10px;'>")
+            self.log.append(f"<h3 style='color:#D97706; margin-bottom: 4px;'>--- KARAKAMSHA ANALYSIS ---</h3><ul>")
+            if ak_name:
+                ak_d9_sign_idx = None
+                for p in self.d9_data.get("planets", []):
+                    if p["name"] == ak_name:
+                        ak_d9_sign_idx = p["sign_index"]
+                        break
+                if ak_d9_sign_idx is not None:
+                    self.log.append(f"<li>Atma Karaka is <b>{ak_name}</b>. It occupies sign {ak_d9_sign_idx + 1} in D-9. Using as new D-1 Ascendant.</li></ul></div>")
+                    self._eval_varga_chart(self.chart_data, f"Karakamsha (Lagna={ak_d9_sign_idx + 1})", w_karakamsha, asc_override_idx=ak_d9_sign_idx)
+                else:
+                    self.log.append(f"<li>Could not locate Atma Karaka ({ak_name}) in D-9. Skipping Karakamsha.</li></ul></div>")
+            else:
+                self.log.append("<li>Could not identify Atma Karaka. Skipping Karakamsha.</li></ul></div>")
         
         # Mahadasha Evaluation
         if globals().get("ANALYZE_MD", False):

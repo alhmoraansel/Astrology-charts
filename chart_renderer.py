@@ -3,7 +3,7 @@
 import math, time, animation
 
 from PyQt6.QtWidgets import QWidget, QLabel, QSizePolicy
-from PyQt6.QtGui import QPainter, QPen, QColor, QFont, QBrush, QPolygonF, QPixmap
+from PyQt6.QtGui import QPainter, QPen, QColor, QFont, QBrush, QPolygonF, QPixmap,QRadialGradient, QPainterPath, QLinearGradient
 from PyQt6.QtCore import Qt, QTimer, QRectF, QPointF
 
 import astro_engine
@@ -22,6 +22,11 @@ GLOBAL_DEGREE_FONT_MULTIPLIER = 1.1 # Global multiplier for degree font size
 DEGREE_AFTER_SYMBOLS = True # Draw degrees after retrograde/combust/exalted symbols
 DEGREE_FONT_BOLD = True # Draw degrees in bold font
 USE_BETTER_LAYOUT = True # Shift crowded planets to prevent overlap or clipping
+GLOBAL_KARAKAMSHA_THICKNESS = 5.5  # Controls the thickness of the D1 Karakamsha highlight boundary
+GLOBAL_SHOW_KARAKAMSHA_HIGHLIGHT = True  # Extracted boolean to control visibility
+
+
+
 
 # ==========================================
 # ASTROLOGICAL REFERENCE DICTIONARIES
@@ -271,10 +276,15 @@ class ChartAnalyzer:
 # CORE RENDERER CLASS
 # ==========================================
 class ChartRenderer(QWidget):
+    def toggle_karakamsha(self, is_checked: bool):
+        """Connect your UI checkbox to this method to toggle the sacred stroke."""
+        self.show_karakamsha = is_checked
+        self.update()
     SHOW_TOOLTIPS = True
 
     def __init__(self):
         super().__init__()
+        self.show_karakamsha = GLOBAL_SHOW_KARAKAMSHA_HIGHLIGHT
         
         # --- Widget Configuration ---
         self.setMinimumSize(100, 100)
@@ -318,6 +328,11 @@ class ChartRenderer(QWidget):
         
         # --- Animation State ---
         self.anim_timer = QTimer(self)
+        # --- Ambient Animation Timer (for breathing effects) ---
+        self.ambient_timer = QTimer(self)
+        self.ambient_timer.timeout.connect(self.update)
+        # 30-40ms is about 25-30 FPS, perfect for a smooth, slow breath without draining CPU
+        self.ambient_timer.start(35)
         self.anim_timer.timeout.connect(self._on_anim_tick)
         self.anim_duration = 600.0
         self.anim_start_time = 0
@@ -777,122 +792,143 @@ class ChartRenderer(QWidget):
                     
         return layout
 
+
     def paintEvent(self, event):
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        
-        size = min(self.width(), self.height()) - 50
-        cx, cy = self.width() / 2, self.height() / 2
-        x, y, w, h = cx - size / 2, cy - size / 2 + 10, size, size
-        
-        new_target_layout = self._compute_layout(x, y, w, h)
-        if self.data_changed_flag:
-            self.data_changed_flag = False
-            self.bg_cache = None 
+        try:
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
             
-            if getattr(self, 'instant_snap', False) or self.current_layout is None:
-                self.source_layout = self.target_layout = self.current_layout = new_target_layout
-                if self.anim_timer.isActive():
-                    self.anim_timer.stop()
+            size = min(self.width(), self.height()) - 50
+            cx, cy = self.width() / 2, self.height() / 2
+            x, y, w, h = cx - size / 2, cy - size / 2 + 10, size, size
+            
+            new_target_layout = self._compute_layout(x, y, w, h)
+            if self.data_changed_flag:
+                self.data_changed_flag = False
+                self.bg_cache = None 
+                
+                if getattr(self, 'instant_snap', False) or self.current_layout is None:
+                    self.source_layout = self.target_layout = self.current_layout = new_target_layout
+                    if self.anim_timer.isActive():
+                        self.anim_timer.stop()
+                else:
+                    self.source_layout, self.target_layout = self.current_layout, new_target_layout
+                    self.anim_start_time = time.time() * 1000
+                    self.anim_timer.start(16)
             else:
-                self.source_layout, self.target_layout = self.current_layout, new_target_layout
-                self.anim_start_time = time.time() * 1000
-                self.anim_timer.start(16)
-        else:
-            self.target_layout = new_target_layout
-            if not self.anim_timer.isActive():
-                self.source_layout = self.current_layout = new_target_layout
+                self.target_layout = new_target_layout
+                if not self.anim_timer.isActive():
+                    self.source_layout = self.current_layout = new_target_layout
 
-        if not self.current_layout:
-            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "No Chart Data")
-            return
+            if not self.current_layout or not self.chart_data:
+                painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "No Chart Data")
+                return
 
-        if getattr(self, '_last_bg_size', None) != self.size() or not getattr(self, 'bg_cache', None):
-            self._last_bg_size = self.size()
-            self.bg_cache = QPixmap(self.size())
-            self.bg_cache.fill(Qt.GlobalColor.white)
-            
-            bg_p = QPainter(self.bg_cache)
-            bg_p.setRenderHint(QPainter.RenderHint.Antialiasing)
-            
-            if self.title:
-                bg_p.setPen(QColor("#BBBBBB"))
-                calc_size = int(min(15, max(10, int(size * 0.035))) * GLOBAL_FONT_SCALE_MULTIPLIER)
-                bg_p.setFont(QFont(GLOBAL_UI_FONT_FAMILY, calc_size, QFont.Weight.Bold))
-                bg_p.drawText(QRectF(0, 0, self.width(), y - 10), Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignHCenter, self.title)
+            if getattr(self, '_last_bg_size', None) != self.size() or not getattr(self, 'bg_cache', None):
+                self._last_bg_size = self.size()
+                self.bg_cache = QPixmap(self.size())
+                self.bg_cache.fill(Qt.GlobalColor.white)
+                
+                bg_p = QPainter(self.bg_cache)
+                try:
+                    bg_p.setRenderHint(QPainter.RenderHint.Antialiasing)
+                    
+                    if self.title:
+                        bg_p.setPen(QColor("#BBBBBB"))
+                        calc_size = int(min(15, max(10, int(size * 0.035))) * GLOBAL_FONT_SCALE_MULTIPLIER)
+                        bg_p.setFont(QFont(GLOBAL_UI_FONT_FAMILY, calc_size, QFont.Weight.Bold))
+                        bg_p.drawText(QRectF(0, 0, self.width(), y - 10), Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignHCenter, self.title)
 
-            self.house_polys.clear()
-            for h_num in range(1, 13):
-                self.house_polys[h_num] = self._get_house_polygon(h_num, x, y, w, h)
+                    self.house_polys.clear()
+                    for h_num in range(1, 13):
+                        self.house_polys[h_num] = self._get_house_polygon(h_num, x, y, w, h)
 
-            if getattr(self, "use_circular", False):
-                outer_r, inner_r = (w - 40) / 2, w * 0.15
-                bg_p.setPen(QPen(QColor("#DAA520"), 2))
-                bg_p.drawEllipse(QPointF(cx, cy), outer_r + 4, outer_r + 4)
-                
-                bg_p.setPen(QPen(QColor("#8B4513"), 1.5))
-                bg_p.drawEllipse(QPointF(cx, cy), outer_r + 8, outer_r + 8)
-                
-                bg_p.setPen(QPen(QColor("#222222"), max(1.0, w * 0.005)))
-                bg_p.drawEllipse(QRectF(x + 20, y + 20, w - 40, h - 40))
-                bg_p.drawEllipse(QRectF(cx - inner_r, cy - inner_r, inner_r * 2, inner_r * 2))
-                
-                for i in range(12):
-                    angle = math.radians(i * 30 + 15)
-                    bg_p.drawLine(
-                        int(cx + inner_r * math.cos(angle)), int(cy - inner_r * math.sin(angle)), 
-                        int(cx + outer_r * math.cos(angle)), int(cy - outer_r * math.sin(angle))
-                    )
-            else:
-                bg_p.setPen(QPen(QColor("#DAA520"), 2))
-                bg_p.drawRect(int(x - 4), int(y - 4), int(w + 8), int(h + 8))
-                
-                bg_p.setPen(QPen(QColor("#8B4513"), 1.5))
-                bg_p.drawRect(int(x - 8), int(y - 8), int(w + 16), int(h + 16))
-                
-                bg_p.setPen(Qt.PenStyle.NoPen)
-                bg_p.setBrush(QBrush(QColor("#8B4513")))
-                for px in [x - 8, x + w + 8]:
-                    for py in [y - 8, y + h + 8]: 
-                        bg_p.drawRect(int(px - 2), int(py - 2), 4, 4)
+                    if getattr(self, "use_circular", False):
+                        outer_r, inner_r = (w - 40) / 2, w * 0.15
+                        bg_p.setPen(QPen(QColor("#DAA520"), 2))
+                        bg_p.drawEllipse(QPointF(cx, cy), outer_r + 4, outer_r + 4)
                         
-                bg_p.setBrush(Qt.BrushStyle.NoBrush)
-                bg_p.setPen(QPen(QColor("#222222"), max(1.0, w * 0.005)))
-                bg_p.drawRect(int(x), int(y), int(w), int(h))
-                
-                lines = [
-                    (x, y, x + w, y + h), 
-                    (x + w, y, x, y + h), 
-                    (x + w/2, y, x + w, y + h/2), 
-                    (x + w, y + h/2, x + w/2, y + h), 
-                    (x + w/2, y + h, x, y + h/2), 
-                    (x, y + h/2, x + w/2, y)
-                ]
-                for L in lines:
-                    bg_p.drawLine(int(L[0]), int(L[1]), int(L[2]), int(L[3]))
-                    
-            bg_p.end()
+                        bg_p.setPen(QPen(QColor("#8B4513"), 1.5))
+                        bg_p.drawEllipse(QPointF(cx, cy), outer_r + 8, outer_r + 8)
+                        
+                        bg_p.setPen(QPen(QColor("#222222"), max(1.0, w * 0.005)))
+                        bg_p.drawEllipse(QRectF(x + 20, y + 20, w - 40, h - 40))
+                        bg_p.drawEllipse(QRectF(cx - inner_r, cy - inner_r, inner_r * 2, inner_r * 2))
+                        
+                        for i in range(12):
+                            angle = math.radians(i * 30 + 15)
+                            bg_p.drawLine(
+                                int(cx + inner_r * math.cos(angle)), int(cy - inner_r * math.sin(angle)), 
+                                int(cx + outer_r * math.cos(angle)), int(cy - outer_r * math.sin(angle))
+                            )
+                    else:
+                        bg_p.setPen(QPen(QColor("#DAA520"), 2))
+                        bg_p.drawRect(int(x - 4), int(y - 4), int(w + 8), int(h + 8))
+                        
+                        bg_p.setPen(QPen(QColor("#8B4513"), 1.5))
+                        bg_p.drawRect(int(x - 8), int(y - 8), int(w + 16), int(h + 16))
+                        
+                        bg_p.setPen(Qt.PenStyle.NoPen)
+                        bg_p.setBrush(QBrush(QColor("#8B4513")))
+                        for px in [x - 8, x + w + 8]:
+                            for py in [y - 8, y + h + 8]: 
+                                bg_p.drawRect(int(px - 2), int(py - 2), 4, 4)
+                                
+                        bg_p.setBrush(Qt.BrushStyle.NoBrush)
+                        bg_p.setPen(QPen(QColor("#222222"), max(1.0, w * 0.005)))
+                        bg_p.drawRect(int(x), int(y), int(w), int(h))
+                        
+                        lines = [
+                            (x, y, x + w, y + h), 
+                            (x + w, y, x, y + h), 
+                            (x + w/2, y, x + w, y + h/2), 
+                            (x + w, y + h/2, x + w/2, y + h), 
+                            (x + w/2, y + h, x, y + h/2), 
+                            (x, y + h/2, x + w/2, y)
+                        ]
+                        for L in lines:
+                            bg_p.drawLine(int(L[0]), int(L[1]), int(L[2]), int(L[3]))
+                finally:
+                    bg_p.end()
 
-        painter.drawPixmap(0, 0, self.bg_cache)
+            painter.drawPixmap(0, 0, self.bg_cache)
 
-        for tint in self.current_layout["tints"]:
-            if not getattr(self, "use_circular", False) and tint["h2"] in self.house_polys:
-                painter.setBrush(QBrush(tint["color"]))
-                painter.setPen(Qt.PenStyle.NoPen)
-                painter.drawPolygon(self.house_polys[tint["h2"]])
-        
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        if not getattr(self, "use_circular", False):
-            for h_num in range(1, 13):
-                h_data = self.current_layout["houses"].get(h_num)
-                if not h_data: 
-                    continue
-                    
-                if self.outline_mode == "Regime (Forces)" and h_data.get("regime_colors", []):
-                    for i, col_hex in enumerate(h_data["regime_colors"]):
-                        c = QColor(col_hex)
-                        c.setAlpha(230)
-                        inset_dist = (max(1.0, w * 0.005) / 2.0) + 4.25 + (i * 4.5)
+            for tint in self.current_layout["tints"]:
+                if not getattr(self, "use_circular", False) and tint["h2"] in self.house_polys:
+                    painter.setBrush(QBrush(tint["color"]))
+                    painter.setPen(Qt.PenStyle.NoPen)
+                    painter.drawPolygon(self.house_polys[tint["h2"]])
+            
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            if not getattr(self, "use_circular", False):
+                for h_num in range(1, 13):
+                    h_data = self.current_layout["houses"].get(h_num)
+                    if not h_data: 
+                        continue
+                        
+                    if self.outline_mode == "Regime (Forces)" and h_data.get("regime_colors", []):
+                        for i, col_hex in enumerate(h_data["regime_colors"]):
+                            c = QColor(col_hex)
+                            c.setAlpha(230)
+                            inset_dist = (max(1.0, w * 0.005) / 2.0) + 4.25 + (i * 3.5)
+                            
+                            pts = []
+                            for pt in self.house_polys[h_num]:
+                                dx = h_data["x"] - pt.x()
+                                dy = h_data["y"] - pt.y()
+                                dist = max(1, math.hypot(dx, dy))
+                                nx = pt.x() + (dx / dist) * inset_dist
+                                ny = pt.y() + (dy / dist) * inset_dist
+                                pts.append(QPointF(nx, ny))
+                                
+                            inset_poly = QPolygonF(pts)
+                            painter.setPen(QPen(c, 2.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+                            painter.drawPolygon(inset_poly)
+                            
+                    elif self.outline_mode != "Regime (Forces)" and h_data.get("outline_width", 1.0) > 1.05:
+                        c = QColor(h_data["outline_color"])
+                        c.setAlpha(220)
+                        inset_dist = (max(1.0, w * 0.005) / 2.0) + 4.25
                         
                         pts = []
                         for pt in self.house_polys[h_num]:
@@ -904,173 +940,289 @@ class ChartRenderer(QWidget):
                             pts.append(QPointF(nx, ny))
                             
                         inset_poly = QPolygonF(pts)
-                        painter.setPen(QPen(c, 3.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+                        painter.setPen(QPen(c, 2.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
                         painter.drawPolygon(inset_poly)
-                        
-                elif self.outline_mode != "Regime (Forces)" and h_data.get("outline_width", 1.0) > 1.05:
-                    c = QColor(h_data["outline_color"])
-                    c.setAlpha(220)
-                    inset_dist = (max(1.0, w * 0.005) / 2.0) + 4.25
-                    
-                    pts = []
-                    for pt in self.house_polys[h_num]:
-                        dx = h_data["x"] - pt.x()
-                        dy = h_data["y"] - pt.y()
-                        dist = max(1, math.hypot(dx, dy))
-                        nx = pt.x() + (dx / dist) * inset_dist
-                        ny = pt.y() + (dy / dist) * inset_dist
-                        pts.append(QPointF(nx, ny))
-                        
-                    inset_poly = QPolygonF(pts)
-                    painter.setPen(QPen(c, 3.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
-                    painter.drawPolygon(inset_poly)
 
-        z_font = QFont(GLOBAL_RASHI_FONT_FAMILY, int(max(7, min(14, max(9, w * 0.035)) * 0.5) * GLOBAL_FONT_SCALE_MULTIPLIER))
-        painter.setFont(z_font)
-        painter.setPen(QColor("#000000"))
-        
-        for z in self.current_layout["zodiacs"].values():
-            painter.drawText(QRectF(z["x"] - 15, z["y"] - 15, 30, 30), Qt.AlignmentFlag.AlignCenter, z["val"])
-
-        self.hitboxes.clear()
-        is_animating = self.anim_timer.isActive()
-        p_base_font_size = min(14, max(9, int(w * 0.035))) * GLOBAL_FONT_SCALE_MULTIPLIER * 1.15
-        marker_base_fs = max(4, min(9, max(6, int(w * 0.022))))
-        
-        for b in self.current_layout["planets"].values():
-            scale = b.get("scale", 1.0)
-            
-            if b["raw"].get("is_ak"):
-                painter.setPen(Qt.PenStyle.NoPen)
-                painter.setBrush(QColor(255, 215, 0, 90))
-                painter.drawEllipse(QPointF(b["x"], b["y"] - 4 * scale), 22 * scale, 22 * scale)
-                
-            painter.setPen(b["color_dark"])
-            painter.setFont(QFont(GLOBAL_CHART_FONT_FAMILY, int(p_base_font_size * scale), QFont.Weight.Bold))
-            p_rect = QRectF(b["x"] - 40 * scale, b["y"] - 10 * scale, 80 * scale, 20 * scale)
-            painter.drawText(p_rect, Qt.AlignmentFlag.AlignCenter, b["str"])
-            
-            if not is_animating:
-                self.hitboxes.append((p_rect, b["raw"]))
-                
-            marker_x = b["x"] + painter.fontMetrics().horizontalAdvance(b["str"]) / 2.0 + 2 * scale
-            marker_y, marker_h = b["y"] - 10 * scale, 20 * scale
-            marker_fs = max(4, int(marker_base_fs * scale))
-            
-            # --- PREPARE DEGREES FOR D1 CHART ONLY ---
-            draw_deg_block = False
-            deg_str = ""
-            deg_color = None
-            deg_fs = 5
+            # =========================================================
+            # KARAKAMSHA HIGHLIGHT (The Light Divine & Blazing Stardust)
+            # =========================================================
             is_d1_chart = self.title and (self.title == "D1" or self.title.startswith("D1 "))
             
-            if is_d1_chart and "deg_in_sign" in b["raw"]:
-                draw_deg_block = True
-                deg_val = b["raw"]["deg_in_sign"]
-                deg_str = f"{int(deg_val)}°"
+            if self.show_karakamsha and is_d1_chart and self.chart_data and not getattr(self, "use_circular", False):
+                ak_planet = next((p for p in self.chart_data.get("planets", []) if p.get("is_ak")), None)
                 
-                # Apply global font multiplier
-                deg_fs = max(5, int(marker_fs * GLOBAL_DEGREE_FONT_MULTIPLIER)) 
-                
-                if deg_val < 6.0: deg_color = QColor("#777777")
-                elif deg_val < 12.0: deg_color = QColor("#27ae60")
-                elif deg_val < 18.0: deg_color = QColor("#DAA520")
-                elif deg_val < 24.0: deg_color = QColor("#27ae60")
-                else: deg_color = QColor("#777777")
-                
-            # DRAW DEGREES BEFORE SYMBOLS
-            if draw_deg_block and not DEGREE_AFTER_SYMBOLS:
-                deg_weight = QFont.Weight.Bold if DEGREE_FONT_BOLD else QFont.Weight.Normal
-                painter.setFont(QFont(GLOBAL_CHART_FONT_FAMILY, deg_fs, deg_weight))
-                painter.setPen(deg_color) 
-                painter.drawText(QRectF(marker_x, marker_y, 30 * scale, marker_h), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, deg_str)
-                marker_x += painter.fontMetrics().horizontalAdvance(deg_str) + 2
-                
-            # --- RESET PEN FOR THE REST OF THE MARKERS ---
-            painter.setPen(b["color_dark"])
-            
-            if b["retro"]:
-                painter.setFont(QFont(GLOBAL_CHART_FONT_FAMILY, max(4, marker_fs - 1), QFont.Weight.Bold))
-                painter.drawText(QRectF(marker_x, marker_y - 5 * scale, 20 * scale, marker_h), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, "R")
-                marker_x += painter.fontMetrics().horizontalAdvance("R") + 1
-                
-            if b.get("exalted"):
-                painter.setPen(QColor("#27ae60"))
-                painter.setFont(QFont(GLOBAL_CHART_FONT_FAMILY, marker_fs, QFont.Weight.Bold))
-                painter.drawText(QRectF(marker_x, marker_y, 20 * scale, marker_h), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, "▲")
-                marker_x += painter.fontMetrics().horizontalAdvance("▲") + 2
-            elif b.get("debilitated"):
-                painter.setPen(QColor("#c0392b"))
-                painter.setFont(QFont(GLOBAL_CHART_FONT_FAMILY, marker_fs, QFont.Weight.Bold))
-                painter.drawText(QRectF(marker_x, marker_y, 20 * scale, marker_h), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, "▼")
-                marker_x += painter.fontMetrics().horizontalAdvance("▼") + 2
-                
-            if b.get("obliterated"):
-                painter.setFont(QFont(GLOBAL_EMOJI_FONT_FAMILY, marker_fs))
-                painter.drawText(QRectF(marker_x, marker_y, 20 * scale, marker_h), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, "☀")
-                marker_x += painter.fontMetrics().horizontalAdvance("☀") + 2
-            elif b.get("combust"):
-                painter.setFont(QFont(GLOBAL_EMOJI_FONT_FAMILY, marker_fs))
-                painter.drawText(QRectF(marker_x, marker_y, 20 * scale, marker_h), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, "🔥")
-                marker_x += painter.fontMetrics().horizontalAdvance("🔥") + 2
+                if ak_planet and "deg_in_sign" in ak_planet and "sign_index" in ak_planet:
+                    ak_d9_sign = int(ak_planet["sign_index"] * 9 + ak_planet["deg_in_sign"] / (30.0 / 9.0)) % 12
+                    asc_idx = self.rotated_asc_sign_idx if getattr(self, 'rotated_asc_sign_idx', None) is not None else self.chart_data["ascendant"]["sign_index"]
+                    k_house = ((ak_d9_sign - asc_idx) % 12) + 1
+                    
+                    h_data = self.current_layout["houses"].get(k_house)
+                    if h_data and k_house in self.house_polys:
+                        poly = self.house_polys[k_house]
+                        
+                        painter.save()
+                        
+                        # --- 1. DYNAMIC COLOR CALCULATION (Neon Piercing Complement) ---
+                        house_tints = [t["color"] for t in self.current_layout.get("tints", []) if t["h2"] == k_house]
+                        
+                        if not house_tints:
+                            # Clean white canvas: Default to pure Blazing Gold
+                            glow_color = QColor(255, 215, 0) 
+                        else:
+                            # Calculate the exact RGB blend of the mud
+                            bg_r, bg_g, bg_b = 255.0, 255.0, 255.0 
+                            for tc in house_tints:
+                                alpha = tc.alphaF()
+                                bg_r = (tc.red() * alpha) + (bg_r * (1.0 - alpha))
+                                bg_g = (tc.green() * alpha) + (bg_g * (1.0 - alpha))
+                                bg_b = (tc.blue() * alpha) + (bg_b * (1.0 - alpha))
+                            
+                            bg_color = QColor(int(bg_r), int(bg_g), int(bg_b))
+                            bg_h, bg_s, bg_v, _ = bg_color.getHsv()
+                            
+                            # If the mix becomes completely desaturated (gray/dark mud), hue becomes -1.
+                            # In that case, we FORCE Electric Cyan (Hue 180) to pierce the mud perfectly.
+                            if bg_h == -1 or bg_s < 15:
+                                comp_h = 180 
+                            else:
+                                comp_h = (bg_h + 180) % 360 # Perfect opposite on color wheel
+                                
+                            # Force a "Light Neon" profile: Saturation 120 (pastel/light), Value 255 (max brightness)
+                            glow_color = QColor.fromHsv(comp_h, 120, 255) 
+                            
+                        # Bubbles are ALWAYS pure, blinding white
+                        particle_color = QColor(255, 255, 255)
+                        
+                        # --- 2. SET CLIPPING PATH ---
+                        clip_path = QPainterPath()
+                        clip_path.addPolygon(poly)
+                        painter.setClipPath(clip_path)
+                        
+                        current_time = time.time()
+                        breath = (math.sin(current_time * 2.0) + 1.0) / 2.0
+                        
+                        # --- 3. AMBIENT AURA (Intense inner glow) ---
+                        aura_opacity = int(55 + (breath * 60)) # Much stronger ambient light
+                        radial_grad = QRadialGradient(QPointF(h_data["x"], h_data["y"]), w * 0.18)
+                        radial_grad.setColorAt(0.0, QColor(glow_color.red(), glow_color.green(), glow_color.blue(), aura_opacity))
+                        radial_grad.setColorAt(1.0, QColor(glow_color.red(), glow_color.green(), glow_color.blue(), 0))
+                        
+                        painter.setPen(Qt.PenStyle.NoPen)
+                        painter.setBrush(QBrush(radial_grad))
+                        painter.drawPolygon(poly)
+                        
+                        # --- 4. THE SOUL WIND (Supercharged Blazing Stardust) ---
+                        rect = poly.boundingRect()
+                        num_particles = 24 # More bubbles
+                        
+                        for i in range(num_particles):
+                            seed1 = abs(math.sin(i * 37.1))
+                            seed2 = abs(math.cos(i * 91.3))
+                            
+                            speed = 14 + (seed1 * 20)      
+                            phase = i * 45.2               
+                            sway_freq = 0.8 + seed2 * 1.5  
+                            
+                            y_offset = ((current_time * speed) + phase) % rect.height()
+                            y = rect.bottom() - y_offset
+                            
+                            sway = math.sin(current_time * sway_freq + i) * (w * 0.012)
+                            x = rect.left() + (seed1 * rect.width()) + sway
+                            
+                            twinkle = (math.sin(current_time * 4 + i) + 1) / 2.0
+                            
+                            # CRANKED OPACITY: Base is 130, peaks at 255 (brilliant pure white)
+                            p_opacity = int(130 + (twinkle * 125))
+                            
+                            # Noticeably larger bubbles
+                            p_size = max(2.0, w * 0.0035) + (seed2 * w * 0.0035)
+                            
+                            painter.setBrush(QColor(particle_color.red(), particle_color.green(), particle_color.blue(), p_opacity))
+                            painter.drawEllipse(QPointF(x, y), p_size, p_size)
 
-            if b["raw"]["name"] != "Ascendant":
+                        painter.restore() # Remove clipping mask
+                        
+                        # --- 5. CALCULATE BORDER INSET ---
+                        def get_inset_poly(offset):
+                            pts = []
+                            for pt in poly:
+                                dx = h_data["x"] - pt.x()
+                                dy = h_data["y"] - pt.y()
+                                dist = max(1, math.hypot(dx, dy))
+                                pts.append(QPointF(pt.x() + (dx / dist) * offset, pt.y() + (dy / dist) * offset))
+                            return QPolygonF(pts)
+
+                        dynamic_inset = (max(1.0, w * 0.005) / 2.0)
+                        if self.outline_mode == "Regime (Forces)" and h_data.get("regime_colors", []):
+                            dynamic_inset += 4.25 + ((len(h_data["regime_colors"]) - 1) * 3.5) + 3.0
+                        elif self.outline_mode != "Regime (Forces)" and h_data.get("outline_width", 1.0) > 1.05:
+                            dynamic_inset += 4.25 + 3.0
+                        else:
+                            dynamic_inset += 5.0
+
+                        inset_poly = get_inset_poly(dynamic_inset)
+                        painter.setBrush(Qt.BrushStyle.NoBrush)
+
+                        # --- 6. EDGE BLOOM EFFECT (Ultra-Light Glow) ---
+                        # Base glow alpha increased dramatically for vivid edge bleeding
+                        base_glow_alpha = int(60 + (breath * 60)) 
+                        
+                        # Added a 4th tight layer (2.0) for intense light concentration near the core
+                        glow_widths = [15.0, 10.0, 5.0, 2.0] 
+                        
+                        for width_mult in glow_widths:
+                            blur_thickness = max(width_mult, w * (width_mult / 1000.0))
+                            painter.setPen(QPen(QColor(glow_color.red(), glow_color.green(), glow_color.blue(), base_glow_alpha), blur_thickness, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+                            painter.drawPolygon(inset_poly)
+                        
+                        # --- 7. THE SACRED STROKE ---
+                        core_opacity = int(220 + (breath * 35)) # Almost always pure white
+                        painter.setPen(QPen(QColor(255, 255, 255, core_opacity), max(1.5, w * 0.0025), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.MiterJoin))
+                        painter.drawPolygon(inset_poly)
+            # =========================================================
+
+            z_font = QFont(GLOBAL_RASHI_FONT_FAMILY, int(max(7, min(14, max(9, w * 0.035)) * 0.5) * GLOBAL_FONT_SCALE_MULTIPLIER))
+            painter.setFont(z_font)
+            painter.setPen(QColor("#000000"))
+            
+            for z in self.current_layout["zodiacs"].values():
+                painter.drawText(QRectF(z["x"] - 15, z["y"] - 15, 30, 30), Qt.AlignmentFlag.AlignCenter, z["val"])
+
+            self.hitboxes.clear()
+            is_animating = self.anim_timer.isActive()
+            p_base_font_size = min(14, max(9, int(w * 0.035))) * GLOBAL_FONT_SCALE_MULTIPLIER * 1.15
+            marker_base_fs = max(4, min(9, max(6, int(w * 0.022))))
+            
+            for b in self.current_layout["planets"].values():
+                scale = b.get("scale", 1.0)
+                
+                if b["raw"].get("is_ak"):
+                    painter.setPen(Qt.PenStyle.NoPen)
+                    painter.setBrush(QColor(255, 215, 0, 90))
+                    painter.drawEllipse(QPointF(b["x"], b["y"] - 4 * scale), 22 * scale, 22 * scale)
+                    
+                painter.setPen(b["color_dark"])
+                painter.setFont(QFont(GLOBAL_CHART_FONT_FAMILY, int(p_base_font_size * scale), QFont.Weight.Bold))
+                p_rect = QRectF(b["x"] - 40 * scale, b["y"] - 10 * scale, 80 * scale, 20 * scale)
+                painter.drawText(p_rect, Qt.AlignmentFlag.AlignCenter, b["str"])
+                
+                if not is_animating:
+                    self.hitboxes.append((p_rect, b["raw"]))
+                    
+                marker_x = b["x"] + painter.fontMetrics().horizontalAdvance(b["str"]) / 2.0 + 2 * scale
+                marker_y, marker_h = b["y"] - 10 * scale, 20 * scale
+                marker_fs = max(4, int(marker_base_fs * scale))
+                
+                draw_deg_block = False
+                deg_str = ""
+                deg_color = None
+                deg_fs = 5
+                
+                if is_d1_chart and "deg_in_sign" in b["raw"]:
+                    draw_deg_block = True
+                    deg_val = b["raw"]["deg_in_sign"]
+                    deg_str = f"{int(deg_val)}°"
+                    deg_fs = max(5, int(marker_fs * GLOBAL_DEGREE_FONT_MULTIPLIER)) 
+                    
+                    if deg_val < 6.0: deg_color = QColor("#777777")
+                    elif deg_val < 12.0: deg_color = QColor("#27ae60")
+                    elif deg_val < 18.0: deg_color = QColor("#DAA520")
+                    elif deg_val < 24.0: deg_color = QColor("#27ae60")
+                    else: deg_color = QColor("#777777")
+                    
+                if draw_deg_block and not DEGREE_AFTER_SYMBOLS:
+                    deg_weight = QFont.Weight.Bold if DEGREE_FONT_BOLD else QFont.Weight.Normal
+                    painter.setFont(QFont(GLOBAL_CHART_FONT_FAMILY, deg_fs, deg_weight))
+                    painter.setPen(deg_color) 
+                    painter.drawText(QRectF(marker_x, marker_y, 30 * scale, marker_h), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, deg_str)
+                    marker_x += painter.fontMetrics().horizontalAdvance(deg_str) + 2
+                    
+                painter.setPen(b["color_dark"])
+                
+                if b["retro"]:
+                    painter.setFont(QFont(GLOBAL_CHART_FONT_FAMILY, max(4, marker_fs - 1), QFont.Weight.Bold))
+                    painter.drawText(QRectF(marker_x, marker_y - 5 * scale, 20 * scale, marker_h), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, "R")
+                    marker_x += painter.fontMetrics().horizontalAdvance("R") + 1
+                    
+                if b.get("exalted"):
+                    painter.setPen(QColor("#27ae60"))
+                    painter.setFont(QFont(GLOBAL_CHART_FONT_FAMILY, marker_fs, QFont.Weight.Bold))
+                    painter.drawText(QRectF(marker_x, marker_y, 20 * scale, marker_h), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, "▲")
+                    marker_x += painter.fontMetrics().horizontalAdvance("▲") + 2
+                elif b.get("debilitated"):
+                    painter.setPen(QColor("#c0392b"))
+                    painter.setFont(QFont(GLOBAL_CHART_FONT_FAMILY, marker_fs, QFont.Weight.Bold))
+                    painter.drawText(QRectF(marker_x, marker_y, 20 * scale, marker_h), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, "▼")
+                    marker_x += painter.fontMetrics().horizontalAdvance("▼") + 2
+                    
+                if b.get("obliterated"):
+                    painter.setFont(QFont(GLOBAL_EMOJI_FONT_FAMILY, marker_fs))
+                    painter.drawText(QRectF(marker_x, marker_y, 20 * scale, marker_h), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, "☀")
+                    marker_x += painter.fontMetrics().horizontalAdvance("☀") + 2
+                elif b.get("combust"):
+                    painter.setFont(QFont(GLOBAL_EMOJI_FONT_FAMILY, marker_fs))
+                    painter.drawText(QRectF(marker_x, marker_y, 20 * scale, marker_h), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, "🔥")
+                    marker_x += painter.fontMetrics().horizontalAdvance("🔥") + 2
+
+                if b["raw"]["name"] != "Ascendant":
+                    asc_sign_idx = self.rotated_asc_sign_idx if getattr(self, 'rotated_asc_sign_idx', None) is not None else self.chart_data["ascendant"]["sign_index"]
+                    func_color, _, _ = self._get_dynamic_functional_nature(b["raw"]["name"], b["raw"].get("lord_of", []), self.chart_data["ascendant"]["sign_index"], asc_sign_idx)
+                    if func_color and func_color != "#7f8c8d":
+                        painter.setPen(QColor(func_color))
+                        painter.setFont(QFont(GLOBAL_CHART_FONT_FAMILY, int(marker_fs * GLOBAL_CANVAS_ASTERISK_SCALE), QFont.Weight.Bold))
+                        painter.drawText(QRectF(marker_x, marker_y + 2 * scale, 20 * scale, marker_h), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, "*")
+                        marker_x += painter.fontMetrics().horizontalAdvance("*") + 1
+                        
+                if draw_deg_block and DEGREE_AFTER_SYMBOLS:
+                    deg_weight = QFont.Weight.Bold if DEGREE_FONT_BOLD else QFont.Weight.Normal
+                    painter.setFont(QFont(GLOBAL_CHART_FONT_FAMILY, deg_fs, deg_weight))
+                    painter.setPen(deg_color) 
+                    painter.drawText(QRectF(marker_x, marker_y, 30 * scale, marker_h), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, deg_str)
+                    marker_x += painter.fontMetrics().horizontalAdvance(deg_str) + 2
+
+            if self.show_aspects and self.show_arrows and self.chart_data and self.chart_data.get("aspects"):
                 asc_sign_idx = self.rotated_asc_sign_idx if getattr(self, 'rotated_asc_sign_idx', None) is not None else self.chart_data["ascendant"]["sign_index"]
-                func_color, _, _ = self._get_dynamic_functional_nature(b["raw"]["name"], b["raw"].get("lord_of", []), self.chart_data["ascendant"]["sign_index"], asc_sign_idx)
-                if func_color and func_color != "#7f8c8d":
-                    painter.setPen(QColor(func_color))
-                    painter.setFont(QFont(GLOBAL_CHART_FONT_FAMILY, int(marker_fs * GLOBAL_CANVAS_ASTERISK_SCALE), QFont.Weight.Bold))
-                    painter.drawText(QRectF(marker_x, marker_y + 2 * scale, 20 * scale, marker_h), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, "*")
-                    marker_x += painter.fontMetrics().horizontalAdvance("*") + 1
-                    
-            # DRAW DEGREES AFTER SYMBOLS
-            if draw_deg_block and DEGREE_AFTER_SYMBOLS:
-                deg_weight = QFont.Weight.Bold if DEGREE_FONT_BOLD else QFont.Weight.Normal
-                painter.setFont(QFont(GLOBAL_CHART_FONT_FAMILY, deg_fs, deg_weight))
-                painter.setPen(deg_color) 
-                painter.drawText(QRectF(marker_x, marker_y, 30 * scale, marker_h), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, deg_str)
-                marker_x += painter.fontMetrics().horizontalAdvance(deg_str) + 2
+                
+                for i, aspect in enumerate(self.chart_data["aspects"]):
+                    is_node = aspect["aspecting_planet"] in ["Rahu", "Ketu"]
+                    if aspect["aspecting_planet"] in self.visible_aspect_planets and (not is_node or self.show_rahu_ketu):
+                        
+                        target_h_visual = ((((self.chart_data["ascendant"]["sign_index"] + aspect["target_house"] - 1) % 12) - asc_sign_idx) % 12) + 1
+                        p_v = self.current_layout["planets"].get(aspect["aspecting_planet"])
+                        h_v = self.current_layout["houses"].get(target_h_visual)
+                        
+                        if p_v and h_v:
+                            c = QColor(BRIGHT_COLORS.get(aspect["aspecting_planet"], QColor(100, 100, 100)))
+                            c.setAlpha(150)
+                            
+                            offset_x = (i % 3 - 1) * 4
+                            offset_y = ((i + 1) % 3 - 1) * 4
+                            x1, y1 = p_v["x"] + offset_x, p_v["y"] + offset_y
+                            x2, y2 = h_v["x"] + offset_x, h_v["y"] + offset_y
+                            
+                            dist = math.hypot(x2 - x1, y2 - y1)
+                            if dist >= 70:
+                                sx = x1 + ((x2 - x1) / dist) * 35
+                                sy = y1 + ((y2 - y1) / dist) * 35
+                                ex = x2 - ((x2 - x1) / dist) * 35
+                                ey = y2 - ((y2 - y1) / dist) * 35
+                                
+                                painter.setPen(QPen(c, max(1.5, w * 0.005), Qt.PenStyle.SolidLine))
+                                painter.drawLine(int(sx), int(sy), int(ex), int(ey))
+                                
+                                angle = math.atan2(ey - sy, ex - sx)
+                                painter.setBrush(QBrush(c))
+                                painter.setPen(Qt.PenStyle.NoPen)
+                                
+                                arrow_pts = [
+                                    QPointF(ex, ey), 
+                                    QPointF(ex - 9 * math.cos(angle - math.pi / 6), ey - 9 * math.sin(angle - math.pi / 6)), 
+                                    QPointF(ex - 9 * math.cos(angle + math.pi / 6), ey - 9 * math.sin(angle + math.pi / 6))
+                                ]
+                                painter.drawPolygon(QPolygonF(arrow_pts))
+        finally:
+            painter.end()
 
-        if self.show_aspects and self.show_arrows and self.chart_data and self.chart_data.get("aspects"):
-            asc_sign_idx = self.rotated_asc_sign_idx if getattr(self, 'rotated_asc_sign_idx', None) is not None else self.chart_data["ascendant"]["sign_index"]
-            
-            for i, aspect in enumerate(self.chart_data["aspects"]):
-                is_node = aspect["aspecting_planet"] in ["Rahu", "Ketu"]
-                if aspect["aspecting_planet"] in self.visible_aspect_planets and (not is_node or self.show_rahu_ketu):
-                    
-                    target_h_visual = ((((self.chart_data["ascendant"]["sign_index"] + aspect["target_house"] - 1) % 12) - asc_sign_idx) % 12) + 1
-                    p_v = self.current_layout["planets"].get(aspect["aspecting_planet"])
-                    h_v = self.current_layout["houses"].get(target_h_visual)
-                    
-                    if p_v and h_v:
-                        c = QColor(BRIGHT_COLORS.get(aspect["aspecting_planet"], QColor(100, 100, 100)))
-                        c.setAlpha(150)
-                        
-                        offset_x = (i % 3 - 1) * 4
-                        offset_y = ((i + 1) % 3 - 1) * 4
-                        x1, y1 = p_v["x"] + offset_x, p_v["y"] + offset_y
-                        x2, y2 = h_v["x"] + offset_x, h_v["y"] + offset_y
-                        
-                        dist = math.hypot(x2 - x1, y2 - y1)
-                        if dist >= 70:
-                            sx = x1 + ((x2 - x1) / dist) * 35
-                            sy = y1 + ((y2 - y1) / dist) * 35
-                            ex = x2 - ((x2 - x1) / dist) * 35
-                            ey = y2 - ((y2 - y1) / dist) * 35
-                            
-                            painter.setPen(QPen(c, max(1.5, w * 0.005), Qt.PenStyle.SolidLine))
-                            painter.drawLine(int(sx), int(sy), int(ex), int(ey))
-                            
-                            angle = math.atan2(ey - sy, ex - sx)
-                            painter.setBrush(QBrush(c))
-                            painter.setPen(Qt.PenStyle.NoPen)
-                            
-                            arrow_pts = [
-                                QPointF(ex, ey), 
-                                QPointF(ex - 9 * math.cos(angle - math.pi / 6), ey - 9 * math.sin(angle - math.pi / 6)), 
-                                QPointF(ex - 9 * math.cos(angle + math.pi / 6), ey - 9 * math.sin(angle + math.pi / 6))
-                            ]
-                            painter.drawPolygon(QPolygonF(arrow_pts))
 
     def mouseDoubleClickEvent(self, event):
         if not self.chart_data: return
