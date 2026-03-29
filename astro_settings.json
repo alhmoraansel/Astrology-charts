@@ -13,7 +13,7 @@
     "show_aspects": true,
     "show_details": true,
     "use_circular": false,
-    "show_tooltips": false,
+    "show_tooltips": true,
     "use_true_positions": true,
     "aspect_planets": {
         "Sun": false,
@@ -36,7 +36,7 @@
         "D7": false,
         "D8": false,
         "D9": true,
-        "D10": false,
+        "D10": true,
         "D11": false,
         "D12": false,
         "D16": false,
@@ -44,15 +44,14 @@
         "D24": false,
         "D27": false,
         "D30": false,
-        "D40": true,
+        "D40": false,
         "D45": false,
-        "D60": true
+        "D60": false
     },
     "active_charts_order": [
         "D1",
         "D9",
-        "D60",
-        "D40"
+        "D10"
     ],
     "plugin_order_prefs": [
         "education_mod",
@@ -68,11 +67,11 @@
     ],
     "layout_prefs": {
         "sidebar": [
-            "Date Time"
+            "Date Time",
+            "Divisional Charts"
         ],
         "menubar": [
             "Settings",
-            "Divisional Charts",
             "Animation",
             "Aspects From",
             "Transit Constraints",
@@ -82,7 +81,7 @@
         "table_menu_height": 365
     },
     "splitter_sizes": [
-        416,
-        946
+        419,
+        943
     ]
 }

@@ -267,8 +267,6 @@ class ChartAnalyzer:
         return exchanges
 
 
-
-
 # ==========================================
 # CORE RENDERER CLASS
 # ==========================================
@@ -615,7 +613,7 @@ class ChartRenderer(QWidget):
         
         if self.highlight_asc_moon: 
             is_vargottama = self.chart_data["ascendant"].get("vargottama", False)
-            asc_str = "Asc*" if is_vargottama and is_divisional else "Asc"
+            asc_str = "Asc★" if is_vargottama and is_divisional else "Asc"
             all_bodies.append({
                 "name": "Ascendant", 
                 "str": asc_str, 
@@ -641,7 +639,7 @@ class ChartRenderer(QWidget):
                 
             p_str = UNICODE_SYMS[p["name"]] if self.use_symbols else p["sym"]
             if p.get("vargottama", False) and is_divisional:
-                p_str += "*"
+                p_str += "★"
                 
             raw_copy = dict(p)
             
