@@ -1,6 +1,5 @@
 #main.py
-import pkgutil, sys,datetime,json,os,math,pytz,swisseph as swe,time,multiprocessing,queue,glob,copy,importlib.util
-import subprocess
+import pkgutil, sys,datetime,json,os,math,pytz,swisseph as swe,time,multiprocessing,queue,glob,copy,importlib.util, subprocess
 
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QLabel, QLineEdit, QPushButton, QComboBox, QTimeEdit, QTableWidget, QTableWidgetItem, QCheckBox,QHeaderView, QMessageBox, QGroupBox, QFileDialog,QScrollArea, QGridLayout, QSpinBox, QDialog, QTextBrowser,QDoubleSpinBox, QTabWidget, QSizePolicy, QAbstractItemView, QMenu, QWidgetAction, QMenuBar, QInputDialog, QProgressDialog, QListWidget, QListWidgetItem, QDialogButtonBox)
 from PyQt6.QtGui import QPainter, QPen, QColor, QFont, QBrush, QPolygonF, QCursor, QIcon, QPainterPath, QPixmap, QAction, QRegion
@@ -13,9 +12,7 @@ from astral.sun import sun
 from geopy.geocoders import Nominatim
 from timezonefinder import TimezoneFinder
 
-import dynamic_settings_modules
-import save_prefs,animation,astro_engine
-import help_content
+import dynamic_settings_modules, save_prefs,animation,astro_engine, help_content
 from chart_renderer import ChartRenderer
 
 try:

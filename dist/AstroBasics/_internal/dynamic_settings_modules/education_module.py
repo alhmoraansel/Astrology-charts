@@ -7,7 +7,7 @@ import os
 import datetime
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QDialog, 
                              QLabel, QScrollArea, QGroupBox, QTextBrowser, QTabWidget,
-                             QMenuBar, QFormLayout, QDoubleSpinBox, QDialogButtonBox, QApplication, QMessageBox)
+                             QMenuBar, QFormLayout, QDoubleSpinBox, QDialogButtonBox, QApplication, QMessageBox, QCheckBox)
 from PyQt6.QtGui import QFont, QColor
 from PyQt6.QtCore import Qt, QUrl, QTimer
 
@@ -17,12 +17,11 @@ from chart_renderer import ChartAnalyzer, SIGN_LORDS, ChartRenderer
 
 # Import the Live CSI Helper safely for end-of-analysis diagnostics ONLY
 try:
-    from dynamic_settings_modules.composite_strength_module import CSIHelper
+    from dynamic_settings_modules.composite_strength_mod import CSIHelper
 except ImportError as e:
     CSIHelper = None
 
 PLUGIN_INDEX = 1
-PLUGIN_GROUP = "ANALYSIS"
 
 
 # ==========================================
@@ -50,13 +49,21 @@ W_NON_TECH_PLANET = 0.5
 AGE_OF_EDUCATION = 18.0   
 W_MAHADASHA_PLANET = 3.0  
 
-# 6. Varga Multipliers
+# 6. Chart Toggles (Analysis Selection - MAX 4 ALLOWED)
+ANALYZE_D1 = True
+ANALYZE_D9 = True
+ANALYZE_D24 = True
+ANALYZE_D60 = True
+ANALYZE_MD = False
+
+# 7. Varga Multipliers
 W_D1_MULTIPLIER = 1.0           
 W_D9_MULTIPLIER = 1.0           
-W_D24_MULTIPLIER = 1.0          
+W_D24_MULTIPLIER = 1.0
+W_D60_MULTIPLIER = 1.0
 W_DASHA_LAGNA_MULTIPLIER = 1.0  
 
-# 7. Special Rules
+# 8. Special Rules
 W_D24_4TH_HOUSE_WEIGHT = 0.6
 W_D24_5TH_HOUSE_WEIGHT = 0.3
 W_D1_5TH_LORD_BOOST = 2.0
@@ -72,17 +79,28 @@ WEIGHTS_MAP = {
     "W_TECH_RASHI_5TH": ("Technical Rashi (5th House) Weight", 0.0, 10.0, 0.1, "Bonus points if the 5th House (Higher Education) falls in a Technical Zodiac Sign."),
     "W_TECH_PLANET": ("Technical Planet Core Multiplier", 0.0, 10.0, 0.1, "Power multiplier for naturally Technical planets (like Mars, Saturn, Rahu)."),
     "W_SEMI_TECH_PLANET": ("Semi-Tech Planet Core Multiplier", 0.0, 10.0, 0.1, "Power multiplier for Semi-Technical planets (like Jupiter, Venus)."),
-    "W_NON_TECH_PLANET": ("Non-Tech Planet Core Multiplier", 0.0, 10.0, 0.1, "Power multiplier for Non-Technical planets (like Moon, pure Mercury)."),	
+    "W_NON_TECH_PLANET": ("Non-Tech Planet Core Multiplier", 0.0, 10.0, 0.1, "Power multiplier for Non-Technical planets (like Moon, pure Mercury)."),
     "AGE_OF_EDUCATION": ("Age of Education (Dasha Lock)", 1.0, 100.0, 1.0, "The exact age to calculate which Mahadasha (Planetary Period) is running when college starts."),
     "W_MAHADASHA_PLANET": ("Mahadasha Planet Weight", 0.0, 10.0, 0.5, "How strongly the Mahadasha lord running at the 'Age of Education' steers the final career choice."),
-    "W_D1_MULTIPLIER": ("D-1 Varga Multiplier", 0.0, 5.0, 0.1, "Importance of the main D-1 Birth Chart in the overall score."),
-    "W_D9_MULTIPLIER": ("D-9 Varga Multiplier", 0.0, 5.0, 0.1, "Importance of the D-9 Navamsha Chart (Subconscious talents)."),
-    "W_D24_MULTIPLIER": ("D-24 Varga Multiplier", 0.0, 5.0, 0.1, "Importance of the D-24 Siddhamsa Chart (The specific microscopic chart for education)."),
-    "W_DASHA_LAGNA_MULTIPLIER": ("Dasha Lagna Varga Multiplier", 0.0, 5.0, 0.1, "Importance of reading the D-1 chart using the Mahadasha Lord as the new Ascendant."),
+    "W_D1_MULTIPLIER": ("D-1 Varga Multiplier", 0.0, 10.0, 0.1, "Importance of the main D-1 Birth Chart in the overall score."),
+    "W_D9_MULTIPLIER": ("D-9 Varga Multiplier", 0.0, 10.0, 0.1, "Importance of the D-9 Navamsha Chart (Subconscious talents)."),
+    "W_D24_MULTIPLIER": ("D-24 Varga Multiplier", 0.0, 10.0, 0.1, "Importance of the D-24 Siddhamsa Chart (The specific microscopic chart for education)."),
+    "W_D60_MULTIPLIER": ("D-60 Varga Multiplier", 0.0, 10.0, 0.1, "Importance of the D-60 Shashtiamsa Chart. Forced to ALWAYS be >= any other chart weight."),
+    "W_DASHA_LAGNA_MULTIPLIER": ("Dasha Lagna Varga Multiplier", 0.0, 10.0, 0.1, "Importance of reading the D-1 chart using the Mahadasha Lord as the new Ascendant."),
     "W_D24_4TH_HOUSE_WEIGHT": ("D-24 4th House Multiplier", 0.0, 5.0, 0.1, "Multiplier applied to 4th house calculations specifically inside the D-24 chart."),
     "W_D24_5TH_HOUSE_WEIGHT": ("D-24 5th House Multiplier", 0.0, 5.0, 0.1, "Multiplier applied to 5th house calculations specifically inside the D-24 chart."),
     "W_D1_5TH_LORD_BOOST": ("D-1 5th Lord Conflict Boost", 0.0, 10.0, 0.5, "Bonus score given to the D-1 5th Lord if it is tied among top scorers."),
     "W_SPECIAL_STATUS_BOOST": ("Special D-1 Condition Boost", 0.0, 10.0, 0.5, "Bonus score given to an exalted, debilitated, or exchanged planet to resolve ties when the 5th Lord is absent.")
+}
+
+TOGGLE_KEYS = ["ANALYZE_D1", "ANALYZE_D9", "ANALYZE_D24", "ANALYZE_D60", "ANALYZE_MD"]
+
+TOGGLE_LINKS = {
+    "W_D1_MULTIPLIER": ("ANALYZE_D1", "Analyze D-1 Base Chart"),
+    "W_D9_MULTIPLIER": ("ANALYZE_D9", "Analyze D-9 Navamsha"),
+    "W_D24_MULTIPLIER": ("ANALYZE_D24", "Analyze D-24 Siddhamsa"),
+    "W_D60_MULTIPLIER": ("ANALYZE_D60", "Analyze D-60 Shashtiamsa"),
+    "W_DASHA_LAGNA_MULTIPLIER": ("ANALYZE_MD", "Analyze Mahadasha Chart")
 }
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -96,13 +114,15 @@ def load_weights():
             for key, val in saved_weights.items():
                 if key in WEIGHTS_MAP:
                     globals()[key] = float(val)
+                elif key in TOGGLE_KEYS:
+                    globals()[key] = bool(val)
         except Exception as e:
             print(f"Error loading education weights: {e}")
 
 # Load weights on module initialization
 load_weights()
 
-# 8. Basic Definitions
+# 9. Basic Definitions
 TECH_RASHIS = {1, 3, 5, 6, 9, 10, 11}
 NON_TECH_RASHIS = {2, 4, 7, 8, 12}
 
@@ -115,9 +135,9 @@ PLUGIN_GROUP = "ANALYSIS"
 PLUGIN_INDEX = 6
 
 # ==========================================
-#  CLASSICAL EDUCATION AREA LIST
+# EXACT CLASSICAL PROFESSIONS LIST
 # ==========================================
-EDUCATION_AREAS = {
+RAW_PROFESSIONS = {
     "Technical": {
         "Sun": ["Higher Mathematics", "Physics", "Mula -Ayurvedic - Medicines"],
         "Moon": ["Chemistry", "Medicine", "Pharmacy", "Biochemistry", "Environmental Science"],
@@ -238,17 +258,13 @@ def apply_elimination_logic(prof_list, theme, dom_planet):
 # ==========================================
 class SettingsDialog(QDialog):
     def __init__(self, parent=None):
-        # We pass Qt.WindowType.Window to ensure it gets independent window geometry 
-        # and standard maximize/minimize controls, fixing the fullscreen QWindowsWindow error.
         super().__init__(parent, Qt.WindowType.Window)
         self.setWindowTitle("Configure Algorithm Weights & Details")
         
-        # Start with a compact, reasonable default size instead of forcing maximized
         self.resize(800, 600)
         self.setStyleSheet("QDialog { background-color: #F8FAFC; }")
         
         layout = QVBoxLayout(self)
-        # Tightened margins for a more compact look
         layout.setContentsMargins(15, 15, 15, 15)
         layout.setSpacing(10)
         
@@ -256,7 +272,7 @@ class SettingsDialog(QDialog):
         header_lbl.setStyleSheet("font-size: 20px; font-weight: bold; color: #0F172A; margin-bottom: 2px;")
         layout.addWidget(header_lbl)
         
-        info_label = QLabel("Adjust core calculation variables used across the multi-step triangulation process. Changes apply dynamically upon saving.")
+        info_label = QLabel("Adjust core calculation variables used across the multi-step triangulation process. Select charts to analyze and tune their independent weights.")
         info_label.setWordWrap(True)
         info_label.setStyleSheet("font-size: 13px; color: #475569; margin-bottom: 10px;")
         layout.addWidget(info_label)
@@ -265,7 +281,6 @@ class SettingsDialog(QDialog):
         scroll.setWidgetResizable(True)
         scroll.setStyleSheet("QScrollArea { border: 1px solid #E2E8F0; border-radius: 6px; background-color: white; }")
         
-        # Smooth Scroll for Settings
         import main
         SmoothScroller = getattr(main, 'SmoothScroller', None)
         if SmoothScroller:
@@ -273,7 +288,6 @@ class SettingsDialog(QDialog):
         
         content = QWidget()
         content_layout = QVBoxLayout(content)
-        # Compact spacing between categories
         content_layout.setSpacing(16)
         content_layout.setContentsMargins(12, 12, 12, 12)
         
@@ -282,16 +296,17 @@ class SettingsDialog(QDialog):
             "Rashi Technicalities": ["W_TECH_RASHI_4TH", "W_TECH_RASHI_5TH"],
             "Planet Nature Multipliers": ["W_TECH_PLANET", "W_SEMI_TECH_PLANET", "W_NON_TECH_PLANET"],
             "Dasha & Timing": ["AGE_OF_EDUCATION", "W_MAHADASHA_PLANET"],
-            "Varga Chart Weights": ["W_D1_MULTIPLIER", "W_D9_MULTIPLIER", "W_D24_MULTIPLIER", "W_DASHA_LAGNA_MULTIPLIER", "W_D24_4TH_HOUSE_WEIGHT", "W_D24_5TH_HOUSE_WEIGHT"],
+            "Selected Charts & Varga Weights": ["W_D1_MULTIPLIER", "W_D9_MULTIPLIER", "W_D24_MULTIPLIER", "W_D60_MULTIPLIER", "W_DASHA_LAGNA_MULTIPLIER", "W_D24_4TH_HOUSE_WEIGHT", "W_D24_5TH_HOUSE_WEIGHT"],
             "Special Overrides": ["W_D1_5TH_LORD_BOOST", "W_SPECIAL_STATUS_BOOST"]
         }
         
         self.spin_boxes = {}
+        self.checkboxes = {}
+        
         for cat_name, keys in CATEGORIES.items():
             cat_widget = QWidget()
             cat_layout = QVBoxLayout(cat_widget)
             cat_layout.setContentsMargins(0, 0, 0, 0)
-            # Tighter vertical spacing inside each category
             cat_layout.setSpacing(6)
             
             cat_label = QLabel(cat_name)
@@ -305,21 +320,36 @@ class SettingsDialog(QDialog):
                     item_widget = QWidget()
                     item_layout = QVBoxLayout(item_widget)
                     item_layout.setContentsMargins(8, 0, 0, 0)
-                    item_layout.setSpacing(0) # Zero spacing between label and description to pack it tight
+                    item_layout.setSpacing(0)
                     
                     row_layout = QHBoxLayout()
-                    name_lbl = QLabel(name)
-                    name_lbl.setStyleSheet("font-weight: bold; color: #1E293B; font-size: 13px;")
                     
                     spin = QDoubleSpinBox()
                     spin.setRange(min_val, max_val)
                     spin.setSingleStep(step)
                     spin.setDecimals(1)
                     spin.setValue(float(globals().get(key, 0.0)))
-                    spin.setFixedWidth(100) # Slightly narrower spin box
+                    spin.setFixedWidth(100)
                     spin.setStyleSheet("padding: 2px; border: 1px solid #CBD5E1; border-radius: 4px; background: #FFFFFF; color: #0F172A; font-weight: bold;")
                     
-                    row_layout.addWidget(name_lbl)
+                    # If this weight corresponds to a chart that can be toggled on/off
+                    if key in TOGGLE_LINKS:
+                        toggle_key, toggle_label = TOGGLE_LINKS[key]
+                        chk = QCheckBox(toggle_label)
+                        chk.setStyleSheet("font-weight: bold; color: #1E293B; font-size: 13px;")
+                        chk.setChecked(bool(globals().get(toggle_key, True)))
+                        
+                        # Grey out spinbox when unchecked
+                        spin.setEnabled(chk.isChecked())
+                        chk.toggled.connect(spin.setEnabled)
+                        
+                        self.checkboxes[toggle_key] = chk
+                        row_layout.addWidget(chk)
+                    else:
+                        name_lbl = QLabel(name)
+                        name_lbl.setStyleSheet("font-weight: bold; color: #1E293B; font-size: 13px;")
+                        row_layout.addWidget(name_lbl)
+                        
                     row_layout.addStretch()
                     row_layout.addWidget(spin)
                     
@@ -335,7 +365,19 @@ class SettingsDialog(QDialog):
                     
             content_layout.addWidget(cat_widget)
             
-        # Add "FULL STEPS" inside the scroll container to prevent clutter
+        # Hook up the D-60 multiplier strict validation rule
+        for k in ["W_D1_MULTIPLIER", "W_D9_MULTIPLIER", "W_D24_MULTIPLIER", "W_DASHA_LAGNA_MULTIPLIER"]:
+            if k in self.spin_boxes:
+                self.spin_boxes[k].valueChanged.connect(self.enforce_d60_rule)
+                
+        self.enforce_d60_rule()
+        
+        # Hook up the 4-Chart max validation rule
+        for chk in self.checkboxes.values():
+            chk.toggled.connect(self.enforce_max_charts)
+        self.enforce_max_charts()
+            
+        # Add "FULL STEPS" inside the scroll container
         algo_group = QGroupBox("How This Algorithm Works")
         algo_group.setStyleSheet("""
             QGroupBox { 
@@ -354,11 +396,11 @@ class SettingsDialog(QDialog):
         algo_layout.setSpacing(6)
         
         steps = [
-            "<b>1. Look at 4 Different Charts:</b> Analyze the main birth chart (D-1), the navmansha chart (D-9), the education chart (D-24), and a special chart based on the planetary period running at age 18.",
+            "<b>1. Look at Selected Charts:</b> Analyze up to 4 charts across D-1, Navamsha (D-9), Siddhamsa (D-24), Shashtiamsa (D-60) and the age 18 Dasha chart.",
             "<b>2. Score the Planets & Signs:</b> In all these charts, look at the 5th house (Intellect), its ruler, and Mercury. That gives 'Technical', 'Semi-Technical', or 'Non-Technical' points based on which planets and zodiac signs are involved.",
-            "<b>3. Pick the Winning Category:</b> Total all the points across all 4 charts. The category (Tech, Semi-Tech, or Non-Tech) with the highest score wins.",
+            "<b>3. Pick the Winning Category:</b> Total all the points across all active charts. The category (Tech, Semi-Tech, or Non-Tech) with the highest score wins.",
             "<b>4. Find the Boss Planet:</b> See which individual planet scored the most points overall. This planet will dictate the specific subject area.",
-            "<b>5. Narrow it down by House Theme:</b> Finally, look at which area of life (Houses) the Boss Planet affects the most (e.g., Wealth, Medical, Communication). Use this to filter the Boss Planet's subject list down to the exact degree!"
+            "<b>5. Narrow it down by Theme:</b> Finally, look at which area of life (Houses) the Boss Planet affects the most (e.g., Medical, Communication). Use this to filter the Boss Planet's subject list down to the exact degree!"
         ]
         
         for step in steps:
@@ -372,7 +414,7 @@ class SettingsDialog(QDialog):
         scroll.setWidget(content)
         layout.addWidget(scroll, stretch=1)
         
-        # Fixed Buttons at the bottom (not scrolling)
+        # Fixed Buttons at the bottom
         btns = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
         btns.setStyleSheet("""
             QPushButton { padding: 6px 20px; font-weight: bold; border-radius: 4px; font-size: 13px; } 
@@ -382,6 +424,24 @@ class SettingsDialog(QDialog):
         btns.accepted.connect(self.save_and_accept)
         btns.rejected.connect(self.reject)
         layout.addWidget(btns)
+
+    def enforce_d60_rule(self, *_args):
+        """Forces the D-60 spinbox to have a minimum value equal to the highest other chart multiplier."""
+        if "W_D60_MULTIPLIER" in self.spin_boxes:
+            max_other = max(
+                self.spin_boxes.get("W_D1_MULTIPLIER", QDoubleSpinBox()).value(),
+                self.spin_boxes.get("W_D9_MULTIPLIER", QDoubleSpinBox()).value(),
+                self.spin_boxes.get("W_D24_MULTIPLIER", QDoubleSpinBox()).value(),
+                self.spin_boxes.get("W_DASHA_LAGNA_MULTIPLIER", QDoubleSpinBox()).value()
+            )
+            self.spin_boxes["W_D60_MULTIPLIER"].setMinimum(max_other)
+
+    def enforce_max_charts(self, *_args):
+        """Disables unchecked checkboxes if 4 charts are already selected to enforce the limit."""
+        checked_count = sum(1 for chk in self.checkboxes.values() if chk.isChecked())
+        for toggle_key, chk in self.checkboxes.items():
+            if not chk.isChecked():
+                chk.setEnabled(checked_count < 4)
         
     def save_and_accept(self):
         saved_weights = {}
@@ -390,10 +450,25 @@ class SettingsDialog(QDialog):
             globals()[key] = val
             saved_weights[key] = val
             
+        for key, chk in self.checkboxes.items():
+            val = chk.isChecked()
+            globals()[key] = val
+            saved_weights[key] = val
+            
+        # CRITICAL: Double-enforce the D60 rule globally directly into standard memory
+        globals()["W_D60_MULTIPLIER"] = max(
+            globals()["W_D60_MULTIPLIER"],
+            globals()["W_D1_MULTIPLIER"],
+            globals()["W_D9_MULTIPLIER"],
+            globals()["W_D24_MULTIPLIER"],
+            globals()["W_DASHA_LAGNA_MULTIPLIER"]
+        )
+        saved_weights["W_D60_MULTIPLIER"] = globals()["W_D60_MULTIPLIER"]
+            
         try:
             with open(SETTINGS_FILE, "w") as f:
                 json.dump(saved_weights, f, indent=4)
-            QMessageBox.information(self, "Settings Saved", "Algorithm weights have been successfully saved to disk and applied globally.")
+            QMessageBox.information(self, "Settings Saved", "Algorithm weights and chart selections have been successfully saved and applied.")
         except Exception as e:
             QMessageBox.critical(self, "Save Failed", f"Error saving education weights securely:\n{e}")
             
@@ -403,10 +478,11 @@ class SettingsDialog(QDialog):
 # EDUCATION CALCULATOR ENGINE
 # ==========================================
 class EducationCalculator:
-    def __init__(self, chart_data, d9_data=None, d24_data=None):
+    def __init__(self, chart_data, d9_data=None, d24_data=None, d60_data=None):
         self.chart_data = chart_data
         self.d9_data = d9_data
         self.d24_data = d24_data
+        self.d60_data = d60_data
         self.analyzer_d1 = ChartAnalyzer(chart_data)
         
         self.log = []
@@ -673,42 +749,52 @@ class EducationCalculator:
 
     def run_analysis(self, app_instance=None):
         self.log.append("<h2>Four-Step Triangulation Process</h2>")
-        self.log.append("<p style='font-size:12px; color:#64748B;'>Applying identical logic rules across D1, D9, D24, and D-1 (Age 18 Dasha Lagna).</p>")
+        self.log.append("<p style='font-size:12px; color:#64748B;'>Applying logic rules dynamically to active charts.</p>")
         
-        # Step 1, 2, 3: Core Varga Evaluations 
-        self._eval_varga_chart(self.chart_data, "Step 1: D-1 Base Chart", W_D1_MULTIPLIER, asc_override_idx=None)
-        self._eval_varga_chart(self.d9_data, "Step 2: D-9 Navamsha", W_D9_MULTIPLIER, asc_override_idx=None)
-        self._eval_varga_chart(self.d24_data, "Step 3: D-24 Siddhamsa", W_D24_MULTIPLIER, asc_override_idx=None)
+        # Enforce D60 rule globally at runtime
+        global W_D60_MULTIPLIER
+        actual_d60_mult = max(W_D60_MULTIPLIER, W_D1_MULTIPLIER, W_D9_MULTIPLIER, W_D24_MULTIPLIER, W_DASHA_LAGNA_MULTIPLIER)
         
-        # Step 4: Mahadasha Evaluation
-        jd_utc = self.chart_data.get("current_jd")
-        moon_p = self.analyzer_d1.get_planet("Moon")
+        # Step 1, 2, 3: Core Varga Evaluations based on selected charts
+        if ANALYZE_D1:
+            self._eval_varga_chart(self.chart_data, "D-1 Base Chart", W_D1_MULTIPLIER, asc_override_idx=None)
+        if ANALYZE_D9:
+            self._eval_varga_chart(self.d9_data, "D-9 Navamsha", W_D9_MULTIPLIER, asc_override_idx=None)
+        if ANALYZE_D24:
+            self._eval_varga_chart(self.d24_data, "D-24 Siddhamsa", W_D24_MULTIPLIER, asc_override_idx=None)
+        if ANALYZE_D60:
+            self._eval_varga_chart(self.d60_data, "D-60 Shashtiamsa", actual_d60_mult, asc_override_idx=None)
         
-        self.log.append(f"<div style='margin-bottom: 15px; border-left: 3px solid #8B5CF6; padding-left: 10px;'>")
-        self.log.append(f"<h3 style='color:#8B5CF6; margin-bottom: 4px;'>--- STEP 4: D-1 DASHA LAGNA (AGE {AGE_OF_EDUCATION}) ANALYSIS ---</h3><ul>")
-        if jd_utc and moon_p:
-            target_jd = jd_utc + (AGE_OF_EDUCATION * 365.2421904)
-            engine = astro_engine.EphemerisEngine()
-            dasha_data = engine.calculate_vimshottari_dasha(jd_utc, moon_p["lon"], target_jd)
-            dasha_seq = dasha_data.get("current_sequence", [])
+        # Mahadasha Evaluation
+        if ANALYZE_MD:
+            jd_utc = self.chart_data.get("current_jd")
+            moon_p = self.analyzer_d1.get_planet("Moon")
             
-            if dasha_seq and len(dasha_seq) > 0:
-                md_lord = dasha_seq[0]
-                md_p = self.analyzer_d1.get_planet(md_lord)
-                if md_p:
-                    md_sign_idx = md_p["sign_index"]
-                    self.log.append(f"<li>Dasha Lord at Age {AGE_OF_EDUCATION} is {md_lord}. Processing chart with {md_lord}'s sign as Lagna.</li></ul></div>")
-                    self._eval_varga_chart(self.chart_data, f"Step 4: D-1 Dasha Lagna ({md_lord})", W_DASHA_LAGNA_MULTIPLIER, asc_override_idx=md_sign_idx)
+            self.log.append(f"<div style='margin-bottom: 15px; border-left: 3px solid #8B5CF6; padding-left: 10px;'>")
+            self.log.append(f"<h3 style='color:#8B5CF6; margin-bottom: 4px;'>--- D-1 DASHA LAGNA (AGE {AGE_OF_EDUCATION}) ANALYSIS ---</h3><ul>")
+            if jd_utc and moon_p:
+                target_jd = jd_utc + (AGE_OF_EDUCATION * 365.2421904)
+                engine = astro_engine.EphemerisEngine()
+                dasha_data = engine.calculate_vimshottari_dasha(jd_utc, moon_p["lon"], target_jd)
+                dasha_seq = dasha_data.get("current_sequence", [])
+                
+                if dasha_seq and len(dasha_seq) > 0:
+                    md_lord = dasha_seq[0]
+                    md_p = self.analyzer_d1.get_planet(md_lord)
+                    if md_p:
+                        md_sign_idx = md_p["sign_index"]
+                        self.log.append(f"<li>Dasha Lord at Age {AGE_OF_EDUCATION} is {md_lord}. Processing chart with {md_lord}'s sign as Lagna.</li></ul></div>")
+                        self._eval_varga_chart(self.chart_data, f"D-1 Dasha Lagna ({md_lord})", W_DASHA_LAGNA_MULTIPLIER, asc_override_idx=md_sign_idx)
+                    else:
+                        self.log.append(f"<li>Could not find {md_lord} in chart. Skipping Dasha Lagna.</li></ul></div>")
                 else:
-                    self.log.append(f"<li>Could not find {md_lord} in chart. Skipping Step 4.</li></ul></div>")
+                    self.log.append("<li>Could not compute Dasha timing. Skipping Dasha Lagna.</li></ul></div>")
             else:
-                self.log.append("<li>Could not compute Dasha timing. Skipping Step 4.</li></ul></div>")
-        else:
-            self.log.append("<li>Missing JD or Moon data for Dasha. Skipping Step 4.</li></ul></div>")
+                self.log.append("<li>Missing JD or Moon data for Dasha. Skipping Dasha Lagna.</li></ul></div>")
 
-        # Step 5: Aggregating Results
+        # Aggregating Results
         self.log.append(f"<div style='margin-bottom: 15px; border-left: 3px solid #10B981; padding-left: 10px;'>")
-        self.log.append(f"<h3 style='color:#10B981; margin-bottom: 4px;'>--- STEP 5: AGGREGATING FINAL RESULTS ---</h3><ul>")
+        self.log.append(f"<h3 style='color:#10B981; margin-bottom: 4px;'>--- AGGREGATING FINAL RESULTS ---</h3><ul>")
 
         winner_cat = max(self.scores, key=self.scores.get)
         self.log.append(f"<li><b>1. Dominant Category Selected:</b> {winner_cat} (Score: {self.scores[winner_cat]:.2f})</li>")
@@ -760,7 +846,7 @@ class EducationCalculator:
 
         self.log.append(f"<li><b>2. Planetary Influence Selected:</b> {dom_planet} (Score: {self.dominant_planet_scores[dom_planet]:.2f})</li>")
         
-        prof_list = EDUCATION_AREAS.get(winner_cat, {}).get(dom_planet, ["General Studies"])
+        prof_list = RAW_PROFESSIONS.get(winner_cat, {}).get(dom_planet, ["General Studies"])
         
         theme, theme_reason = self._find_house_theme(dom_planet)
         self.log.append(f"<li><b>4. House Result:</b> {theme} - {theme_reason}</li>")
@@ -825,20 +911,14 @@ class EducationCalculator:
 # ==========================================
 class EducationAnalysisDialog(QDialog):
     def __init__(self, app_instance, chart_data, parent=None):
-        # Pass Qt.WindowType.Window to make it a standalone resizable window
         super().__init__(parent, Qt.WindowType.Window)
-        
-        # Retain all default window flags (Maximize, Minimize, Close) 
-        # so the user can restore ("un-maximize") or minimize the window freely.
         
         self.app = app_instance
         self.chart_data = chart_data
-        self.time_logs = {} # Cache to store offset specific logs
+        self.time_logs = {} 
         
-        # Track JD to calculate on the fly when the main app changes
         self.last_jd = self.chart_data.get('current_jd')
         
-        # Auto-monitor timer to update UI when main app chart changes
         self.monitor_timer = QTimer(self)
         self.monitor_timer.timeout.connect(self.check_for_app_updates)
         self.monitor_timer.start(1000)
@@ -846,6 +926,7 @@ class EducationAnalysisDialog(QDialog):
         engine = astro_engine.EphemerisEngine()
         self.d9_data = engine.compute_divisional_chart(self.chart_data, "D9")
         self.d24_data = engine.compute_divisional_chart(self.chart_data, "D24")
+        self.d60_data = engine.compute_divisional_chart(self.chart_data, "D60")
 
         self.setWindowTitle("Educational Degree Mapping")
         self.resize(1300, 850) 
@@ -860,14 +941,12 @@ class EducationAnalysisDialog(QDialog):
             QTabBar::tab:selected { background: #FFFFFF; font-weight: bold; color: #0284C7; border-bottom: 2px solid #0284C7; }
         """)
 
-        # Main Layout restructuring to support top Menu Bar
         self.main_layout = QVBoxLayout(self)
         self.main_layout.setContentsMargins(0, 0, 0, 0)
         
-        # Menu Bar for Settings
         self.menu_bar = QMenuBar()
         self.menu_bar.setStyleSheet("background-color: #E2E8F0; padding: 4px;")
-        settings_action = self.menu_bar.addAction("⚙️ Configure Algorithm Weights")
+        settings_action = self.menu_bar.addAction("⚙️ Configure Algorithm Weights & Chart Toggles")
         settings_action.triggered.connect(self.open_settings)
         self.main_layout.addWidget(self.menu_bar)
 
@@ -886,12 +965,11 @@ class EducationAnalysisDialog(QDialog):
         self.lbl_recommendations.setStyleSheet("font-size: 14px; padding: 10px; background-color: #FFFFFF; border-radius: 4px; border: 1px solid #E2E8F0;")
         
         summary_layout.addWidget(self.lbl_recommendations)
-        summary_layout.addStretch() # Pushes the label to the top safely
+        summary_layout.addStretch() 
         self.summary_group.setLayout(summary_layout)
         self.left_layout.addWidget(self.summary_group)
-        self.left_layout.addStretch() # Pushes the group box to the top
+        self.left_layout.addStretch() 
         
-        # Changed panel ratio: Left gets 1 part, right gets 2 parts
         self.content_layout.addWidget(self.left_panel, stretch=1)
         
         self.right_panel = QTabWidget()
@@ -909,7 +987,10 @@ class EducationAnalysisDialog(QDialog):
         self.d24_chart_ui.title = "D-24 Siddhamsa"
         self.d24_chart_ui.update_chart(self.d24_data, d1_data=self.chart_data)
         
-        # Algorithmic Trail UI Init
+        self.d60_chart_ui = ChartRenderer()
+        self.d60_chart_ui.title = "D-60 Shashtiamsa"
+        self.d60_chart_ui.update_chart(self.d60_data, d1_data=self.chart_data)
+        
         self.log_tab = QWidget()
         log_tab_layout = QVBoxLayout(self.log_tab)
         self.log_browser = QTextBrowser()
@@ -920,18 +1001,17 @@ class EducationAnalysisDialog(QDialog):
             
         log_tab_layout.addWidget(self.log_browser)
         
-        # Build Standard Tabs
         self.right_panel.addTab(self.d1_chart_ui, "D-1 Base Chart")
         self.right_panel.addTab(self.d9_chart_ui, "D-9 Navamsha")
         self.right_panel.addTab(self.d24_chart_ui, "D-24 Siddhamsa")
+        self.right_panel.addTab(self.d60_chart_ui, "D-60 Shashtiamsa")
         self.right_panel.addTab(self.log_tab, "Algorithmic Trail")
         
-        # --- Time Sensitivity Tab ---
         self.time_mod_tab = QWidget()
         time_mod_layout = QVBoxLayout(self.time_mod_tab)
         
         time_top_bar = QHBoxLayout()
-        self.btn_run_time_mod = QPushButton("Run Sensitivity Analysis (±60 mins)")
+        self.btn_run_time_mod = QPushButton("Run Sensitivity Analysis (±20 mins)")
         self.btn_run_time_mod.setStyleSheet("background-color: #8B5CF6; color: white; font-weight: bold; padding: 8px 16px; border-radius: 4px;")
         self.btn_run_time_mod.clicked.connect(self.run_time_sensitivity)
         
@@ -984,14 +1064,12 @@ class EducationAnalysisDialog(QDialog):
         time_mod_layout.addLayout(time_top_bar)
         time_mod_layout.addWidget(self.time_mod_results)
         
-        self.right_panel.addTab(self.time_mod_tab, "Time Sensitivity (±60m)")
-        # ----------------------------
+        self.right_panel.addTab(self.time_mod_tab, "Time Sensitivity (±20m)")
         
         self.content_layout.addWidget(self.right_panel, stretch=2)
         self.refresh_analysis()
 
     def check_for_app_updates(self):
-        # Only process updates if the dialog is currently visible to save resources
         if not self.isVisible():
             return
         if hasattr(self.app, 'current_base_chart') and self.app.current_base_chart:
@@ -1005,10 +1083,12 @@ class EducationAnalysisDialog(QDialog):
         engine = astro_engine.EphemerisEngine()
         self.d9_data = engine.compute_divisional_chart(self.chart_data, "D9")
         self.d24_data = engine.compute_divisional_chart(self.chart_data, "D24")
+        self.d60_data = engine.compute_divisional_chart(self.chart_data, "D60")
         
         self.d1_chart_ui.update_chart(self.chart_data)
         self.d9_chart_ui.update_chart(self.d9_data, d1_data=self.chart_data)
         self.d24_chart_ui.update_chart(self.d24_data, d1_data=self.chart_data)
+        self.d60_chart_ui.update_chart(self.d60_data, d1_data=self.chart_data)
         
         self.refresh_analysis()
 
@@ -1018,27 +1098,23 @@ class EducationAnalysisDialog(QDialog):
             self.refresh_analysis()
 
     def on_time_link_clicked(self, url):
-        """Swaps the Algorithmic Trail to the requested specific time offset."""
         offset_str = url.toString()
         if offset_str in self.time_logs:
             self.log_browser.setHtml(self.time_logs[offset_str])
-            # Auto-switch to the Algorithmic Trail tab for instant viewing
             idx = self.right_panel.indexOf(self.log_tab)
             if idx != -1:
                 self.right_panel.setCurrentIndex(idx)
 
     def refresh_analysis(self):
-        calc = EducationCalculator(self.chart_data, self.d9_data, self.d24_data)
+        calc = EducationCalculator(self.chart_data, self.d9_data, self.d24_data, self.d60_data)
         res = calc.run_analysis(self.app)
         
-        # Cache the current exact log for the link handler
         self.time_logs["0"] = res["log"]
         
         rec_str = "<div style='color: #0F172A; margin-bottom: 12px; padding: 12px; background-color: #F0FDF4; border: 1px solid #10B981; border-radius: 6px;'>"
         rec_str += f"<h3 style='margin-top:0; margin-bottom: 6px; color:#047857;'>Educational Degree Prediction</h3>"
         rec_str += f"<div style='font-size: 22px; font-weight: bold; color: #4F46E5; margin-bottom: 12px;'>► {res['exact_degree']}</div>"
         
-        # Insert simple visually separated elimination funnel to UI
         rec_str += f"<div style='font-size: 13px; color: #475569; margin-bottom: 8px; border-top: 1px solid #A7F3D0; padding-top: 8px;'>"
         rec_str += f"<b>📚 Classical Results:</b> {res['original_str']}<br>"
         rec_str += f"<b>🏠 Eliminated by House Theme:</b> <span style='color: #DC2626;'>{res['elim_house_str']}</span><br>"
@@ -1060,17 +1136,13 @@ class EducationAnalysisDialog(QDialog):
         self.log_browser.setHtml(res["log"])
 
     def _approximate_chart_for_offset(self, base_chart, offset_mins):
-        """Robust fallback to synthesize chart shift when main engine recalc is inaccessible."""
         new_chart = copy.deepcopy(base_chart)
         new_chart["current_jd"] = base_chart["current_jd"] + (offset_mins / 1440.0)
         
-        # Approximate Ascendant shift (approx 1 degree per 4 minutes)
         deg_shift = offset_mins / 4.0
         
-        # Safely handle missing 'lon' key for ascendant
         asc_lon = new_chart.get("ascendant", {}).get("lon")
         if asc_lon is None:
-            # Try to calculate base ascendant longitude using astro_engine mathematically
             try:
                 geo_lat = base_chart.get("lat", 0.0)
                 geo_lon = base_chart.get("lon", 0.0)
@@ -1083,7 +1155,6 @@ class EducationAnalysisDialog(QDialog):
                     QMessageBox.critical(self, "Critical Error", "CRITICAL ERROR: Exact Longitude ('lon') is missing from the chart data!\n\nProceeding with a mathematical approximation (15° default). Accuracy will be reduced.")
                     self._shown_lon_error = True
                     
-                # Fallback: estimate longitude from sign_index (middle of the sign)
                 asc_sign_idx = new_chart.get("ascendant", {}).get("sign_index", 0)
                 asc_lon = (asc_sign_idx * 30.0) + 15.0
             
@@ -1092,10 +1163,8 @@ class EducationAnalysisDialog(QDialog):
         new_asc_sign = int(new_asc_lon // 30)
         new_chart["ascendant"]["sign_index"] = new_asc_sign
         
-        # Approximate Moon shift (approx 0.5 degrees per hour)
         for p in new_chart.get("planets", []):
             if p["name"] == "Moon":
-                # Safely handle missing 'lon' key for Moon
                 p_lon = p.get("lon")
                 if p_lon is None:
                     try:
@@ -1106,7 +1175,6 @@ class EducationAnalysisDialog(QDialog):
                 p["lon"] = (p_lon + (offset_mins * 0.008333)) % 360.0
                 p["sign_index"] = int(p["lon"] // 30)
             
-            # Reposition functional houses mathematically
             p["house"] = ((p["sign_index"] - new_asc_sign) % 12) + 1
             
         return new_chart
@@ -1120,14 +1188,12 @@ class EducationAnalysisDialog(QDialog):
         html = "<h3 style='color: #0F172A; margin-bottom: 16px; margin-top: 5px;'>Time Fluctuation Analysis</h3>"
         html += "<table width='100%' style='border-collapse: separate; border-spacing: 0 10px;'>"
         
-        offsets = list(range(-60, 65, 5))
+        offsets = list(range(-20, 25, 5))
         
-        # 1. Fetch EXTREMELY EXACT state strictly from the App instance
         lat = getattr(self.app, 'current_lat', self.chart_data.get('lat', 0.0))
         lon = getattr(self.app, 'current_lon', self.chart_data.get('lon', 0.0))
         tz = getattr(self.app, 'current_tz', self.chart_data.get('tz', 'UTC'))
         
-        # Pull exact base date directly from the app's time controller
         if hasattr(self.app, 'time_ctrl') and hasattr(self.app.time_ctrl, 'current_time'):
             base_dt_dict = self.app.time_ctrl.current_time.copy()
         else:
@@ -1148,7 +1214,6 @@ class EducationAnalysisDialog(QDialog):
         except Exception:
             base_dt = None
             
-        # 2. Instantiate an isolated engine configured identically to the main UI
         fresh_eng = astro_engine.EphemerisEngine()
         if hasattr(self.app, 'cb_ayanamsa'):
             fresh_eng.set_ayanamsa(self.app.cb_ayanamsa.currentText())
@@ -1164,26 +1229,23 @@ class EducationAnalysisDialog(QDialog):
                 shifted_d1 = self.chart_data
                 shifted_d9 = self.d9_data
                 shifted_d24 = self.d24_data
+                shifted_d60 = self.d60_data
             else:
                 if base_dt:
                     new_dt = base_dt + datetime.timedelta(minutes=offset)
-                    # Create the strictly formatted dictionary astro_engine natively expects
                     new_time_dict = {
                         'year': new_dt.year, 'month': new_dt.month, 'day': new_dt.day,
                         'hour': new_dt.hour, 'minute': new_dt.minute, 'second': new_dt.second
                     }
                     
                     try:
-                        # PURE IDENTICAL CALCULATION identical to `main.py`
                         shifted_d1 = fresh_eng.calculate_chart(new_time_dict, lat, lon, tz)
                     except Exception as e:
                         print(f"Sensitivity calc exactly failed: {e}")
                 
-                # 3. Fallback mathematical approximation ONLY if catastrophic engine failure occurs
                 if not shifted_d1:
                     shifted_d1 = self._approximate_chart_for_offset(self.chart_data, offset)
                     
-                # Re-inject identical metadata ensuring downstream Dasha/Varga compatibility
                 if shifted_d1:
                     if base_dt:
                         shifted_d1['year'] = new_dt.year
@@ -1198,18 +1260,17 @@ class EducationAnalysisDialog(QDialog):
                         
                     shifted_d9 = fresh_eng.compute_divisional_chart(shifted_d1, "D9")
                     shifted_d24 = fresh_eng.compute_divisional_chart(shifted_d1, "D24")
+                    shifted_d60 = fresh_eng.compute_divisional_chart(shifted_d1, "D60")
                 
             if shifted_d1:
-                calc = EducationCalculator(shifted_d1, shifted_d9, shifted_d24)
+                calc = EducationCalculator(shifted_d1, shifted_d9, shifted_d24, shifted_d60)
                 res = calc.run_analysis(self.app)
                 
-                # Caching this offset's detailed trail for clickable links
                 self.time_logs[str(offset)] = res["log"]
                 
                 output_html = f"<div style='font-size: 18px; font-weight: bold; color: #4F46E5; margin-bottom: 8px;'>► {res['exact_degree']}</div>"
                 output_html += f"<div style='font-size: 13px; color: #334155; line-height: 1.5;'>{res['logic_str']}</div>"
                 
-                # Interactive Link addition
                 link_html = f"<div style='margin-top: 10px;'><a href='{offset}' style='color: #0284C7; font-weight: bold; text-decoration: none;'>🔍 View Detailed Algorithmic Trail</a></div>"
                 output_html += link_html
                 
@@ -1227,7 +1288,7 @@ class EducationAnalysisDialog(QDialog):
         html += "</table>"
         self.time_mod_results.setHtml(html)
         
-        self.btn_run_time_mod.setText("Run Sensitivity Analysis (±60 mins)")
+        self.btn_run_time_mod.setText("Run Sensitivity Analysis (±20 mins)")
         self.btn_run_time_mod.setEnabled(True)
 
 
@@ -1237,35 +1298,52 @@ class EducationAnalysisDialog(QDialog):
 def setup_ui(app, layout):
     from PyQt6.QtWidgets import QGroupBox, QVBoxLayout
     
-    # Create its own dedicated group box
     plugin_group = QGroupBox("Analysis Engine")
     group_layout = QVBoxLayout()
     group_layout.setContentsMargins(6, 6, 6, 6)
     group_layout.setSpacing(6)
     plugin_group.setLayout(group_layout)
     
-    # Add the new group to the main dynamic layout
     layout.addWidget(plugin_group)
 
     btn_edu = QPushButton("Educational Degree")
     btn_edu.setStyleSheet("""
-        QPushButton { background-color: #4F46E5; color: white; font-weight: bold; padding: 6px 12px; border-radius: 4px; margin-top: 4px;}
-        QPushButton:hover { background-color: #4338CA; }
-        QPushButton:disabled { background-color: #C7D2FE; color: #3730A3; }
+        QPushButton {
+            font-weight: bold;
+            color: #1e3a5f;
+            border: 1px solid #93c5fd;
+            background-color: #e0f2fe;
+            padding: 5px 10px;
+            border-radius: 4px;
+        }
+
+        QPushButton:hover {
+            background-color: #bae6fd;
+            border-color: #3b82f6;
+            color: #172554;
+        }
+
+        QPushButton:pressed {
+            background-color: #7dd3fc;
+            border-style: inset;
+        }
+
+        QPushButton:disabled {
+            background-color: #e5e7eb;
+            color: #9ca3af;
+            border: 1px solid #d1d5db;
+        }
     """)
     
-    # Add the button directly into this plugin's group layout
     group_layout.addWidget(btn_edu)
 
     def launch_education_dialog():
         if not hasattr(app, 'current_base_chart') or not app.current_base_chart: return
         
         if not hasattr(app, '_edu_dialog') or app._edu_dialog is None:
-            # First time opening: Instantiate and maximize
             app._edu_dialog = EducationAnalysisDialog(app, app.current_base_chart, app)
             app._edu_dialog.showMaximized()
         else:
-            # Already exists: Update data and show in whatever state user left it (restored/minimized)
             app._edu_dialog.update_data(app.current_base_chart)
             app._edu_dialog.show()
             app._edu_dialog.raise_()
