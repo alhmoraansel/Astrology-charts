@@ -1,11 +1,18 @@
 # dynamic_settings_modules/education_mod.py
 
-import sys, copy, json, os, datetime
-from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QDialog, QLabel, QScrollArea, QGroupBox, QTextBrowser, QTabWidget,QMenuBar, QFormLayout, QDoubleSpinBox, QDialogButtonBox, QApplication, QMessageBox, QCheckBox)
+import sys
+import copy
+import json
+import os
+import datetime
+from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QDialog, 
+                             QLabel, QScrollArea, QGroupBox, QTextBrowser, QTabWidget,
+                             QMenuBar, QFormLayout, QDoubleSpinBox, QDialogButtonBox, QApplication, QMessageBox, QCheckBox)
 from PyQt6.QtGui import QFont, QColor
 from PyQt6.QtCore import Qt, QUrl, QTimer
 
-import main, astro_engine
+import main
+import astro_engine
 from chart_renderer import ChartAnalyzer, SIGN_LORDS, ChartRenderer
 
 # Import the Live CSI Helper safely for end-of-analysis diagnostics ONLY
@@ -13,6 +20,9 @@ try:
     from dynamic_settings_modules.composite_strength_mod import CSIHelper
 except ImportError as e:
     CSIHelper = None
+
+PLUGIN_INDEX = 1
+
 
 # ==========================================
 # GLOBAL DECIDING WEIGHTS & CONSTANTS
@@ -660,8 +670,14 @@ class EducationCalculator:
         # Explicitly read exact user-configured global variables to guarantee pure base substitution 
         w_4h_rashi = globals().get("W_D24_4TH_HOUSE_WEIGHT", 0.6) if is_d24 else globals().get("W_TECH_RASHI_4TH", 0.3)
         w_5h_rashi = globals().get("W_D24_5TH_HOUSE_WEIGHT", 0.3) if is_d24 else globals().get("W_TECH_RASHI_5TH", 0.6)
-        w_occ_conj = globals().get("W_D24_5TH_HOUSE_WEIGHT", 0.3) if is_d24 else globals().get("W_INFLUENCE_OCC_CONJ", 0.4)
-        w_aspect = globals().get("W_D24_5TH_HOUSE_WEIGHT", 0.3) if is_d24 else globals().get("W_INFLUENCE_ASPECT", 0.4)
+        
+        if is_d24:
+            w_occ_conj = globals().get("W_D24_4TH_HOUSE_WEIGHT", 0.6)
+            w_aspect = globals().get("W_D24_4TH_HOUSE_WEIGHT", 0.6)
+        else:
+            w_occ_conj = globals().get("W_INFLUENCE_OCC_CONJ", 0.4)
+            w_aspect = globals().get("W_INFLUENCE_ASPECT", 0.4)
+            
         w_nak_5l = globals().get("W_NAKSHATRA_5TH_LORD", 0.1)
         w_merc_factor = globals().get("W_MERCURY_FACTOR", 0.2)
 
@@ -691,62 +707,76 @@ class EducationCalculator:
             self.scores["Non-Technical"] += w_5h_rashi * mult
             self.log.append(f"<li>5th House Sign ({h5_sign}) is Non-Technical &rarr; <b style='color:#0284C7;'>Non-Technical</b> (+{w_5h_rashi * mult:.2f}) <br><span style='color:#64748B; font-size: 11px;'><i>Math: 5H Rashi Base ({w_5h_rashi:.2f}) * Chart Mult ({mult:.2f})</i></span></li>")
 
-        self.log.append("<br><b>2. CHECKING 5TH HOUSE INFLUENCE:</b><br>")
-        h5_original_house_num = ((h5_sign_idx - original_asc_idx) % 12) + 1
-        h5_occ = analyzer.get_occupants(h5_original_house_num)
-        h5_asp = analyzer.get_aspecting_planets(h5_original_house_num)
+        target_h_idx = h4_sign_idx if is_d24 else h5_sign_idx
+        target_h_sign = h4_sign if is_d24 else h5_sign
+        target_h_name = "4th House" if is_d24 else "5th House"
+        target_l_name = "4th Lord" if is_d24 else "5th Lord"
         
-        if not h5_occ and not h5_asp:
-            self.log.append("<li>No planets occupying or aspecting 5th house.</li>")
-        else:
-            self._process_influences(analyzer, "5th House", h5_occ, h5_asp, w_occ_conj, w_aspect, mult, f"5H Occ Base ({w_occ_conj:.2f})", f"5H Asp Base ({w_aspect:.2f})", asc_override_idx, target_sign=h5_sign)
+        target_original_house_num = ((target_h_idx - original_asc_idx) % 12) + 1
 
-        self.log.append("<br><b>3. CHECKING 5TH LORD INFLUENCE:</b><br>")
-        l5_name = SIGN_LORDS.get(h5_sign)
-        if l5_name:
-            l5_p = analyzer.get_planet(l5_name)
-            if l5_p:
-                l5_original_house_num = l5_p["house"]
-                l5_sign = l5_p["sign_index"] + 1
+        self.log.append(f"<br><b>2. CHECKING {target_h_name.upper()} INFLUENCE:</b><br>")
+        t_occ = analyzer.get_occupants(target_original_house_num)
+        t_asp = analyzer.get_aspecting_planets(target_original_house_num)
+        
+        if not t_occ and not t_asp:
+            self.log.append(f"<li>No planets occupying or aspecting {target_h_name.lower()}.</li>")
+        else:
+            desc_occ = f"{'4H' if is_d24 else '5H'} Occ Base ({w_occ_conj:.2f})"
+            desc_asp = f"{'4H' if is_d24 else '5H'} Asp Base ({w_aspect:.2f})"
+            self._process_influences(analyzer, target_h_name, t_occ, t_asp, w_occ_conj, w_aspect, mult, desc_occ, desc_asp, asc_override_idx, target_sign=target_h_sign)
+
+        self.log.append(f"<br><b>3. CHECKING {target_l_name.upper()} INFLUENCE:</b><br>")
+        lord_name = SIGN_LORDS.get(target_h_sign)
+        if lord_name:
+            lord_p = analyzer.get_planet(lord_name)
+            if lord_p:
+                lord_orig_h = lord_p["house"]
+                lord_sign = lord_p["sign_index"] + 1
                 
-                l5_conj = analyzer.get_conjunct_planets(l5_name)
-                l5_asp = analyzer.get_aspecting_planets(l5_original_house_num)
-                if l5_name in l5_asp: l5_asp.remove(l5_name)
+                l_conj = analyzer.get_conjunct_planets(lord_name)
+                l_asp = analyzer.get_aspecting_planets(lord_orig_h)
+                if lord_name in l_asp: l_asp.remove(lord_name)
                 
-                if not l5_conj and not l5_asp:
-                    self.log.append(f"<li>No planets conjunct or aspecting 5th Lord ({l5_name}).</li>")
+                if not l_conj and not l_asp:
+                    self.log.append(f"<li>No planets conjunct or aspecting {target_l_name} ({lord_name}).</li>")
                 else:
-                    self._process_influences(analyzer, f"5th Lord ({l5_name})", l5_conj, l5_asp, w_occ_conj, w_aspect, mult, f"5L Conj Base ({w_occ_conj:.2f})", f"5L Asp Base ({w_aspect:.2f})", asc_override_idx, target_sign=l5_sign)
+                    desc_conj = f"{'4L' if is_d24 else '5L'} Conj Base ({w_occ_conj:.2f})"
+                    desc_lasp = f"{'4L' if is_d24 else '5L'} Asp Base ({w_aspect:.2f})"
+                    self._process_influences(analyzer, f"{target_l_name} ({lord_name})", l_conj, l_asp, w_occ_conj, w_aspect, mult, desc_conj, desc_lasp, asc_override_idx, target_sign=lord_sign)
                     
-                nak_lord = l5_p.get("nakshatra_lord")
+                nak_lord = lord_p.get("nakshatra_lord")
                 if nak_lord:
                     cat, n_wt, reason = self._classify_planet(nak_lord, analyzer, asc_override_idx)
                     final_n_wt = w_nak_5l * n_wt * mult
                     self.scores[cat] += final_n_wt
                     self.dominant_planet_scores[nak_lord] += final_n_wt
-                    self.log.append(f"<li>Nakshatra Lord of 5th Lord is <b>{nak_lord}</b> &rarr; <b style='color:#0284C7;'>{cat}</b> (+{final_n_wt:.2f}) <br>"
+                    self.log.append(f"<li>Nakshatra Lord of {target_l_name} is <b>{nak_lord}</b> &rarr; <b style='color:#0284C7;'>{cat}</b> (+{final_n_wt:.2f}) <br>"
                                     f"<span style='color:#64748B; font-size: 11px;'><i>Reason: {reason}. Math: Nak Base Wt ({w_nak_5l:.2f}) * Planet Wt ({n_wt:.2f}) * Chart Mult ({mult:.2f}) = {final_n_wt:.2f}</i></span></li>")
         else:
-            self.log.append("<li>Could not determine 5th lord.</li>")
+            self.log.append(f"<li>Could not determine {target_l_name.lower()}.</li>")
 
         self.log.append(f"<br><b>4. REPEATING PROCESS FROM MERCURY (Fractional Factor - w={w_merc_factor:.2f}):</b><br>")
         merc = analyzer.get_planet("Mercury")
         if merc:
+            w_merc_5h_rashi = globals().get("W_TECH_RASHI_5TH", 0.6)
+            w_merc_occ = globals().get("W_INFLUENCE_OCC_CONJ", 0.4)
+            w_merc_asp = globals().get("W_INFLUENCE_ASPECT", 0.4)
+            
             merc_sign_idx = merc["sign_index"]
             merc_h5_sign_idx = (merc_sign_idx + 4) % 12
             merc_h5_sign = merc_h5_sign_idx + 1
             
             if merc_h5_sign in TECH_RASHIS:
-                self.scores["Technical"] += w_5h_rashi * w_merc_factor * mult
-                self.log.append(f"<li>5th House from Mercury Sign ({merc_h5_sign}) is Technical &rarr; <b style='color:#0284C7;'>Technical</b> (+{w_5h_rashi * w_merc_factor * mult:.2f}) <br><span style='color:#64748B; font-size: 11px;'><i>Math: 5H Rashi Base ({w_5h_rashi:.2f}) * Merc Factor ({w_merc_factor:.2f}) * Chart Mult ({mult:.2f})</i></span></li>")
+                self.scores["Technical"] += w_merc_5h_rashi * w_merc_factor * mult
+                self.log.append(f"<li>5th House from Mercury Sign ({merc_h5_sign}) is Technical &rarr; <b style='color:#0284C7;'>Technical</b> (+{w_merc_5h_rashi * w_merc_factor * mult:.2f}) <br><span style='color:#64748B; font-size: 11px;'><i>Math: 5H Rashi Base ({w_merc_5h_rashi:.2f}) * Merc Factor ({w_merc_factor:.2f}) * Chart Mult ({mult:.2f})</i></span></li>")
             else:
-                self.scores["Non-Technical"] += w_5h_rashi * w_merc_factor * mult
-                self.log.append(f"<li>5th House from Mercury Sign ({merc_h5_sign}) is Non-Technical &rarr; <b style='color:#0284C7;'>Non-Technical</b> (+{w_5h_rashi * w_merc_factor * mult:.2f}) <br><span style='color:#64748B; font-size: 11px;'><i>Math: 5H Rashi Base ({w_5h_rashi:.2f}) * Merc Factor ({w_merc_factor:.2f}) * Chart Mult ({mult:.2f})</i></span></li>")
+                self.scores["Non-Technical"] += w_merc_5h_rashi * w_merc_factor * mult
+                self.log.append(f"<li>5th House from Mercury Sign ({merc_h5_sign}) is Non-Technical &rarr; <b style='color:#0284C7;'>Non-Technical</b> (+{w_merc_5h_rashi * w_merc_factor * mult:.2f}) <br><span style='color:#64748B; font-size: 11px;'><i>Math: 5H Rashi Base ({w_merc_5h_rashi:.2f}) * Merc Factor ({w_merc_factor:.2f}) * Chart Mult ({mult:.2f})</i></span></li>")
 
             merc_h5_original_house_num = ((merc_h5_sign_idx - original_asc_idx) % 12) + 1
             m_h5_occ = analyzer.get_occupants(merc_h5_original_house_num)
             m_h5_asp = analyzer.get_aspecting_planets(merc_h5_original_house_num)
-            self._process_influences(analyzer, "5th House from Mercury", m_h5_occ, m_h5_asp, w_occ_conj * w_merc_factor, w_aspect * w_merc_factor, mult, f"Merc 5H Occ Wt (Base {w_occ_conj:.2f} * Factor {w_merc_factor:.2f})", f"Merc 5H Asp Wt (Base {w_aspect:.2f} * Factor {w_merc_factor:.2f})", asc_override_idx, target_sign=merc_h5_sign)
+            self._process_influences(analyzer, "5th House from Mercury", m_h5_occ, m_h5_asp, w_merc_occ * w_merc_factor, w_merc_asp * w_merc_factor, mult, f"Merc 5H Occ Wt (Base {w_merc_occ:.2f} * Factor {w_merc_factor:.2f})", f"Merc 5H Asp Wt (Base {w_merc_asp:.2f} * Factor {w_merc_factor:.2f})", asc_override_idx, target_sign=merc_h5_sign)
             
             m_l5_name = SIGN_LORDS.get(merc_h5_sign)
             if m_l5_name:
@@ -759,7 +789,7 @@ class EducationCalculator:
                     m_l5_asp = analyzer.get_aspecting_planets(m_l5_original_house_num)
                     if m_l5_name in m_l5_asp: m_l5_asp.remove(m_l5_name)
                     
-                    self._process_influences(analyzer, f"5th Lord from Mercury ({m_l5_name})", m_l5_conj, m_l5_asp, w_occ_conj * w_merc_factor, w_aspect * w_merc_factor, mult, f"Merc 5L Conj Wt (Base {w_occ_conj:.2f} * Factor {w_merc_factor:.2f})", f"Merc 5L Asp Wt (Base {w_aspect:.2f} * Factor {w_merc_factor:.2f})", asc_override_idx, target_sign=m_l5_sign)
+                    self._process_influences(analyzer, f"5th Lord from Mercury ({m_l5_name})", m_l5_conj, m_l5_asp, w_merc_occ * w_merc_factor, w_merc_asp * w_merc_factor, mult, f"Merc 5L Conj Wt (Base {w_merc_occ:.2f} * Factor {w_merc_factor:.2f})", f"Merc 5L Asp Wt (Base {w_merc_asp:.2f} * Factor {w_merc_factor:.2f})", asc_override_idx, target_sign=m_l5_sign)
                     
                     m_nak_lord = m_l5_p.get("nakshatra_lord")
                     if m_nak_lord:
