@@ -995,7 +995,7 @@ class ChartRenderer(QWidget):
                         particle_color = QColor(255, 255, 255)
                         
                         # --- CACHE THE HEAVY VECTOR GRAPHICS ---
-                        cache_key = (k_house, w, h, glow_color.rgb(), getattr(self, "outline_mode", ""), dpr)
+                        cache_key = (k_house, self.width(), self.height(), x, y, w, h, glow_color.rgb(), getattr(self, "outline_mode", ""), dpr)
                         if getattr(self, '_k_cache_key', None) != cache_key:
                             self._k_cache_key = cache_key
                             
